@@ -12,12 +12,12 @@ Requirements for Phase 1 internal dogfood. Each maps to roadmap phases.
 - [ ] **INFRA-01**: Jetson Orin Nano Super flashed with JetPack 6.2 on NVMe SSD, booting headless
 - [ ] **INFRA-02**: Docker 27.5.1 installed with NVIDIA Container Runtime, GPU passthrough verified
 - [ ] **INFRA-03**: Power mode set to 25W (MAXN) at boot via systemd service
-- [ ] **INFRA-04**: Docker Compose stack running 5 services: Ollama, Qdrant, n8n, Postgres, Dashboard
-- [ ] **INFRA-05**: All services pass health checks within 3 minutes of cold boot
+- [x] **INFRA-04**: Docker Compose stack running 5 services: Ollama, Qdrant, n8n, Postgres, Dashboard
+- [x] **INFRA-05**: All services pass health checks within 3 minutes of cold boot
 - [ ] **INFRA-06**: Qwen3-4B (Q4_K_M) loaded in Ollama with GPU inference verified (num_gpu_layers > 0)
 - [ ] **INFRA-07**: nomic-embed-text v1.5 loaded in Ollama for embedding generation
-- [ ] **INFRA-08**: Qdrant running with jemalloc workaround for ARM64 (MALLOC_CONF=narenas:1)
-- [ ] **INFRA-09**: Postgres 17 with persistent volume, separate schemas for n8n (public) and mailbox data
+- [x] **INFRA-08**: Qdrant running with jemalloc workaround for ARM64 (MALLOC_CONF=narenas:1)
+- [x] **INFRA-09**: Postgres 17 with persistent volume, separate schemas for n8n (public) and mailbox data
 - [ ] **INFRA-10**: OTA update mechanism: dashboard button pulls new images from GHCR, runs docker compose up -d
 - [ ] **INFRA-11**: NVMe disk encryption (LUKS) for all customer data at rest
 - [ ] **INFRA-12**: System boot to fully operational in < 3 minutes
@@ -149,12 +149,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-01 | Phase 1 | Pending |
 | INFRA-02 | Phase 1 | Pending |
 | INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
-| INFRA-05 | Phase 1 | Pending |
+| INFRA-04 | Phase 1 | Complete |
+| INFRA-05 | Phase 1 | Complete |
 | INFRA-06 | Phase 1 | Pending |
 | INFRA-07 | Phase 1 | Pending |
-| INFRA-08 | Phase 1 | Pending |
-| INFRA-09 | Phase 1 | Pending |
+| INFRA-08 | Phase 1 | Complete |
+| INFRA-09 | Phase 1 | Complete |
 | INFRA-11 | Phase 1 | Pending |
 | INFRA-12 | Phase 1 | Pending |
 | MAIL-01 | Phase 2 | Pending |

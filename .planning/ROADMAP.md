@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Power mode set to MAXN (25W) at boot via systemd; NVMe encrypted with LUKS
 **Plans**: 3 plans
 Plans:
-- [ ] 01-01-PLAN.md — Docker Compose stack, env template, Postgres schema init, dashboard placeholder
+- [x] 01-01-PLAN.md — Docker Compose stack, env template, Postgres schema init, dashboard placeholder
 - [ ] 01-02-PLAN.md — First-boot checkpoint script (JetPack validation through compose start)
 - [ ] 01-03-PLAN.md — Smoke test script (all success criteria + boot time verification)
 
