@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 Plans:
 - [x] 01-01-PLAN.md — Docker Compose stack, env template, Postgres schema init, dashboard placeholder
-- [ ] 01-02-PLAN.md — First-boot checkpoint script (JetPack validation through compose start)
+- [x] 01-02-PLAN.md — First-boot checkpoint script (JetPack validation through compose start)
 - [x] 01-03-PLAN.md — Smoke test script (all success criteria + boot time verification)
 
 ### Phase 2: Email Pipeline Core
