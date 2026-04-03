@@ -54,7 +54,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ### Development Tools
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Docker 28.0.1+ | Container runtime | Pin to >=28.0.1 — Docker 28.0.0 broke GPU passthrough on Jetson (kernel module dependency). Use `docker.io` from Ubuntu repos, NOT `docker-ce` from Docker Inc. — the latter breaks NVIDIA runtime configuration paths on JetPack |
+| Docker (via JetsonHacks) | Container runtime | Install via JetsonHacks `install_nvidia_docker.sh` — installs whatever version is current and validated for the installed JetPack (currently 27.5.1). Do NOT use `docker-ce` from Docker Inc. — breaks NVIDIA runtime configuration paths on JetPack. Do NOT use `docker.io` directly — JetsonHacks handles NVIDIA runtime wiring automatically |
 | `nvidia-container-toolkit` | GPU passthrough to containers | Install via `apt-get install -y nvidia-container-toolkit` then `nvidia-ctk runtime configure --runtime=docker`. Required for Ollama GPU access |
 | `jetson-containers` (dusty-nv) | Validated container images | Use `autotag ollama` to get the correct JetPack-matched Ollama image. Eliminates CUDA/cuDNN version mismatch guesswork |
 | `docker-compose` plugin | Orchestration | Use the Docker Compose v2 plugin (`docker compose`) not standalone `docker-compose` v1 (deprecated) |
@@ -87,12 +87,12 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ## What NOT to Use
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `docker-ce` (Docker Inc. repo) | Breaks NVIDIA runtime configuration paths on JetPack — GPU passthrough stops working | `docker.io` from Ubuntu 22.04 repos via JetsonHacks script |
-| Docker 28.0.0 (exactly) | This specific release broke Docker on Jetson due to missing kernel module dependency | Pin to 28.0.1 or install via JetsonHacks which handles version management |
+| `docker-ce` (Docker Inc. repo) | Breaks NVIDIA runtime configuration paths on JetPack — GPU passthrough stops working | JetsonHacks `install_nvidia_docker.sh` which installs and configures the correct Docker version |
+| Manual Docker version pinning | JetsonHacks manages the validated Docker version for the installed JetPack; manual pinning risks mismatch. Current validated version is 27.5.1 | Run JetsonHacks `install_nvidia_docker.sh` and let it manage the version |
 | Mistral-7B or any 7B+ model locally | 7B Q4_K_M requires ~4.5GB VRAM; leaves < 3.5GB for embeddings, Qdrant, and OS — system becomes unstable under load | Qwen3-4B (Q4_K_M, ~2.7GB) |
 | nomic-embed-text-v2-moe | 475M active params doubles the embedding memory footprint; on 8GB unified RAM this competes directly with Qwen3-4B | nomic-embed-text:v1.5 (137M params, 274MB) |
 | n8n 1.x | EOL 3 months post 2.0.0 (Dec 2025); security/bug fixes only; 2.x is the actively developed branch | n8n 2.x (current: 2.14.2) |
-| `docker-compose` v1 (standalone binary) | Deprecated upstream; not included in Docker 28.x; `docker compose` (plugin) is the current standard | Docker Compose v2 plugin (`docker compose`) |
+| `docker-compose` v1 (standalone binary) | Deprecated upstream; not included in modern Docker; `docker compose` (plugin) is the current standard | Docker Compose v2 plugin (`docker compose`) |
 | Auto-updating containers (`:latest` tags in production) | Silent breakage risk on OTA updates; a broken Qdrant or n8n update at a customer site is a support incident | Pin all service images to specific versions; use GHCR for controlled OTA delivery |
 | ChromaDB | Python-only runtime adds 200-400MB overhead; inferior performance vs Qdrant on Rust hardware | Qdrant |
 | Langchain/LlamaIndex in n8n | These Python orchestrators duplicate what n8n already does natively; adds Python runtime dependency | n8n built-in AI Agent + Ollama Model nodes |
@@ -117,7 +117,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 | Package | Compatible With | Notes |
 |---------|-----------------|-------|
 | JetPack 6.2 (L4T r36.4) | Ollama 0.18.x+, CUDA 12.x | JetPack 6.2 introduced "Super Mode" which unlocks full 40 TOPS on Orin Nano Super — requires JetPack 6.2 specifically, not 6.0/6.1 |
-| Docker 28.0.1 | nvidia-container-toolkit 1.17.x | Docker 28.0.0 was broken on Jetson; 28.0.1 fixed it. Always verify with `docker run --rm --runtime nvidia nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi` |
+| Docker 27.5.1 (via JetsonHacks) | nvidia-container-toolkit 1.17.x | Installed by JetsonHacks `install_nvidia_docker.sh`; version is managed by JetsonHacks and may advance. Always verify GPU passthrough after install with `docker run --rm --runtime nvidia nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi` |
 | n8n 2.x | Postgres 13+ | n8n 2.0 dropped support for SQLite in multi-user mode; use Postgres 17 |
 | n8n 2.x | Node.js 20+ (inside container) | n8n's Docker image ships its own Node.js; no host Node.js needed |
 | Qdrant 1.17.x | `@qdrant/js-client-rest` ^1.11 | The JS client REST version should match the server major version; 1.17 server is API-compatible with 1.11 client |
@@ -139,7 +139,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 | **Total estimate** | **~5.7 GB** | **~2.3 GB headroom for bursts and OS cache** |
 ## Sources
 - [Jetson AI Lab — Ollama Tutorial](https://www.jetson-ai-lab.com/tutorials/ollama/) — GPU Docker setup for JetPack
-- [JetsonHacks — Docker Setup on JetPack 6](https://jetsonhacks.com/2025/02/24/docker-setup-on-jetpack-6-jetson-orin/) — Docker 28.0.1 Jetson gotcha
+- [JetsonHacks — Docker Setup on JetPack 6](https://jetsonhacks.com/2025/02/24/docker-setup-on-jetpack-6-jetson-orin/) — Docker 27.5.1 Jetson install
 - [Cytron — Docker Setup for Jetson Orin Nano Super JP6.2](https://www.cytron.io/tutorial/docker-setup-for-jetson-orin-nano-super-jp6.2) — install_nvidia_docker.sh walkthrough
 - [Ollama GitHub Releases](https://github.com/ollama/ollama/releases) — v0.18.4 latest stable confirmed 2026-03-26
 - [Qdrant GitHub Releases](https://github.com/qdrant/qdrant/releases) — v1.17.1 latest stable confirmed 2026-03-27

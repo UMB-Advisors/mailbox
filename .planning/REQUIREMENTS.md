@@ -17,7 +17,7 @@ Requirements for Phase 1 internal dogfood. Each maps to roadmap phases.
 - [ ] **INFRA-06**: Qwen3-4B (Q4_K_M) loaded in Ollama with GPU inference verified (num_gpu_layers > 0)
 - [ ] **INFRA-07**: nomic-embed-text v1.5 loaded in Ollama for embedding generation
 - [ ] **INFRA-08**: Qdrant running with jemalloc workaround for ARM64 (MALLOC_CONF=narenas:1)
-- [ ] **INFRA-09**: Postgres 16 with persistent volume, separate schemas for n8n (public) and mailbox data
+- [ ] **INFRA-09**: Postgres 17 with persistent volume, separate schemas for n8n (public) and mailbox data
 - [ ] **INFRA-10**: OTA update mechanism: dashboard button pulls new images from GHCR, runs docker compose up -d
 - [ ] **INFRA-11**: NVMe disk encryption (LUKS) for all customer data at rest
 - [ ] **INFRA-12**: System boot to fully operational in < 3 minutes
