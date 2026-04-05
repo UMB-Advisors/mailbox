@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/AI-Claude_+_Qwen3-7C3AED?style=flat-square&logo=anthropic&logoColor=white" alt="AI">
 </p>
 
-<p align="center"><strong>A plug-and-play hardware appliance that triages, drafts, and sends email responses for small CPG brand operators — so founders stop spending 1–3 hours a day on inbox ops.</strong></p>
+<p align="center"><strong>A plug-and-play hardware appliance that triages, drafts, and sends email responses for all those who Email — so founders stop spending hours a day on inbox ops.</strong></p>
 
 ---
 
