@@ -37,7 +37,7 @@
 
 ## About
 
-MailBox One is a dedicated AI email agent that runs on an NVIDIA Jetson Orin Nano Super. The customer plugs in the appliance, connects their email account, completes guided onboarding, and gets an always-on assistant that handles inbound operational email — triage, drafting, and (with human approval) sending — entirely on-device.
+MailBox Zero is a dedicated AI email agent that runs on an NVIDIA Jetson Orin Nano Super. The customer plugs in the appliance, connects their email account, completes guided onboarding, and gets an always-on assistant that handles inbound operational email — triage, drafting, and (with human approval) sending — entirely on-device.
 
 All email content and knowledge base data stays on the local appliance. Cloud API calls to Anthropic Claude are used only for complex drafts and escalation handling, with no bulk corpus ever leaving the device.
 
