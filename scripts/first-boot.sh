@@ -615,41 +615,28 @@ stage_prepull_models() {
   echo "Creating ollama_models named volume (if not exists)..."
   docker volume create ollama_models
 
-  echo ""
-  echo "Pre-pulling Qwen3-4B (Q4_K_M, ~2.7GB)..."
-  echo "This may take several minutes depending on network speed."
-  docker run --rm --runtime nvidia \
+  echo "Starting temporary Ollama server..."
+  docker run -d --rm --runtime nvidia \
+    --name ollama-stage6 \
     -v ollama_models:/root/.ollama \
-    "${ollama_image}" \
-    ollama pull qwen3:4b
+    "${ollama_image}" serve
+  sleep 5
 
-  echo ""
-  echo "Pre-pulling nomic-embed-text v1.5 (~274MB)..."
-  docker run --rm --runtime nvidia \
-    -v ollama_models:/root/.ollama \
-    "${ollama_image}" \
-    ollama pull nomic-embed-text:v1.5
-
-  echo ""
   echo "Verifying both models are present in the volume..."
   local model_list
-  model_list=$(docker run --rm \
-    -v ollama_models:/root/.ollama \
-    "${ollama_image}" \
-    ollama list 2>&1 || true)
+  model_list=$(docker exec ollama-stage6 ollama list 2>&1 || true)
   echo "${model_list}"
+  docker stop ollama-stage6 2>/dev/null || true
 
   if ! echo "${model_list}" | grep -q "qwen3:4b"; then
-    echo "ERROR: qwen3:4b not found in ollama list after pull."
+    echo "ERROR: qwen3:4b not found in ollama list."
     return 1
   fi
-
   if ! echo "${model_list}" | grep -q "nomic-embed-text"; then
-    echo "ERROR: nomic-embed-text not found in ollama list after pull."
+    echo "ERROR: nomic-embed-text not found in ollama list."
     return 1
   fi
 
-  echo ""
   echo "Both models verified in ollama_models volume."
   return 0
 }
