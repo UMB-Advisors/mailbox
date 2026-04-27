@@ -42,3 +42,98 @@ export interface InboxMessage {
 export interface DraftWithMessage extends Draft {
   message: InboxMessage;
 }
+
+// ── Phase 2 additions (plan 02-02 v2) ───────────────────────────────────
+
+export type ClassificationCategory =
+  | 'inquiry'
+  | 'reorder'
+  | 'scheduling'
+  | 'follow_up'
+  | 'internal'
+  | 'spam_marketing'
+  | 'escalate'
+  | 'unknown';
+
+export type DraftSource = 'local_qwen3' | 'cloud_haiku';
+
+export type DraftStatusV2 = DraftStatus | 'awaiting_cloud';
+
+export interface ClassificationLog {
+  id: number;
+  inbox_message_id: number;
+  category: ClassificationCategory;
+  confidence: string; // pg returns REAL as string for parity
+  model_version: string;
+  latency_ms: number | null;
+  raw_output: string | null;
+  json_parse_ok: boolean;
+  think_stripped: boolean;
+  created_at: string;
+}
+
+export interface SentHistory {
+  id: number;
+  draft_id: number;
+  inbox_message_id: number;
+  from_addr: string;
+  to_addr: string;
+  subject: string | null;
+  body_text: string | null;
+  thread_id: string | null;
+  draft_original: string | null;
+  draft_sent: string;
+  draft_source: DraftSource;
+  classification_category: ClassificationCategory;
+  classification_confidence: string;
+  rag_context_refs: unknown[];
+  sent_at: string;
+  created_at: string;
+}
+
+export interface RejectedHistory {
+  id: number;
+  draft_id: number;
+  inbox_message_id: number;
+  from_addr: string;
+  subject: string | null;
+  classification_category: ClassificationCategory;
+  classification_confidence: string;
+  draft_original: string | null;
+  rejected_at: string;
+  created_at: string;
+}
+
+export interface Persona {
+  id: number;
+  customer_key: string;
+  statistical_markers: Record<string, unknown>;
+  category_exemplars: Record<string, unknown>;
+  source_email_count: number;
+  last_refreshed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type OnboardingStage =
+  | 'pending_admin'
+  | 'pending_email'
+  | 'ingesting'
+  | 'pending_tuning'
+  | 'tuning_in_progress'
+  | 'live';
+
+export interface Onboarding {
+  id: number;
+  customer_key: string;
+  stage: OnboardingStage;
+  admin_username: string | null;
+  admin_password_hash: string | null;
+  email_address: string | null;
+  ingest_progress_total: number | null;
+  ingest_progress_done: number;
+  tuning_sample_count: number;
+  tuning_rated_count: number;
+  started_at: string;
+  lived_at: string | null;
+}
