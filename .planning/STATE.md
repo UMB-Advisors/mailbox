@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Phase 1 complete; Phase 2 awaiting re-scope
-stopped_at: Phase 2 plans require re-scope to Next.js architecture
+stopped_at: 02-02 re-scoped (v2). 02-03..08 still require re-scope
 last_updated: "2026-04-27T07:30:00.000Z"
 progress:
   total_phases: 4
@@ -69,10 +69,10 @@ Re-scope Phase 2 plans against the Next.js + n8n architecture before any executi
 3. Re-scope 02-02 (schema-foundation) to align with the live mailbox.inbox_messages and mailbox.drafts schemas already running
 4. Then 02-03 onward in order
 
-Resume file: .planning/phases/02-email-pipeline-core/02-08-onboarding-wizard-and-queue-api-PLAN.md (next priority per roadmap conversation 2026-04-27)
+Resume file: .planning/phases/02-email-pipeline-core/02-02-schema-foundation-PLAN-v2-2026-04-27.md (next priority per roadmap conversation 2026-04-27)
 
 ## Session Continuity
 
 Last session: 2026-04-27T07:30:00.000Z
-Stopped at: Three-way reconciliation complete. Jetson is canonical. Phase 2 ready to begin once 02-08 is re-scoped.
-Resume file: .planning/phases/02-email-pipeline-core/02-08-onboarding-wizard-and-queue-api-PLAN.md
+Stopped at: 02-02-v2 plan written and committed. Ready to execute migrations on Jetson, OR continue re-scoping 02-03..08 first.
+Resume file: .planning/phases/02-email-pipeline-core/02-02-schema-foundation-PLAN-v2-2026-04-27.md
