@@ -379,3 +379,144 @@ Rejected: skip category-grouping entirely for backfilled email
 (loses pairing data that mostly exists); classify all backfilled
 sent mail at ingest time (slow, doesn't degrade gracefully when
 threading metadata is missing).
+
+### D-41 — Drafting prompt source-of-truth
+
+**Plan:** 02-07 (draft generation)
+
+Same anti-drift pattern as D-29 (classification prompt). Drafting
+prompts are referenced by local Qwen3 path (n8n), cloud Haiku path
+(via D-42), and potentially the 02-08 tuning UI for re-rendering
+exemplar drafts.
+
+**Decision:** Canonical builders at `dashboard/lib/drafting/prompt.ts`:
+`buildSystemPrompt(persona)` and `buildUserPrompt(inbound, ragRefs,
+categoryExemplars)`. Exposed via `POST /dashboard/api/internal/draft-
+prompt` which takes a drafts row id and returns rendered system +
+user prompts ready for LLM invocation. Single source of truth, no
+drift between local and cloud, no drift between live workflow and
+tuning UI.
+
+POST not GET because building requires loading persona JSON, RAG
+context, and exemplars — inputs don't fit a query string and the
+operation has side effects (RAG search) that change cache semantics.
+
+Rejected: copy prompts into both workflow JSONs (drift inevitable);
+different prompts for local vs cloud (defeats v1's "draft_source
+is the only difference" guarantee).
+
+### D-42 — Anthropic API invocation path
+
+**Plan:** 02-07 (draft generation)
+
+Unlike Ollama (D-29) where the HTTP node won, Anthropic warrants
+different treatment: SDK provides retry semantics, error typing,
+streaming support, and prompt caching that re-implementing in n8n
+expression language is painful.
+
+**Decision:** Cloud drafting goes through Next.js. Endpoint
+`POST /dashboard/api/internal/draft-cloud` accepts `{ drafts_id,
+system, user }`, calls Anthropic SDK, returns `{ draft_text,
+input_tokens, output_tokens, cost_usd, model }`. n8n's job: fetch
+prompt (D-41), call this endpoint, persist response to drafts row.
+
+Cost computation lives inside the cloud endpoint via
+`dashboard/lib/drafting/cost.ts` (fulfills D-22). The n8n workflow
+doesn't need pricing constants.
+
+The extra network hop (n8n → Next.js → Anthropic) adds <10ms; the
+Anthropic call itself is 500ms-3s. Negligible cost for clear
+ergonomic and observability wins.
+
+Rejected: HTTP node directly to Anthropic (loses SDK ergonomics,
+duplicates retry logic in n8n).
+
+### D-43 — Approve flow → SMTP send trigger
+
+**Plan:** 02-07 (draft generation + SMTP send)
+
+The existing `app/api/drafts/[id]/approve/route.ts` (Phase 1) needs
+to trigger SMTP send when the operator clicks Approve.
+
+**Decision:** Approve API directly invokes
+`dashboard/lib/smtp/send.ts` synchronously. SMTP send is in the
+critical path of the Approve action. n8n is NOT involved in the
+post-approve send path.
+
+Send code reads thread headers from the drafts row (denormalized in
+02-02-v2 migration 003), builds the email with `In-Reply-To` /
+`References` per D-24, sends via `nodemailer`. On success: row moves
+to `mailbox.sent_history` (per D-19). On failure: status='failed',
+error_message populated for retry-via-UI.
+
+Clear separation of concerns by workflow phase:
+- n8n owns ingestion, classification, drafting, retry
+- Next.js owns approval, sending, reject-archival
+
+For Phase 2 single-tenant scale, Gmail SMTP latency (200-500ms
+typical) blocking the approve API is acceptable and produces clear
+inline error reporting. Move to async send when multi-tenant or
+high-volume justifies it.
+
+Note: v1's `n8n/workflows/11-send-smtp-sub.json` is REMOVED from
+the file list. The send path lives entirely in TypeScript.
+
+Rejected: async via n8n webhook (over-engineered for single-tenant;
+adds a second failure surface).
+
+### D-44 — Cloud retry worker
+
+**Plan:** 02-07 (draft generation)
+
+D-03 (graceful cloud degradation): when Anthropic is unreachable,
+row enters `status='awaiting_cloud'` with `draft_original=NULL`. A
+worker re-drives these rows.
+
+**Decision:** Keep v1 design. Workflow `10-cloud-retry-worker` runs
+every 5 minutes, queries for `awaiting_cloud` rows, retries the
+cloud-draft endpoint (D-42), bumps `retry_count`. After 10 failures,
+move row to `mailbox.rejected_history` with note "exceeded retry
+budget."
+
+Adds migration 011: ALTER TABLE mailbox.drafts ADD COLUMN
+retry_count INTEGER NOT NULL DEFAULT 0.
+
+Per D-26, the retry worker writes directly to Postgres for the
+counter increment but invokes the cloud-draft Next.js endpoint for
+the actual retry attempt (per D-42).
+
+Rejected: exponential backoff (more complex; 5-min cron is
+sufficient for transient cloud issues at single-tenant scale);
+unbounded retry (infinite-loop on permanently bad rows).
+
+### D-45 — Egress inventory boundary
+
+**Plan:** 02-07 (cloud drafting)
+
+The threat model in v1 specifies that only persona profile + top-3
+RAG refs + inbound email body leave the appliance per cloud draft.
+This needs to be a testable boundary, not just a documented
+intention — accidental broadening via code regression is the
+expected failure mode.
+
+**Decision:** Define an explicit allowlist in
+`dashboard/lib/drafting/cloud.ts`. Function
+`assembleCloudPrompt(draftsId)` returns a typed value whose interface
+explicitly lists every field that goes to Anthropic. Adding a field
+requires changing the interface; reviewers see the diff.
+
+Test in `dashboard/lib/drafting/cloud.test.ts`: assert that the
+JSON-stringified output of `assembleCloudPrompt()` against a fixture
+contains no fields from a denylist (e.g. `'sent_history'`,
+`'inbox_messages'` bulk arrays, `'persona.statistical_markers.
+vocabulary_top_terms'` beyond top-N). Run as part of typecheck/test
+pipeline.
+
+This guards against the regression mode ("oh let's just include the
+full persona for better results") that's invisible at code review
+time without explicit guardrails.
+
+Rejected: rely on inline doc strings and code review (regression
+risk over time); send minimal data and have Anthropic re-fetch
+(not architecturally possible — Anthropic doesn't have appliance
+access).
