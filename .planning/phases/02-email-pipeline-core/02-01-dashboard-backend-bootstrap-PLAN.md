@@ -1,4 +1,7 @@
 ---
+status: SUPERSEDED
+superseded_by: 02-02-schema-foundation-PLAN-v2-2026-04-27.md (architectural pivot — see ADR in .planning/STATE.md)
+supersession_date: 2026-04-27
 plan_number: 02-01
 slug: dashboard-backend-bootstrap
 wave: 1
@@ -20,6 +23,31 @@ files_modified:
   - docker-compose.yml
   - .env.example
 ---
+
+<rescope_note>
+**THIS PLAN IS SUPERSEDED. DO NOT EXECUTE.**
+
+Plan 02-01 was originally scoped to bootstrap a separate Express + drizzle-orm
+backend service alongside the dashboard UI. On 2026-04-27, after three-way
+reconciliation of the Jetson appliance, the Ubuntu workstation, and the GitHub
+repo, the project adopted Next.js 14 full-stack as the canonical dashboard
+architecture (see ADR in .planning/STATE.md, "Architectural Decision Record:
+Dashboard Stack Pivot").
+
+The Phase 1 dashboard sub-project (`dashboard/.planning/`, completed 2026-04-25)
+already shipped the API surface this plan was meant to scaffold — `app/api/drafts/*`
+routes serving the live approval queue at
+`https://mailbox.heronlabsinc.com/dashboard/queue`.
+
+Schema foundation, types, and shared query helpers landed in plan 02-02-v2
+(2026-04-27). See `02-02-schema-foundation-PLAN-v2-2026-04-27.md` and
+`02-02-schema-foundation-SUMMARY.md` for what actually shipped.
+
+This file is preserved as historical context for the rejected architectural
+direction. Future re-scopes of plans 02-03..08 should reference 02-02-v2
+patterns, not the Express patterns documented below.
+</rescope_note>
+
 
 <objective>
 Replace the dashboard container's nginx-only placeholder with an Express 4 + drizzle-orm + ws backend running on Node 22 LTS, exposing an `/api/health` route and a WebSocket endpoint. This unblocks every subsequent Phase 2 plan that writes to or reads from Postgres or streams state to the dashboard. The Phase 2 UI stays a placeholder — Express also serves the minimal static HTML until Phase 4 swaps in React.
