@@ -104,3 +104,83 @@ with at minimum:
 When a stub gets promoted to a full v2 plan, the cross-references in
 that plan should cite both `02-CONTEXT.md` (D-01..D-24) and this
 addendum (D-25+).
+
+### D-29 — Ollama invocation path from n8n
+
+**Plan:** 02-04 (classification + routing)
+
+n8n can invoke Ollama via two paths: built-in Ollama Model node
+(LangChain-style), or HTTP Request node calling
+`http://ollama:11434/api/generate` directly. The choice matters
+because the classification prompt is also imported by the
+`heron-labs-score.mjs` scoring script that proves MAIL-08 accuracy.
+If the prompt drifts between live workflow and scoring script,
+accuracy regressions become invisible.
+
+**Decision:** HTTP Request node. The canonical prompt lives at
+`dashboard/lib/classification/prompt.ts` and is exposed read-only at
+`GET /dashboard/api/internal/classification-prompt`. The n8n workflow
+fetches the prompt at run-time and passes it to the Ollama HTTP API.
+The scoring script imports the same TypeScript module directly. One
+canonical source, drift impossible.
+
+Rejected: built-in Ollama Model node (CLAUDE.md's preferred path),
+because for classification specifically the drift risk silently
+degrades accuracy. Other workflows (drafting in 02-07) may use the
+built-in node where prompts don't have offline scoring counterparts.
+
+### D-30 — Routing decision location
+
+**Plan:** 02-04 (classification + routing)
+
+The local-vs-cloud routing decision is a pure function of category +
+confidence threshold (D-01, D-02). Could live in n8n IF node or as a
+centralized TypeScript function exposed via API.
+
+**Decision:** Keep routing in the n8n workflow's IF node. Document
+the rule in this addendum so it's discoverable without opening
+workflow JSON: route to local Qwen3 if `category IN
+('reorder','scheduling','follow_up','internal') AND confidence >=
+ROUTING_LOCAL_CONFIDENCE_FLOOR (default 0.75)`; route to cloud
+Claude Haiku otherwise. Spam/marketing handled per D-21/D-31; never
+routes to drafting.
+
+Rejected: centralizing routing in
+`dashboard/lib/classification/route.ts` exposed as an API route —
+adds a network hop on every email for negligible benefit at single-
+tenant Phase 2 scope.
+
+### D-31 — Spam/marketing storage
+
+**Plan:** 02-04 (classification + routing)
+
+D-21 (v1) says spam/marketing emails skip the queue. v2's queue is
+`mailbox.drafts` (not `draft_queue`). Same rule applies — spam
+emails get a `classification_log` row but no `drafts` row.
+
+**Decision:** Spam emails ARE retained in `mailbox.inbox_messages`
+(the storage of raw inbound, immutable). The `drafts` row is what's
+skipped. Dashboard `/api/drafts` JOIN already returns only inbox
+rows that have a corresponding draft, so spam never appears in the
+queue UI. Audit trail preserved in `inbox_messages` +
+`classification_log`; storage cost trivial on NVMe.
+
+Rejected: deleting spam from `inbox_messages` — irreversibly loses
+ingestion history and the corpus for future ML retraining.
+
+### D-32 — `auto_send_blocked` separation of concerns
+
+**Plan:** 02-04 (classification + routing); affects Phase 3.
+
+D-04 (v1) says `escalate` category sets `auto_send_blocked=true` and
+"no future auto-send rule (Phase 3) can fire" on it. Clarifying the
+v2 boundary:
+
+**Decision:** 02-04 is responsible for SETTING `auto_send_blocked=true`
+on INSERT to `mailbox.drafts` when category is `escalate`. ENFORCEMENT
+of the flag (preventing auto-send) is Phase 3's responsibility, since
+auto-send rules don't exist in Phase 2. 02-04's smoke test verifies
+the flag is set correctly; it does NOT verify enforcement.
+
+Not really a decision needing resolution — flagging the boundary so
+Phase 3 implementers don't assume enforcement exists.
