@@ -1,7 +1,8 @@
 # Phase 1: Infrastructure Foundation - Context
 
 **Gathered:** 2026-04-02
-**Status:** Ready for planning
+**Updated:** 2026-04-07
+**Status:** Ready for execution (hardware ready)
 
 <domain>
 ## Phase Boundary
@@ -34,6 +35,9 @@ Verified Docker Compose stack with GPU inference on Jetson Orin Nano Super. All 
 - **D-12:** Full smoke test script that programmatically verifies all 5 success criteria: GPU passthrough (`nvidia-smi`), Qwen3-4B inference (< 5s), nomic-embed-text embeddings, Qdrant health (no jemalloc errors), Postgres persistence across restart, boot time < 3 min. Reusable across the 5-unit production run.
 - **D-13:** All infrastructure files at repo root: `docker-compose.yml`, `.env.example`, `scripts/` directory. Flat structure.
 
+### Dashboard Architecture
+- **D-14:** Phase 1 dashboard service remains a placeholder container. The unified plugin-shell architecture (Board Workstation deployment context from optimus-bu repo) is a Phase 4 concern. Phase 1 just needs a healthy container in the compose stack.
+
 ### Claude's Discretion
 - Error handling specifics per checkpoint stage (which steps merit retry vs immediate halt)
 - Healthcheck intervals and timeout values per service
@@ -63,20 +67,32 @@ Verified Docker Compose stack with GPU inference on Jetson Orin Nano Super. All 
 ### Requirements
 - `.planning/REQUIREMENTS.md` §Infrastructure — INFRA-01 through INFRA-12 (excluding INFRA-10 which is Phase 3). Specific acceptance criteria for each infrastructure requirement.
 
+### Dashboard Architecture (Phase 4 input)
+- `dashboard/prd-board-workstation-plugin-rebuild-v1.0.0-2026-04-05.md` — Board Workstation plugin-host workspace architecture PRD. Defines the unified codebase that the thUMBox appliance dashboard will deploy from in Phase 4.
+- `dashboard/addendum-optimus-brain-plugin-dashboard-v0.2-2026-04-06.md` — Addendum clarifying that the thUMBox dashboard is a deployment context of the Board Workstation (Next.js plugin shell), not a separate React+Vite codebase. Key input for Phase 4 dashboard decisions.
+
 </canonical_refs>
 
 <code_context>
 ## Existing Code Insights
 
 ### Reusable Assets
-- None — greenfield repository. No existing source code, only planning docs and PRD.
+- `docker-compose.yml` — Complete 5-service stack (Ollama, Qdrant, n8n, Postgres, Dashboard). Implemented in Plan 01-01.
+- `scripts/first-boot.sh` — Checkpoint-based first-boot script. Implemented in Plan 01-02.
+- `scripts/smoke-test.sh` — Full success criteria verification. Implemented in Plan 01-03.
+- `scripts/init-db/` — Postgres schema initialization scripts.
+- `dashboard/Dockerfile` — Dashboard placeholder container.
+- `dashboard/index.html` — Placeholder dashboard page.
 
 ### Established Patterns
-- None yet. Phase 1 establishes the foundational patterns (compose structure, script conventions, directory layout).
+- Checkpoint-based scripts with discrete stages and manual verification
+- `.env` at repo root for all secrets, sourced by compose and scripts
+- `mailbox_smoke` Postgres schema for test isolation (avoids polluting application data)
+- `--boot-test` flag convention for destructive test operations (e.g., stack teardown for boot time measurement)
 
 ### Integration Points
 - Docker Compose stack is the integration foundation for all subsequent phases
-- Postgres schema separation (public for n8n, separate schema for mailbox data) must be established now for Phase 2
+- Postgres schema separation (public for n8n, separate schema for mailbox data) established
 - Ollama model availability is prerequisite for Phase 2 email classification
 
 </code_context>
@@ -91,7 +107,7 @@ No specific requirements — open to standard approaches. User consistently sele
 <deferred>
 ## Deferred Ideas
 
-None — discussion stayed within phase scope.
+- **Unified dashboard architecture** — thUMBox appliance dashboard as a deployment context of the Board Workstation (Next.js plugin shell). Deferred to Phase 4. PRD and addendum docs added to canonical refs for Phase 4 planning.
 
 </deferred>
 
@@ -99,3 +115,4 @@ None — discussion stayed within phase scope.
 
 *Phase: 01-infrastructure-foundation*
 *Context gathered: 2026-04-02*
+*Context updated: 2026-04-07*
