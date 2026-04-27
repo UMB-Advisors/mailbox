@@ -191,3 +191,39 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+<!-- GSD:deployment-start -->
+## Deployment Target
+
+The appliance is reachable from this workstation via SSH alias `jetson`
+(host `192.168.1.45`, user `bob`). The Jetson runs the deployed code from
+`/home/bob/mailbox/` — same git remote as this local clone.
+
+### Reading appliance state
+
+- Container status: `ssh jetson 'cd ~/mailbox && docker compose ps'`
+- Service logs: `ssh jetson 'docker logs <service> --tail 50'`
+- Live config: `ssh jetson 'cat /home/bob/mailbox/<path>'`
+- Health probes: `ssh jetson 'docker compose -f ~/mailbox/docker-compose.yml exec <svc> <cmd>'`
+
+### Deploy flow
+
+This local clone is the source of truth. Edit here, commit, push, then on the Jetson: pull and reload.
+
+    # On this workstation
+    git add . && git commit -m "..." && git push origin master
+
+    # Apply on the Jetson (one-liner from this workstation)
+    ssh jetson 'cd ~/mailbox && git pull && docker compose up -d --build'
+
+For Caddy-only or config-only changes (no rebuild), use:
+
+    ssh jetson 'cd ~/mailbox && git pull && docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile'
+
+### Public surface
+
+- Dashboard: `https://mailbox.heronlabsinc.com/dashboard/queue`
+- n8n editor: behind LAN-only access at `http://192.168.1.45:5678`
+- Ollama API: `http://192.168.1.45:11434` (LAN only)
+- Qdrant: `http://192.168.1.45:6333` (LAN only)
+<!-- GSD:deployment-end -->
