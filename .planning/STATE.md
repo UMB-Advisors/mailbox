@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-04-03T20:02:57.505Z"
+status: Phase 1 complete; Phase 2 awaiting re-scope
+stopped_at: Phase 2 plans require re-scope to Next.js architecture
+last_updated: "2026-04-27T07:30:00.000Z"
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 2
+  completed_phases: 1
+  total_plans: 11
+  completed_plans: 3
+  percent: 27
 ---
 
 # Project State
@@ -17,68 +18,61 @@ progress:
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-04-02)
+See: CLAUDE.md (canonical project governance, last updated on Jetson 2026-04-26)
+See: prd-email-agent-appliance.md (canonical PRD)
 
 **Core value:** Inbound operational email for small CPG brands gets triaged, drafted, and (with human approval) sent — without the founder spending 1-3 hours/day on email.
-**Current focus:** Phase 01 — infrastructure-foundation
+
+**Current focus:** Phase 02 — email-pipeline-core (re-scoping required before execution)
 
 ## Current Position
 
-Phase: 01 (infrastructure-foundation) — EXECUTING
-Plan: 3 of 3
+Phase: 02 (email-pipeline-core) — BLOCKED ON RE-SCOPE
+Plan: 0 of 8 (all plans require revision)
 
-## Performance Metrics
+## Completed Work
 
-**Velocity:**
+### Phase 1: Infrastructure Foundation ✓
+- 01-01: Docker Compose stack (Postgres, Ollama, Qdrant, n8n, Caddy, dashboard)
+- 01-02: First-boot checkpoint script for Jetson bring-up
+- 01-03: Smoke test script (6/6 passing as of 2026-04-26)
+- Smoke test verified deploy at `https://mailbox.heronlabsinc.com/`
 
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: 0 hours
+### Phase 1 Dashboard Sub-Project ✓ (parallel build, 2026-04-25)
+A self-contained 8-phase build delivered the human-in-the-loop approval queue. See `dashboard/.planning/` for the complete spec, build log, and T2 validation addendum. Result: working Next.js 14 full-stack dashboard at `https://mailbox.heronlabsinc.com/dashboard/queue` with API routes for list/get/approve/reject/edit/retry.
 
-**By Phase:**
+## Architectural Decision Record: Dashboard Stack Pivot
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
+**Date:** 2026-04-27
+**Decision:** Adopt Next.js 14 full-stack as the dashboard architecture. Reject the Express backend + separate React/Vite UI design originally scoped in 02-01.
 
-**Recent Trend:**
+**Context:** Two parallel implementations existed at 2026-04-27 reconciliation:
+- Ubuntu workstation (`.planning/`) had drafted 02-01 as an Express backend with Drizzle ORM, Anthropic SDK, and Qdrant client (Node 22 ESM). Never deployed.
+- Jetson appliance had a working Next.js 14 dashboard with `app/api/` routes, pg driver, Node 20 alpine multi-stage build. Live and serving traffic.
 
-- Last 5 plans: —
-- Trend: —
+**Decision rationale:**
+- The Next.js dashboard is already deployed, healthy, and passing smoke tests
+- Single-service architecture reduces appliance footprint (one container instead of two)
+- API routes inside the same Next.js app eliminate the dashboard ↔ backend network hop
+- Phase 2 dependencies (Anthropic SDK, Qdrant client, Drizzle ORM) work fine inside Next.js API routes
 
-*Updated after each plan completion*
-| Phase 01-infrastructure-foundation P01 | 4 | 2 tasks | 6 files |
-| Phase 01 P03 | 5 | 1 tasks | 1 files |
+**Consequence for Phase 2:**
+- 02-01 (dashboard-backend-bootstrap): SUPERSEDED. Next.js dashboard already provides the API surface.
+- 02-08 (onboarding-wizard-and-queue-api): PARTIALLY DONE. Queue API already shipped; only onboarding wizard remains.
+- 02-02 through 02-07: Content valid (schema, IMAP, classification, RAG, persona, draft generation) but plan files reference Express patterns that need rewriting for Next.js / n8n workflows.
 
-## Accumulated Context
+## Next Action
 
-### Decisions
+Re-scope Phase 2 plans against the Next.js + n8n architecture before any execution. Suggested order:
+1. Mark 02-01 as SUPERSEDED in its frontmatter; do not execute
+2. Re-scope 02-08 to onboarding-wizard-only (queue API already exists)
+3. Re-scope 02-02 (schema-foundation) to align with the live mailbox.inbox_messages and mailbox.drafts schemas already running
+4. Then 02-03 onward in order
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- Hardware arrives 2026-04-03; Phase 1 begins on arrival
-- JetsonHacks Docker install script required (never apt-get docker-ce from Docker Inc repos)
-- Ollama must NOT have mem_limit in docker-compose (breaks GPU detection on Jetson unified memory)
-- Gmail OAuth: use Testing mode for dogfood (bypasses review); App Password as fallback
-- n8n IMAP trigger has known trigger-death bug; watchdog workflow is required, not optional
-- [Phase 01-infrastructure-foundation]: Ollama has no mem_limit in docker-compose — breaks GPU detection on Jetson unified memory (D-08)
-- [Phase 01-infrastructure-foundation]: Qdrant configured with MALLOC_CONF=narenas:1 for ARM64 jemalloc workaround (issue #4298)
-- [Phase 01-infrastructure-foundation]: postgres:17-alpine used (not postgres:16 in REQUIREMENTS.md) — CLAUDE.md tech stack is authoritative
-- [Phase 01]: Boot time check (Check 6) requires --boot-test flag to prevent accidental stack teardown
-- [Phase 01]: Smoke test sources .env from repo root for Postgres credentials
-- [Phase 01]: Postgres persistence check uses mailbox_smoke schema to avoid polluting application data
-
-### Pending Todos
-
-None yet.
-
-### Blockers/Concerns
-
-- JetPack 6.2.2 (r36.5) availability needs confirmation before first-boot script is written — r36.5 has the memory fragmentation fix required for reliable Ollama GPU allocation
-- n8n IMAP trigger death bug status on v2.14.2 needs verification before watchdog design is finalized
+Resume file: .planning/phases/02-email-pipeline-core/02-08-onboarding-wizard-and-queue-api-PLAN.md (next priority per roadmap conversation 2026-04-27)
 
 ## Session Continuity
 
-Last session: 2026-04-03T20:02:57.501Z
-Stopped at: Completed 01-03-PLAN.md
-Resume file: None
+Last session: 2026-04-27T07:30:00.000Z
+Stopped at: Three-way reconciliation complete. Jetson is canonical. Phase 2 ready to begin once 02-08 is re-scoped.
+Resume file: .planning/phases/02-email-pipeline-core/02-08-onboarding-wizard-and-queue-api-PLAN.md
