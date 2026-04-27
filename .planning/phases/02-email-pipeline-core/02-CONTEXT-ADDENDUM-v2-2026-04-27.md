@@ -520,3 +520,115 @@ Rejected: rely on inline doc strings and code review (regression
 risk over time); send minimal data and have Anthropic re-fetch
 (not architecturally possible — Anthropic doesn't have appliance
 access).
+
+### D-46 — Real-time updates: SSE over WebSocket
+
+**Plan:** 02-08 (onboarding wizard)
+
+v1 specifies WebSocket broadcasts for queue + onboarding state
+changes. Next.js 14 App Router has no first-class WebSocket
+support — would require a custom server (giving up Next.js'
+deploy ergonomics) or a separate WS container.
+
+**Decision:** Server-Sent Events (SSE). Endpoint
+`GET /dashboard/api/onboarding/events` streams events on stage
+transitions, ingest progress updates, and tuning-rating advances.
+Native to Next.js via `Response` with `text/event-stream`. Browser-
+native EventSource API on the client; no client library needed.
+One-way broadcast fits the use case (server → client only).
+
+Polling stays as the fallback for the queue list (already shipped
+that way, works fine, no need to retrofit).
+
+Rejected: WebSocket (complexity at single-tenant scale); polling-
+only (loses ingest progress smoothness during onboarding).
+
+### D-47 — IMAP credentials entry UX (white-glove)
+
+**Plan:** 02-08 (onboarding wizard); resolves the deferred D-27.
+
+Phase 2 onboarding is white-glove — every customer launch has the
+operator (Dustin) on a call walking through setup. Building
+self-serve credential-entry UX is work that solves a problem we
+don't yet have.
+
+**Decision:** Dashboard's `POST /api/onboarding/email` accepts
+`{ email_address }` only — the address, not credentials. Operator
+configures n8n credentials directly in n8n's web UI during the
+white-glove call. After credentials are configured, the operator
+clicks a dashboard button calling `POST /api/onboarding/email/
+confirm` which advances onboarding stage to `ingesting`.
+
+The wizard does provide `POST /api/onboarding/email/test` — pings
+the IMAP server with the entered address to validate format +
+basic connectivity. Customer sees "your email is reachable" before
+the operator goes off-screen to configure n8n.
+
+Re-visit when onboarding becomes self-serve (Phase 3+ via the path
+(a) automation we rejected here).
+
+Rejected: full automation via n8n REST credential API (over-engineered
+for white-glove); split flow with OAuth automated + manual via n8n
+UI (more code paths, no real benefit since operator is already on
+the call).
+
+### D-48 — Tuning sample generation: async with TUNING bypass
+
+**Plan:** 02-08 (onboarding wizard)
+
+Per D-32, drafting is blocked by the live-gate during onboarding.
+But the 20 tuning samples (D-15) need real persona-grounded drafts
+generated against real inbound emails — exactly the operation the
+gate blocks.
+
+**Decision:** Generation is async via n8n workflow `12-tuning-
+sample-generate`. Operator clicks "Generate samples" → workflow
+draws 20 representative inbound emails from `inbox_messages WHERE
+direction='inbound'` (per D-38) → runs each through 02-07's
+drafting endpoints with `{ tuning: true }` flag set → result writes
+to `mailbox.tuning_samples` instead of `mailbox.drafts`. SSE event
+fires for each sample as it completes (per D-46) so the operator
+can begin rating before all 20 are ready.
+
+The TUNING bypass: drafting endpoints accept an optional
+`{ tuning: true }`. When set, drafting proceeds even when stage is
+not `live`, AND the result writes to `tuning_samples`. The
+classification path runs unconditionally regardless of TUNING flag
+(per D-32). Only drafting is gated.
+
+Rejected: synchronous generation (blocks UI 60+ seconds); generating
+samples ahead of live-gate (timing — needs the actual extracted
+persona, which only exists after 02-06 completes).
+
+### D-49 — Live-gate enforcement boundary
+
+**Plan:** 02-08 (defines); affects 02-04 (consumes), 02-07 (consumes).
+
+The live-gate concept appears across plans (D-32, D-43, D-48). Where
+exactly does the check happen?
+
+**Decision:** Centralize in `dashboard/lib/onboarding/live-gate.ts`.
+Exports:
+- `isLive(): Promise<boolean>` — pure boolean check
+- `enforceLiveGate(allowTuning: boolean): Promise<void>` — throws
+  if not live and `allowTuning` is false
+
+The n8n workflow side queries `mailbox.onboarding.stage` directly
+via Postgres (per D-26). Both paths consult the same source of
+truth.
+
+The rule, documented here so n8n implementers don't re-derive it:
+> Drafting (and only drafting) is allowed iff
+> `onboarding.stage = 'live'` OR the request carries
+> `tuning: true`. Classification, classification_log writes, and
+> inbox_messages inserts run unconditionally regardless.
+
+Also exposed via `GET /dashboard/api/onboarding/live-gate` returning
+`{ live: boolean }` for n8n workflows that prefer the API
+boundary over direct Postgres reads (slightly higher latency, but
+some workflow steps benefit from the cache-friendly single-call
+pattern).
+
+Rejected: per-plan independent gate checks (drift over time);
+Next.js middleware on `/api/internal/draft-*` URLs (URL-coupled,
+doesn't help the n8n side).
