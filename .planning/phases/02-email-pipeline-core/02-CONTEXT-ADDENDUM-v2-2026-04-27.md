@@ -292,3 +292,90 @@ returned with a flag. Empty `results` is a valid response and means
 Rejected: have 02-07 import `lib/rag/client.ts` directly. Tighter
 coupling; harder to swap retrieval backends later (e.g. if we move
 from Qdrant to pgvector). The API boundary is testable in isolation.
+
+### D-38 — Sent-history storage table
+
+**Plan:** 02-06 (persona); 02-05 (RAG ingest writes here); affects
+schema across Phase 2.
+
+The forced-to-ground question from 02-05's stub: where do IMAP
+`Sent Mail` rows land during onboarding ingestion? The existing
+`mailbox.sent_history` table (from 02-02-v2 migration 004) is
+shaped for *post-approval Claude drafts* (carries `draft_original`,
+`draft_sent`, `draft_source` columns) — wrong shape for backfilled
+operator-written email.
+
+**Decision:** ALTER `mailbox.inbox_messages` to add a `direction`
+column (`'inbound' | 'sent'`, default `'inbound'`) via forward
+migration 010. Both inbound AND sent operator-written email live
+in this table. The table-name awkwardness ("inbox" containing sent
+messages) is real but cheap to fix later via a rename migration.
+
+`mailbox.sent_history` keeps its v1 semantics: post-approval
+Claude-drafted sends. Persona reads from `inbox_messages WHERE
+direction='sent'`. RAG reads from both via payload `source`.
+
+The 6 existing inbox_messages rows are preserved with the DEFAULT
+direction='inbound'.
+
+Rejected: separate `mailbox.sent_emails` table (over-decomposed —
+three sent-related tables); reusing `mailbox.sent_history` for
+backfilled mail (semantic drift; columns don't fit operator-written
+historical email).
+
+### D-39 — Persona extraction compute location
+
+**Plan:** 02-06 (persona)
+
+Statistical markers + per-category exemplar selection across 6
+months of sent mail can take 30+ seconds. Three options for where
+the work runs:
+
+- API route blocks: hits Next.js default 60s timeout risk
+- Background job table: premature complexity at single-tenant scale
+- n8n orchestrates, calls TypeScript helpers via API for math
+
+**Decision:** n8n orchestrates. Workflow `09-persona-extract-trigger`
+fetches sent emails, pairs with inbounds, batch-classifies unpaired
+(per D-40), then POSTs the corpus to a new internal Next.js endpoint
+`POST /dashboard/api/internal/persona-build` which runs the pure-TS
+math and returns the built persona JSON. n8n persists the result
+via `POST /dashboard/api/persona/extract` which calls
+`upsertPersona()` from `lib/queries-persona.ts`.
+
+n8n owns orchestration and long-running flow control; Next.js owns
+the math (testable, typechecked) and the persistence boundary. No
+duplicated logic.
+
+Rejected: API-route-blocks (timeout risk); background-job table
+(premature complexity for a once-at-onboarding + monthly-refresh
+operation).
+
+### D-40 — Categorizing historical sent emails
+
+**Plan:** 02-06 (persona); affects 02-05 (sent-history ingest).
+
+Per-category persona exemplars (D-09: 3-5 per category) require
+sent emails grouped by category. For *new* drafts post-onboarding,
+the inbound's classification flows through to sent_history via
+the approve-flow. For *backfilled* historical sent emails (6
+months of operator email pre-appliance), there's no inbound
+classification.
+
+**Decision:** Pair historical sent with inbound via `thread_id` /
+`in_reply_to` where possible (the inbound is in the same 6-month
+ingest sweep). When pairing succeeds, classify the inbound and
+inherit the category. When pairing fails (no matching inbound,
+missing thread headers), the sent email contributes to *statistical
+markers only*, not category exemplars. Tuning samples in 02-08 fill
+per-category gaps during white-glove handoff.
+
+Implementation note: pairing happens during the 02-06 extract
+workflow, not during 02-05 ingest — RAG indexing is category-
+agnostic at retrieval time, so no need to spend ingest cycles on
+classification.
+
+Rejected: skip category-grouping entirely for backfilled email
+(loses pairing data that mostly exists); classify all backfilled
+sent mail at ingest time (slow, doesn't degrade gracefully when
+threading metadata is missing).
