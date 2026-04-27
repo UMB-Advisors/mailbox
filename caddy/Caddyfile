@@ -1,0 +1,15 @@
+mailbox.heronlabsinc.com {
+  tls {
+    dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+  }
+
+  redir /dashboard /dashboard/queue 308
+
+  handle /dashboard/* {
+    reverse_proxy mailbox-dashboard:3001
+  }
+
+  handle {
+    reverse_proxy n8n:5678
+  }
+}
