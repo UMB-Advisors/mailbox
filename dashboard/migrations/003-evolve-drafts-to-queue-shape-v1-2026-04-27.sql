@@ -50,7 +50,13 @@ UPDATE mailbox.drafts d
        message_id  = COALESCE(d.message_id,  m.message_id),
        thread_id   = COALESCE(d.thread_id,   m.thread_id),
        classification_category   = COALESCE(d.classification_category,
-                                            m.classification),
+         CASE
+           WHEN m.classification IN (
+             'inquiry','reorder','scheduling','follow_up',
+             'internal','spam_marketing','escalate','unknown'
+           ) THEN m.classification
+           ELSE 'unknown'
+         END),
        classification_confidence = COALESCE(d.classification_confidence,
                                             m.confidence::real)
   FROM mailbox.inbox_messages m
