@@ -29,7 +29,13 @@ INSERT INTO mailbox.classification_log
    json_parse_ok, think_stripped, created_at)
 SELECT
   m.id,
-  COALESCE(m.classification, 'unknown')               AS category,
+  CASE
+    WHEN m.classification IN (
+      'inquiry','reorder','scheduling','follow_up',
+      'internal','spam_marketing','escalate','unknown'
+    ) THEN m.classification
+    ELSE 'unknown'
+  END                                                 AS category,
   COALESCE(m.confidence, 0)::real                     AS confidence,
   COALESCE(m.model, 'backfill-unknown')               AS model_version,
   TRUE                                                AS json_parse_ok,
