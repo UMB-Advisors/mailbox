@@ -47,3 +47,4 @@ Thumbs.db
 # Large binaries that shouldn't be in git
 *.zst
 ollama-linux-*
+.planning/.next-call-count
