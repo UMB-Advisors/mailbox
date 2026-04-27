@@ -1,1 +1,49 @@
+# Environment files — never commit
 .env
+.env.local
+.env.*.local
+.env.backup*
+.env.swp
+.env.swo
+*.env.bak
+
+# Secrets
+secrets-*.md
+secrets/
+*-secrets.*
+*.key
+*.pem
+credentials.*
+
+# Backups and snapshots
+*.bak
+*.bak.*
+*.backup
+*.backup-*
+*.tar.gz
+*.tar.zst
+backups/
+
+# Node / Next.js build artifacts
+node_modules/
+.next/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Claude Code / agent worktrees
+.claude/worktrees/
+
+# Large binaries that shouldn't be in git
+*.zst
+ollama-linux-*
