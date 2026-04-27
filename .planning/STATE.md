@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Phase 1 complete; Phase 2 awaiting re-scope
-stopped_at: 02-02 re-scoped (v2). 02-03..08 still require re-scope
+stopped_at: 02-02-v2 tasks 1-7 complete (migrations applied to live Postgres). Tasks 8-9 remaining (lib/types and queries files)
 last_updated: "2026-04-27T07:30:00.000Z"
 progress:
   total_phases: 4
