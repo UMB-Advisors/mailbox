@@ -196,8 +196,15 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 ## Deployment Target
 
 The appliance is reachable from this workstation via SSH alias `jetson`
-(host `192.168.1.45`, user `bob`). The Jetson runs the deployed code from
-`/home/bob/mailbox/` — same git remote as this local clone.
+(direct ethernet at `10.42.0.2`, user `bob`). A fallback alias `jetson-wifi`
+points at the LAN IP `192.168.1.45` for use when the direct cable isn't
+available. The Jetson runs the deployed code from `/home/bob/mailbox/` —
+same git remote as this local clone.
+
+The direct ethernet link uses an isolated `10.42.0.0/24` subnet (workstation
+`10.42.0.1`, Jetson `10.42.0.2`) and provides ~0.5ms RTT vs Wi-Fi's typical
+5-30ms. Configured statically via NetworkManager profiles ("jetson-direct"
+on the workstation, "Wired connection 1" on the Jetson).
 
 ### Reading appliance state
 
