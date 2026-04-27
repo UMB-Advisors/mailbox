@@ -184,3 +184,111 @@ the flag is set correctly; it does NOT verify enforcement.
 
 Not really a decision needing resolution — flagging the boundary so
 Phase 3 implementers don't assume enforcement exists.
+
+### D-33 — Qdrant collection topology
+
+**Plan:** 02-05 (RAG ingest + retrieval)
+
+Single tenant in Phase 2; multi-tenant on the roadmap. Choosing
+between one collection with payload filters vs per-source or
+per-customer collections.
+
+**Decision:** Single Qdrant collection `mailbox_rag` for sent emails,
+inbound emails, and uploaded documents. Payload-indexed fields
+`source` ('sent_email' | 'inbound_email' | 'document'), `source_id`,
+and `category` (denormalized from classification when source is
+'inbound_email'). Filters at query time keep retrieval scoped.
+
+Multi-tenancy added in Phase 3+ via a `customer_key` payload field
+(no schema migration needed at the Qdrant level — Qdrant payloads
+are schemaless). Phase 2 implicitly single-customer.
+
+Rejected: per-source collections (over-engineered for one tenant);
+per-customer collections (premature multi-tenancy).
+
+### D-34 — Chunking strategy per source
+
+**Plan:** 02-05 (RAG ingest + retrieval)
+
+nomic-embed-text v1.5 has a 2K-token context window. Most CPG
+operator email is short (a few hundred words = 1 chunk works).
+Long documents and edge-case long emails need splitting.
+
+**Decision:** Soft cap of 1500 tokens per chunk (well under 2K
+ceiling). Single `chunk()` function at `dashboard/lib/rag/chunk.ts`
+parameterized by source type:
+- `source='sent_email'` or `'inbound_email'`: if under 1500 tokens,
+  emit 1 chunk; otherwise paragraph-split
+- `source='document'`: always paragraph-split, with `meta.location`
+  payload field carrying page number (PDF) or row number (CSV) or
+  paragraph index (DOCX)
+
+Rejected: per-email-always (truncates long emails silently);
+per-paragraph-always (loses cross-paragraph context for short
+emails — most operator email).
+
+### D-35 — Document upload format support
+
+**Plan:** 02-05 (RAG ingest + retrieval); affects 02-08 (onboarding).
+
+CPG operators commonly have product catalogs in PDF. Node-side PDF
+parsing libraries pull binary deps that build flakily on ARM64.
+
+**Decision:** Support PDF, DOCX, and CSV in Phase 2. Use system-
+installed `pdftotext` (from `poppler-utils`, available in JetPack
+6 base) as the PDF extraction path — invoke it via Node `child_process`
+from `dashboard/lib/rag/extract.ts`. DOCX uses `mammoth` npm package.
+CSV uses `papaparse` (already a stack dependency).
+
+Avoids the brittle Node PDF parser ecosystem on ARM64 entirely. The
+onboarding wizard accepts all three formats without operator-side
+file conversion friction.
+
+Rejected: deferring PDF to Phase 2.5+ (real onboarding friction —
+most catalogs are PDFs); using `pdf-parse` or similar Node library
+(binary dep flakiness on ARM64).
+
+### D-36 — Embedding endpoint location
+
+**Plan:** 02-05 (RAG); affects 02-07 (drafting).
+
+Two callers need embeddings: bulk sent-history ingest in n8n
+workflow (thousands of chunks) and drafting context-build in
+TypeScript (single chunk per draft).
+
+**Decision:** Single canonical embedding implementation at
+`dashboard/lib/rag/embed.ts`. Two invocation paths:
+- n8n bulk ingest workflow calls `http://ollama:11434/api/embeddings`
+  directly (skip the Next.js round-trip for high-volume bulk work)
+- Drafting (02-07) and document upload (02-05 single-doc path) call
+  the TypeScript helper directly via `import`
+
+If a future plan needs n8n-side single-shot embedding it can call
+`POST /dashboard/api/internal/rag-embed` (not implemented in 02-05;
+add when the use case appears).
+
+Rejected: route everything through Next.js (slow for bulk ingest);
+duplicate the embedding logic in n8n + TypeScript (drift risk on
+prompts that aren't single-token-per-call).
+
+### D-37 — Top-K retrieval API contract
+
+**Plan:** 02-05 (RAG); contract consumed by 02-07 (drafting).
+
+02-07's drafting context builder needs top-K relevant chunks.
+Stable API contract decoupled from RAG internals.
+
+**Decision:** Expose at `POST /dashboard/api/internal/rag-search`.
+
+Request: `{ query: string, category?: ClassificationCategory,
+            k?: number = 3 }`
+Response: `{ results: [{ text, score, source, source_id, meta }] }`
+
+Threshold filtering (RAG-05: 0.72) applied server-side before
+returning. Below-threshold results are silently dropped, not
+returned with a flag. Empty `results` is a valid response and means
+"no relevant context found."
+
+Rejected: have 02-07 import `lib/rag/client.ts` directly. Tighter
+coupling; harder to swap retrieval backends later (e.g. if we move
+from Qdrant to pgvector). The API boundary is testable in isolation.
