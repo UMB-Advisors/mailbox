@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 2 fully stubbed (02-02-v2 done, 02-03..08 stubs); 02-01 SUPERSEDED; ready to promote stubs or execute lean
-stopped_at: All Phase 2 stubs landed. 25 cross-plan decisions captured (D-25..D-49). Next: decide stub-promotion path vs lean-execution path, then build.
-last_updated: "2026-04-27T22:08:30.000Z"
+status: Phase 2 in lean execution; 02-03 partial (migration 007 applied; ingestion workflow live with thread-header capture validated)
+stopped_at: 02-03 partial done — migration 007 (in_reply_to + references columns) applied to live Postgres; MailBOX n8n workflow updated to capture threading headers and committed to n8n/workflows/01-email-pipeline-main.json. Reply email at id=909 validated end-to-end with both threading columns populated. Known issues for 02-04: schedule trigger still firing every 1 min (UI rename to 5min did not persist); executeOnce off on Classify means up to 20 Ollama calls per run; legacy classification taxonomy still in use until MAIL-05 migration.
+last_updated: "2026-04-28T08:16:22.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
@@ -64,6 +64,25 @@ All remaining Phase 2 plans (02-03 through 02-08) re-scoped against the Next.js 
 
 Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT-ADDENDUM-v2-2026-04-27.md` (continuation of 02-CONTEXT.md's D-NN numbering).
 
+
+
+### Phase 2 Plan 02-03: Partial — Schema migration + Ingestion workflow updated (2026-04-28)
+- Migration 007 (in_reply_to + references columns on inbox_messages) applied to live Jetson Postgres
+- MailBOX n8n workflow updated:
+  - Filter changed from `label:MailBOX-Test` to `in:inbox`
+  - Extract Fields node extracts `inReplyTo` and `references` from Gmail node output
+  - Merge Classification node passes both threading columns through
+  - Store in DB node migrated from Execute Query to Insert mode (fixes comma-in-body parameter binding bug that silently affected v1)
+  - On Conflict: Skip behavior preserved
+- Workflow JSON exported and committed to `n8n/workflows/01-email-pipeline-main.json`
+- End-to-end validated: reply email at id=909 has both `in_reply_to` and `references` populated
+
+### Known issues to resolve in 02-04 work
+- Classify node has `executeOnce: false` (correct) but workflow still polls every 1 minute (UI 5-min change did not persist), causing up to 20 Ollama classifier calls per run
+- Legacy classification taxonomy still in use (`action_required`, `informational`, etc.); MAIL-05 8-category taxonomy migration deferred to 02-04
+- Filter-dupes-before-classify (Fix C from session log) deferred to 02-04 work
+- ID jump from 26 → 909 in inbox_messages.id sequence is harmless but visible (sequence bumped during failed Insert experiments)
+
 ## Architectural Decision Record: Dashboard Stack Pivot
 
 **Date:** 2026-04-27
@@ -102,10 +121,10 @@ Suggested execution order (pipeline order, since each plan depends on upstream o
 5. 02-07 (drafting + SMTP send) — pulls 02-04..06 together, plus the send path
 6. 02-08 (onboarding wizard) — wraps the operator UX around all of it
 
-Resume file: `.planning/phases/02-email-pipeline-core/02-03-imap-ingestion-watchdog-PLAN-v2-2026-04-27-STUB.md` (next plan in pipeline order).
+Resume file: `.planning/phases/02-email-pipeline-core/02-04-classification-routing-PLAN-v2-2026-04-27-STUB.md` (next pipeline-order plan; carries deferred 02-03 cleanup items: 5-min schedule, MAIL-05 taxonomy, filter-dupes-before-classify).
 
 ## Session Continuity
 
 Last session: 2026-04-27T22:08:30.000Z
-Stopped at: All Phase 2 stubs landed (02-03..08, 6 stubs totaling ~1572 lines). 25 cross-plan decisions captured (D-25..D-49). Next session decides Path A (stub promotion) vs Path B (lean execution); recommendation is Path B starting with 02-03.
-Resume file: .planning/phases/02-email-pipeline-core/02-03-imap-ingestion-watchdog-PLAN-v2-2026-04-27-STUB.md
+Stopped at: 02-03 partial — schema migration 007 applied; MailBOX workflow extended with thread-header capture; reply email validated. Known issues parked for 02-04. Last commit at session pause: workflow JSON committed.
+Resume file: .planning/phases/02-email-pipeline-core/02-04-classification-routing-PLAN-v2-2026-04-27-STUB.md (next pipeline-order plan; carries the deferred 02-03 cleanup items)
