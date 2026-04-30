@@ -183,16 +183,6 @@
           "value": "MlbxClsfySub0001",
           "mode": "id"
         },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "inbox_message_id": "={{ $json.id }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {"id": "inbox_message_id", "displayName": "inbox_message_id", "required": true, "display": true, "type": "number"}
-          ]
-        },
         "options": {}
       },
       "type": "n8n-nodes-base.executeWorkflow",
