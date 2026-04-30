@@ -83,12 +83,30 @@ def main():
     ap.add_argument("--source", choices=["db", "gmail", "all"], default="db",
                     help="db = batch 1 (full bodies); gmail = batches 2-4 (snippet only); all")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--bodies-only", action="store_true",
+                    help="Only score rows where we have a full body (DB or fetched gmail)")
     args = ap.parse_args()
 
     with open(CORPUS_PATH) as f:
         corpus = json.load(f)
     if args.source != "all":
         corpus = [r for r in corpus if r["source"] == args.source]
+
+    # Load fetched gmail bodies if present
+    bodies_path = os.path.join(os.path.dirname(__file__), "corpus-bodies.json")
+    gmail_bodies = {}
+    if os.path.exists(bodies_path):
+        with open(bodies_path) as f:
+            for tid, v in json.load(f).items():
+                if "body" in v:
+                    gmail_bodies[tid] = v["body"]
+        print(f"Loaded {len(gmail_bodies)} gmail bodies from corpus-bodies.json",
+              file=sys.stderr)
+
+    if args.bodies_only:
+        corpus = [r for r in corpus
+                  if r["source"] == "db" or r["id"] in gmail_bodies]
+        print(f"Filtered to {len(corpus)} rows with full bodies", file=sys.stderr)
     if args.limit:
         corpus = corpus[: args.limit]
 
@@ -109,7 +127,7 @@ def main():
             if row["source"] == "db":
                 body = body_cache.get(str(row["id"])) or row["snippet"]
             else:
-                body = row["snippet"]
+                body = gmail_bodies.get(row["id"]) or row["snippet"]
             try:
                 res = classify(row["from_addr"], row["subject"], body)
             except Exception as e:
