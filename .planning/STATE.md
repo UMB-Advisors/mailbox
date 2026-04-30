@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 2 in lean execution; 02-04a complete; 02-04b partial (corpus + scoring infrastructure shipped, MAIL-08 gate not yet final)
-stopped_at: 02-04b partial — 635-row labeled corpus + scoring engine + route-based metrics. Full-body scoring on n=82 stratified sample shows category accuracy 61%, route accuracy 73%, latency p95 3.35s. Findings: (1) snippets are not a valid scoring proxy; (2) internal recall is 0.22 because the prompt has no operator-identity context (deterministic preclass on from_addr deferred to next session as D-50); (3) one cloud→drop misroute needs inspection. Prompt-level operator-domain fix attempted (commit d7cca9d) and reverted (cf1a78c) — broke reorder. See 02-04b SUMMARY for details. 02-07 (drafting handoff) is next OR continue 02-04b iteration.
-last_updated: "2026-04-30T08:50:00.000Z"
+status: Phase 2 in lean execution; 02-04 (a/b) complete with MAIL-08 PASS; 02-05..08 v2 stubs await plan promotion
+stopped_at: "02-04b complete — D-50 operator-identity preclass shipped, sales-inbox exception, temperature=0 pinned. MAIL-08 gate PASS at route accuracy 73.2%, local F1 0.83, latency p95 3434ms. Last commit at session pause: e745bb8 (02-04b SUMMARY v2)."
+last_updated: "2026-04-30T20:30:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 4
-  percent: 36
+  completed_plans: 5
+  percent: 45
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: prd-email-agent-appliance.md (canonical PRD)
 
 ## Current Position
 
-Phase: 02 (email-pipeline-core) — partial; 02-02 (v2) complete, 02-03..08 FULLY STUBBED
-Plan: 1 of 7 substantive plans complete (02-02 v2). 02-01 marked SUPERSEDED.
-Stubs: 02-03..08 captured as `*-PLAN-v2-2026-04-27-STUB.md` files alongside their v1 originals.
-Cross-plan decisions: 25 captured (D-25..D-49) in `02-CONTEXT-ADDENDUM-v2-2026-04-27.md`.
+Phase: 02 (email-pipeline-core) — partial; 02-02, 02-03, 02-04 (split a+b) complete; 02-05..08 v2 stubs await plan promotion
+Plan: 4 of 7 substantive plans complete (02-02 v2, 02-03, 02-04a, 02-04b). 02-01 marked SUPERSEDED (architectural pivot).
+Stubs: 02-05..08 captured as `*-PLAN-v2-2026-04-27-STUB.md` files alongside their now-stale v1 originals; need promotion to full plans before execution.
+Cross-plan decisions: 26 captured (D-25..D-50) — D-25..D-49 in `02-CONTEXT-ADDENDUM-v2-2026-04-27.md`, D-50 in 02-04b SUMMARY v2.
 
 ## Completed Work
 
@@ -90,22 +90,20 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - Live verification: `docker compose ps mailbox-dashboard` healthy, all three endpoints curl-verified, both workflows in workflow_entity (main active, sub inactive — Execute Workflow Trigger is not a self-starting trigger)
 - See: `.planning/phases/02-email-pipeline-core/02-04a-classification-routing-SUMMARY-v1-2026-04-29.md`
 
-### Phase 2 Plan 02-04b: Partial — Corpus + scoring infrastructure (2026-04-30)
-- 5-batch labeled corpus (635 rows, 8 categories) → `scripts/heron-labs-corpus.sample.json`
-- `scripts/score-classifier.py` runs on Jetson, calls live `/api/internal/classification-{prompt,normalize}` + Ollama, emits per-category metrics + confusion matrix + **route-based metrics** (D-01/D-02 mirror)
-- 62 thread bodies fetched via Gmail MCP `get_thread` for stratified sample (seed=42) → `scripts/corpus-bodies.json`
-- Full-body scoring on n=82 (62 gmail + 20 batch-1 DB):
-  - Category accuracy: 61% (50/82)
-  - **Route accuracy: 73% (60/82)**
-  - Per-route F1: drop 0.58 / local 0.81 / cloud 0.68
-  - JSON parse 100%, latency p95 3348ms (well under 5s MAIL-06 gate)
-- Findings:
-  - Snippets are NOT a valid scoring proxy (35% on snippets vs 61% on full bodies)
-  - `internal` recall 0.22 — prompt has no operator-identity context (D-50 deferred)
-  - Categories overlap operationally; route-based scoring is the production-meaningful gate
-  - 1/25 cloud→drop case needs inspection (silent escalate drop is highest-severity failure mode)
-- Prompt fix attempted (commit d7cca9d, reverted in cf1a78c): operator-domain injection broke `reorder` (collapsed to 0.09). Architectural fix needed instead — deterministic preclass on from_addr + pass to_addr through n8n.
-- See: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v1-2026-04-30.md`
+### Phase 2 Plan 02-04b: Complete — D-50 + MAIL-08 gate PASS (2026-04-30)
+- v1 shipped corpus + scoring infrastructure (635-row labeled corpus, route-based scoring engine, n=82 stratified sample)
+- v2 closed out **D-50 (operator-identity preclass)** — `dashboard/lib/classification/preclass.ts` with `OPERATOR_DOMAINS` / `OPERATOR_ALLOWLIST` / `OPERATOR_INBOX_EXCEPTIONS` env config, post-LLM override in `normalize.ts`, `from_addr`+`to_addr` plumbed through n8n classify sub
+- Sales-inbox exception (`sales@heronlabsinc.com`) added after post-D50 scoring caught a forced-internal regression on a prospect inquiry
+- Temperature=0 pinned on Ollama call + scoring script for deterministic re-runs
+- Final metrics (full-body, n=82, temperature=0):
+  - **Route accuracy: 73.2% — MAIL-08 gate PASS**
+  - Per-route F1: drop 0.58 / local 0.83 / cloud 0.68
+  - internal recall 0.22 → 0.44 (D-50 lift)
+  - Latency p95 3434ms (well under 5s MAIL-06 gate)
+  - JSON parse 100%
+- Category accuracy dropped 61% → 51.2% by design — operator-domain `follow_up`/`scheduling` rows force-relabel to `internal`, but all three categories route to local, so production routing is unaffected
+- Commits: 15f2865 (D-50), bf8a2c6 (sales exception + temp=0), e745bb8 (SUMMARY v2)
+- See: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md`
 
 ### Known issues / parked
 - 02-04a: end-to-end classify chain awaits first inbound email (no new emails since deploy; verify by checking `mailbox.classification_log` after schedule fires)
@@ -137,24 +135,19 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 
 ## Next Action
 
-02-04b infrastructure is shipped but the **MAIL-08 gate verdict is not final**. Next session decides between continuing 02-04b iteration vs moving on to 02-07 with the current classifier as-is.
+**02-07 (drafting + SMTP send) is next.** The classifier gate is green and the v2 stub is the architectural source of truth — but the stub explicitly defers task breakdown to execution time, so it must be promoted to a full plan before execution.
 
-**Path A: Iterate 02-04b until MAIL-08 passes.** Concrete work, in order of expected impact:
-1. **D-50 architectural fix** — deterministic from_addr preclass in normalize.ts (or n8n) before LLM. Pass to_addr through the n8n workflow. Likely lifts internal recall from 0.22 → 0.85+ without touching the LLM.
-2. **Inspect the 1 cloud→drop misroute** — highest-severity routing failure on this sample. Could indicate a systemic class-confusion vs a one-off label issue.
-3. **Re-fetch the 38 missing thread bodies** — search_threads on the current Gmail account to verify ID format; backfill `corpus-bodies.json` to ≥100 rows.
-4. **Drop or relabel `unknown` ground truth** (5 rows in scored set, 20 in corpus). They're noise.
-5. **Pad escalate beyond 13** — currently 7 in scored set; one miss is 14% recall hit.
-6. **Re-run scoring**, target route accuracy ≥ 0.85 on local + cloud, drop→local ≤ 1/sample.
+Recommended sequence:
+1. `/gsd-plan-phase 02-07` — promote `02-07-...-PLAN-v2-2026-04-27-STUB.md` to a full executable PLAN. The stub already carries decisions D-41..D-45 and the Next.js + n8n architecture.
+2. `/gsd-execute-phase 02-07` (or just route through `/gsd-next`) — once the plan is full, execute it.
+3. After 02-07 ships, the same promote-then-execute pattern applies to 02-05 (RAG), 02-06 (persona), 02-08 (onboarding) in dependency order.
 
-**Path B: Move to 02-07 (drafting + SMTP send) with current classifier.** The route-level F1 (local 0.81, cloud 0.68) is workable for v1; production ingestion will surface real-world failures faster than continued corpus iteration. Ship 02-07 with the human-in-the-loop dashboard catching mis-routes. Come back to MAIL-08 once production data exists.
+Note: the v1 originals for 02-05..08 are architecturally stale (Express layout). Treat the v2 stubs as canonical when promoting.
 
-**Recommendation:** **Path A step 1 only** (D-50 architectural fix), then re-evaluate. The architectural fix is small (~50 lines + n8n workflow tweak) and likely closes the biggest gap. If route accuracy hits 0.85+ after that, ship 02-07 next. If not, decide between more corpus work and accepting the current state.
-
-Resume file: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v1-2026-04-30.md` (read first; it has the deferred-list).
+Resume file: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md`
 
 ## Session Continuity
 
-Last session: 2026-04-30T08:50:00.000Z
-Stopped at: 02-04b partial — corpus + scoring infrastructure shipped; MAIL-08 verdict pending D-50 architectural fix. Last commit at session pause: cf1a78c (route-based scoring).
-Resume file: .planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v1-2026-04-30.md
+Last session: 2026-04-30T20:30:00.000Z
+Stopped at: 02-04b complete — D-50 shipped, MAIL-08 gate PASS. Plan-2 tracking normalized so phase-plan-index recognizes 02-01..02-04 as done. Last commit at session pause: e745bb8 (02-04b SUMMARY v2).
+Resume file: .planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md
