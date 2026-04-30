@@ -50,8 +50,8 @@ def fetch_all_db_bodies(ids):
         return {}
     id_list = ",".join(str(int(i)) for i in ids)
     sql = (
-        "COPY (SELECT json_agg(json_build_object('id', id, 'body', body)) "
-        f"FROM mailbox.inbox_messages WHERE id IN ({id_list})) TO STDOUT"
+        "SELECT json_agg(json_build_object('id', id, 'body', body))::text "
+        f"FROM mailbox.inbox_messages WHERE id IN ({id_list})"
     )
     out = subprocess.check_output([
         "docker", "exec", "-i", PG_CONTAINER,
