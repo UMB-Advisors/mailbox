@@ -32,6 +32,20 @@ PG_USER = os.environ.get("POSTGRES_USER", "mailbox")
 LABELS = ["inquiry", "reorder", "scheduling", "follow_up",
           "internal", "spam_marketing", "escalate", "unknown"]
 
+# Mirror lib/classification/prompt.ts routeFor() — keep in sync with D-01/D-02.
+LOCAL_CONFIDENCE_FLOOR = 0.75
+LOCAL_CATEGORIES = {"reorder", "scheduling", "follow_up", "internal"}
+
+
+def route_for(category, confidence):
+    if category == "spam_marketing":
+        return "drop"
+    if confidence < LOCAL_CONFIDENCE_FLOOR:
+        return "cloud"
+    if category in LOCAL_CATEGORIES:
+        return "local"
+    return "cloud"
+
 
 def http_post(url, payload):
     req = urllib.request.Request(
@@ -180,6 +194,40 @@ def main():
         cells = " ".join(f"{cm[true][pred]:>7d}" for pred in LABELS)
         total = sum(cm[true].values())
         print(f"{true:14s} {cells}  | {total}")
+
+    # Routing-decision metrics (D-01/D-02). Production cares whether the email
+    # is routed to drop / local / cloud, not strictly which category was named.
+    # True route assumes confidence=1.0 (we know the ground truth); pred route
+    # uses the model's actual confidence so the LOCAL_CONFIDENCE_FLOOR fallback
+    # is honored.
+    print("\n=== Routing accuracy (drop / local / cloud) ===")
+    ROUTES = ["drop", "local", "cloud"]
+    rcm = defaultdict(lambda: defaultdict(int))
+    for r in results:
+        true_route = route_for(r["label"], 1.0)
+        pred_route = route_for(r["category"], r["confidence"])
+        rcm[true_route][pred_route] += 1
+    print(f"{'route':8s} {'support':>7s} {'preds':>5s} {'TP':>3s} "
+          f"{'FP':>3s} {'FN':>3s} {'prec':>6s} {'recall':>6s} {'F1':>6s}")
+    for route in ROUTES:
+        tp = rcm[route][route]
+        support = sum(rcm[route].values())
+        preds = sum(rcm[r2][route] for r2 in ROUTES)
+        fp = preds - tp
+        fn = support - tp
+        prec = tp / (tp + fp) if (tp + fp) else 0
+        rec = tp / (tp + fn) if (tp + fn) else 0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0
+        print(f"{route:8s} {support:>7d} {preds:>5d} {tp:>3d} {fp:>3d} {fn:>3d} "
+              f"{prec:>6.2f} {rec:>6.2f} {f1:>6.2f}")
+    route_correct = sum(rcm[rt][rt] for rt in ROUTES)
+    route_total = sum(sum(rcm[rt].values()) for rt in ROUTES)
+    print(f"\nRoute accuracy: {route_correct/route_total:.1%}  ({route_correct}/{route_total})")
+    print("\nRoute confusion (rows=true, cols=pred):")
+    print(f"{'':8s} " + " ".join(f"{r2:>7s}" for r2 in ROUTES))
+    for true_r in ROUTES:
+        cells = " ".join(f"{rcm[true_r][pred_r]:>7d}" for pred_r in ROUTES)
+        print(f"{true_r:8s} {cells}")
 
 
 if __name__ == "__main__":
