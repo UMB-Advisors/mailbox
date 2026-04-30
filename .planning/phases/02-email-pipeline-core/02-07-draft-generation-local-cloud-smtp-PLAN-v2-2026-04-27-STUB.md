@@ -2,8 +2,11 @@
 plan_number: 02-07
 plan_version: v2-stub
 plan_date: 2026-04-27
-supersedes: 02-07-draft-generation-local-cloud-smtp-PLAN.md (v1, 2026-04-13)
-status: STUB — defer full task breakdown until cross-plan decisions resolved
+supersedes: 02-07-draft-generation-local-cloud-smtp-PLAN-v1-2026-04-13.md (Express architecture, archived)
+superseded_by: 02-07-draft-generation-local-cloud-smtp-PLAN.md (canonical, v2 dated 2026-04-30)
+supersession_date: 2026-04-30
+supersession_reason: Stub promoted to full executable PLAN; decisions D-41..D-45 codified, task breakdown completed, threat model finalized.
+status: SUPERSEDED — see 02-07-...-PLAN.md for the executable plan
 slug: draft-generation-local-cloud-smtp
 wave: 4
 depends_on: [02-02, 02-04, 02-05, 02-06]
