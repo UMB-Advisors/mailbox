@@ -3,7 +3,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="./assets/banner-light.svg">
-    <img alt="MailBox One" src="./assets/banner-light.svg" width="800">
+    <img alt="MailBOX Zero" src="./assets/banner-light.svg" width="800">
   </picture>
 </p>
 
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/AI-Claude_+_Qwen3-7C3AED?style=flat-square&logo=anthropic&logoColor=white" alt="AI">
 </p>
 
-<p align="center"><strong>A plug-and-play hardware appliance that triages, drafts, and sends email responses for all those who Email — so founders stop spending hours a day on inbox ops.</strong></p>
+<p align="center"><strong>A plug-and-play hardware appliance that triages, drafts, and sends email responses &mdash; so entrepreneurs running heavy inboxes stop spending hours a day on email ops.</strong></p>
 
 ---
 
@@ -21,6 +21,7 @@
 <summary>Table of Contents</summary>
 
 - [About](#about)
+- [Who It's For](#who-its-for)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Hardware Requirements](#hardware-requirements)
@@ -37,11 +38,23 @@
 
 ## About
 
-MailBox Zero is a dedicated AI email agent that runs on an NVIDIA Jetson Orin Nano Super. The customer plugs in the appliance, connects their email account, completes guided onboarding, and gets an always-on assistant that handles inbound operational email — triage, drafting, and (with human approval) sending — entirely on-device.
+MailBOX Zero is a dedicated AI email agent that runs on an NVIDIA Jetson Orin Nano Super. The customer plugs in the appliance, connects their email account, completes guided onboarding, and gets an always-on assistant that handles inbound operational email — triage, drafting, and (with human approval) sending — entirely on-device.
 
 All email content and knowledge base data stays on the local appliance. Cloud API calls to Anthropic Claude are used only for complex drafts and escalation handling, with no bulk corpus ever leaving the device.
 
 Sold as a managed product with white-glove onboarding and an optional support subscription.
+
+## Who It's For
+
+MailBOX Zero is built for entrepreneurs whose inbox has become the bottleneck:
+
+- **Founders** running early-stage companies where every reply still routes through them
+- **Solo operators** managing multiple businesses or product lines from a single inbox
+- **Agency owners and consultants** juggling client threads, proposals, and follow-ups
+- **Investors and dealmakers** drowning in pitch decks, intros, and follow-up loops
+- **Anyone** who has resigned themselves to "email bankruptcy" once a quarter
+
+If you spend two or more hours a day in your inbox and the volume keeps growing, MailBOX Zero is meant for you.
 
 ## Features
 
@@ -57,7 +70,7 @@ Sold as a managed product with white-glove onboarding and an optional support su
 
 ```mermaid
 ---
-title: MailBox One System Architecture
+title: MailBOX Zero System Architecture
 ---
 flowchart TB
     A[Inbound Email<br>IMAP Trigger] --> B[n8n Orchestrator]
@@ -69,7 +82,6 @@ flowchart TB
     F --> G[Dashboard UI]
     G -->|Approved| H[SMTP Send]
     G -->|Rejected| I[Archive]
-
     J[Knowledge Base] --> D
     J --> E
     K[nomic-embed-text] --> J
@@ -118,7 +130,6 @@ docker compose exec ollama ollama pull nomic-embed-text:v1.5
 ```
 
 The dashboard is available at `http://<APPLIANCE_IP>:3000` once all services are healthy.
-
 <!-- TODO: Replace port 3000 with actual dashboard port once finalized -->
 
 ## Configuration
@@ -157,13 +168,9 @@ The `docker-compose.yml` orchestrates six services:
 ## How It Works
 
 1. **Ingest** — n8n polls the connected inbox via IMAP trigger. New emails are embedded using nomic-embed-text and stored in Qdrant alongside the raw content in Postgres.
-
 2. **Classify** — Qwen3-4B categorizes each email (order inquiry, vendor follow-up, customer complaint, etc.) and assigns a priority level. Classification uses non-thinking mode for low latency.
-
 3. **Draft** — Routine replies are drafted locally by Qwen3-4B using RAG context from the knowledge base. Complex or high-stakes threads are escalated to Claude Haiku 4.5 via the Anthropic API.
-
 4. **Approve** — Every draft enters an approval queue visible in the dashboard. The operator reviews, edits if needed, and approves or rejects each response.
-
 5. **Send** — Approved drafts are sent via SMTP through n8n. Sent history is logged in Postgres for future RAG context.
 
 ## Tech Stack
@@ -225,4 +232,4 @@ Contributions are welcome. Open an issue to discuss proposed changes before subm
 [MIT](LICENSE)
 
 <!-- Reference-style links -->
-[jetsonhacks]: https://jetsonhacks.com/2025/02/24/docker-setup-on-jetpack-6-jetson-orin/
+[jetsonhacks]: https://jetsonhacks.com/2025/02/24/docker-setup-on-jetpack-6-jetson-ori
