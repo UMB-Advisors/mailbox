@@ -3432,10 +3432,10 @@
     "source": "gmail",
     "id": "19d01b18ebf5ae23",
     "from_addr": "quickbooks@notification.intuit.com",
-    "subject": "Invoice for Heron Labs, Inc.",
-    "snippet": "QuickBooks invoice ($1831) for Heron's customer",
-    "label": "internal",
-    "reasoning": "account/system notification"
+    "subject": "Invoice for Heron Labs Inc.",
+    "snippet": "Resent invoice $1831 balance due to active customers Andrew/Nick on soursop gummies project",
+    "label": "reorder",
+    "reasoning": "Repeat invoice send for active customer order"
   },
   {
     "source": "gmail",
@@ -3521,11 +3521,11 @@
   {
     "source": "gmail",
     "id": "19cfdd9454065c16",
-    "from_addr": "jt@heronlabsinc.com",
+    "from_addr": "carol.staley@equipmentshare.com",
     "subject": "Re: Invoices and statement -- Heron Labs Inc (169545)",
-    "snippet": "Julie asking vendor about credit hold",
-    "label": "internal",
-    "reasoning": "sender is internal team / sister company"
+    "snippet": "Vendor placed account on Do Not Rent / credit hold; warns of asset retrieval if 90+ days past due",
+    "label": "escalate",
+    "reasoning": "Vendor credit hold + asset retrieval threat \u2014 supplier escalation requiring human judgment"
   },
   {
     "source": "gmail",
@@ -3630,10 +3630,10 @@
     "source": "gmail",
     "id": "19d013b76ed947ef",
     "from_addr": "aever770@gmail.com",
-    "subject": "Re: Invoice 260114-1 from Heron Labs, Inc. due 03/17/2026",
-    "snippet": "Customer reporting payment link not working",
-    "label": "follow_up",
-    "reasoning": "personal-email reply in active thread"
+    "subject": "Re: Invoice 260114-1 from Heron Labs Inc. due 03/17/2026",
+    "snippet": "This payment link is not working for some reason. I have tried multiple times is there another way to take care of this?",
+    "label": "escalate",
+    "reasoning": "Customer complaint that payment system is broken on a due-today invoice \u2014 operational urgency"
   },
   {
     "source": "gmail",
@@ -3657,10 +3657,10 @@
     "source": "gmail",
     "id": "19d06de79f6b4554",
     "from_addr": "aever770@gmail.com",
-    "subject": "Re: Invoice 260114-1 from Heron Labs, Inc. due 03/17/2026",
-    "snippet": "Customer requesting GMP certificate",
-    "label": "follow_up",
-    "reasoning": "personal-email reply in active thread"
+    "subject": "Re: Invoice 260114-1 from Heron Labs Inc. due 03/17/2026",
+    "snippet": "Customer demanding current GMP certificate for soursop gummies they are reselling",
+    "label": "escalate",
+    "reasoning": "Customer escalating compliance request inside active payment thread \u2014 needs human response"
   },
   {
     "source": "gmail",
@@ -4081,9 +4081,9 @@
     "id": "19ce3e2e4a00fed7",
     "from_addr": "christopher@firstdscnt.com",
     "subject": "Jar Invoice",
-    "snippet": "Vendor sending jar invoice for project",
-    "label": "follow_up",
-    "reasoning": "active partner contact"
+    "snippet": "Jar supplier (First Descent) sending invoice for Brian Pray B&B Brands project; resale cert exchanged",
+    "label": "reorder",
+    "reasoning": "Active vendor invoice tied to a real customer production order"
   },
   {
     "source": "gmail",
@@ -4152,10 +4152,10 @@
     "source": "gmail",
     "id": "19ce35f7940db1fc",
     "from_addr": "quickbooks@notification.intuit.com",
-    "subject": "Invoice 260203-0 from Heron Labs, Inc. due 03/12/2026",
-    "snippet": "QuickBooks invoice for Heron customer (Brian Pray)",
-    "label": "internal",
-    "reasoning": "account/system notification"
+    "subject": "Invoice 260203-0 from Heron Labs Inc. due 03/12/2026",
+    "snippet": "Production deposit invoice issued to existing customer Brian Pray (B&B Brands)",
+    "label": "reorder",
+    "reasoning": "Active production deposit invoice for an existing customer order"
   },
   {
     "source": "gmail",
@@ -5116,9 +5116,9 @@
     "id": "19cbe0d6998a01c2",
     "from_addr": "nickalasengland@gmail.com",
     "subject": "Gr33n Soursop Gummies",
-    "snippet": "Customer asking for production update - 'reached out twice with no response'",
-    "label": "inquiry",
-    "reasoning": "personal-email new contact"
+    "snippet": "Customer: I have reached out to you all twice this week with no response. I would really appreciate an update on the gummies my team and I ordered.",
+    "label": "escalate",
+    "reasoning": "Customer complaint about being ignored on an active order \u2014 needs human judgment"
   },
   {
     "source": "gmail",
@@ -5557,9 +5557,9 @@
     "id": "19cb40de4868b25a",
     "from_addr": "can@chapterfoods.com",
     "subject": "Natural Color Samples - Chapter Foods & Dohler",
-    "snippet": "Vendor sharing tracking number",
-    "label": "spam_marketing",
-    "reasoning": "marketing/tool noise sender"
+    "snippet": "Supplier sending DHL tracking number 2997836096 for sample shipment to Heron",
+    "label": "reorder",
+    "reasoning": "Active vendor sample shipment with tracking \u2014 order logistics"
   },
   {
     "source": "gmail",
@@ -5578,5 +5578,140 @@
     "snippet": "Expo West registration",
     "label": "spam_marketing",
     "reasoning": "Expo registration noise"
+  },
+  {
+    "source": "gmail",
+    "id": "19c928bedcc1d72a",
+    "from_addr": "info@nutrotonic.com",
+    "subject": "Re: Certified Labs - Amazon Good Manufacturing Practice Certificate (GMP) (TRF TR176556514561478)",
+    "snippet": "Amazon threatening to remove all NutroTonic product by March 12 unless new GMP cert provided",
+    "label": "escalate",
+    "reasoning": "Regulatory/Amazon-removal deadline with revenue-loss risk \u2014 needs urgent human handling"
+  },
+  {
+    "source": "gmail",
+    "id": "19c66ca24ae305d3",
+    "from_addr": "bpray9223@gmail.com",
+    "subject": "Re: Samara Zeolite Gummies R&D",
+    "snippet": "Any chance we can accelerate that? Dustin had told me 2 weeks ago the revised samples were being completed so I was expecting to have them by now",
+    "label": "escalate",
+    "reasoning": "Customer pressing on missed timeline with threat to delay PO \u2014 firm complaint tone"
+  },
+  {
+    "source": "gmail",
+    "id": "19c8c0f83d4bf9b9",
+    "from_addr": "danny@710labs.com",
+    "subject": "Re: LBW Extract Samples",
+    "snippet": "Hope all is well. I am checking back in on the samples. Any eta when we should expect them? \u2014 third check-in after silence",
+    "label": "escalate",
+    "reasoning": "Customer chasing for the third time on missed sample commitment \u2014 escalation tone"
+  },
+  {
+    "source": "gmail",
+    "id": "19c92a5fd480c6f6",
+    "from_addr": "dustin@heronlabsinc.com",
+    "subject": "Re: Certified Labs - Amazon GMP (NutroTonic)",
+    "snippet": "Operator (Dustin) defending validity of certs; customer pushing back on Amazon removal threat",
+    "label": "escalate",
+    "reasoning": "Active regulatory/escalation thread requiring careful human response"
+  },
+  {
+    "source": "gmail",
+    "id": "19cf748595ae775a",
+    "from_addr": "info@nutrotonic.com",
+    "subject": "Re: Invoice 251229-2 from Heron Labs Inc. due 03/02/2026",
+    "snippet": "Done. Thank you. \u2014 customer confirms payment",
+    "label": "reorder",
+    "reasoning": "Active customer paying invoice for existing recurring order"
+  },
+  {
+    "source": "gmail",
+    "id": "19c54e4d2ceb183e",
+    "from_addr": "bpray9223@gmail.com",
+    "subject": "Samara Zeolite Gummies R&D",
+    "snippet": "Can you share an update on the new Zeolite samples... We are closing in on our reorder point and just want to make sure the timing aligns",
+    "label": "reorder",
+    "reasoning": "Existing customer planning a reorder \u2014 explicitly mentions reorder point and PO timing"
+  },
+  {
+    "source": "gmail",
+    "id": "19cacbf311463b41",
+    "from_addr": "quickbooks@notification.intuit.com",
+    "subject": "Invoice 251229-2 from Heron Labs Inc. due 03/02/2026",
+    "snippet": "Active invoice to NutroTonic for repeat manufacturing",
+    "label": "reorder",
+    "reasoning": "Active customer invoice for repeat order"
+  },
+  {
+    "source": "gmail",
+    "id": "19c970ce38d920e7",
+    "from_addr": "quickbooks@notification.intuit.com",
+    "subject": "Invoice 260225 RD from Heron Labs Inc. due 02/25/2026",
+    "snippet": "R&D invoice issued to active customers bzwang43/fkajee on protein gummies project",
+    "label": "reorder",
+    "reasoning": "Active customer R&D and production invoice"
+  },
+  {
+    "source": "gmail",
+    "id": "19c4970d429bcdef",
+    "from_addr": "nickalasengland@gmail.com",
+    "subject": "Re: Reminder: Invoice 260114 from Heron Labs Inc. was due 01/14/2026",
+    "snippet": "Hey just wanted to update you we plan to complete the payment soon. Just trying to time it up with the arrival of our bags",
+    "label": "reorder",
+    "reasoning": "Active customer coordinating payment timing on existing order"
+  },
+  {
+    "source": "gmail",
+    "id": "19c49c2561d41eb2",
+    "from_addr": "aever770@gmail.com",
+    "subject": "Re: Reminder: Invoice 260114 from Heron Labs Inc. was due 01/14/2026",
+    "snippet": "Hi team completely understand. The bags are in the US and on the way. I just completed the deposit for manufacturing",
+    "label": "reorder",
+    "reasoning": "Active customer confirming deposit for production"
+  },
+  {
+    "source": "gmail",
+    "id": "19cb0a80d8f47b9a",
+    "from_addr": "bpray9223@gmail.com",
+    "subject": "Invoice BB002 - Monthly Amazon Management",
+    "snippet": "Brian Pray sending monthly Amazon-management service invoice to Krunchy Kids/Dustin",
+    "label": "reorder",
+    "reasoning": "Active recurring service invoice for ongoing engagement"
+  },
+  {
+    "source": "gmail",
+    "id": "197eb2ae14ea683b",
+    "from_addr": "bpray9223@gmail.com",
+    "subject": "B&B Brands (Samara 888) - New RFQ (Saffron SKU)",
+    "snippet": "Existing customer Brian Pray issuing RFQ for new SKU (saffron); references prior Zeolite SKU pricing",
+    "label": "reorder",
+    "reasoning": "Repeat customer initiating new SKU order with prior production history"
+  },
+  {
+    "source": "gmail",
+    "id": "1946be12797971c1",
+    "from_addr": "danny@710labs.com",
+    "subject": "Re: LBW Functional Mushroom Gummy Project Order",
+    "snippet": "I wanted to see check in on getting our first production run of these LBW gummies. We are ready.",
+    "label": "reorder",
+    "reasoning": "Active customer requesting production-run kickoff for committed order"
+  },
+  {
+    "source": "gmail",
+    "id": "19c8da3871121997",
+    "from_addr": "dustin@heronlabsinc.com",
+    "subject": "Re: Invoice 260203 Z from Heron Labs Inc. due 02/12/2026",
+    "snippet": "Brian are you still not getting emails from Julie? \u2014 operator following up on customer payment",
+    "label": "reorder",
+    "reasoning": "Active customer payment dialogue"
+  },
+  {
+    "source": "gmail",
+    "id": "19c8dab82ff98fbd",
+    "from_addr": "bpray9223@gmail.com",
+    "subject": "Re: Invoice 260203 Z from Heron Labs Inc. due 02/12/2026",
+    "snippet": "Thank you - ACH has been initiated for this invoice",
+    "label": "reorder",
+    "reasoning": "Active customer confirming payment for production invoice"
   }
 ]
