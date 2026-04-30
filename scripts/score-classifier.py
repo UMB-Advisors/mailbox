@@ -15,18 +15,19 @@ import argparse
 import csv
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
 from collections import Counter, defaultdict
 from datetime import date
 
-import psycopg2  # available in dashboard image; on Jetson host install via apt or use docker exec
-
 CORPUS_PATH = os.path.join(os.path.dirname(__file__), "heron-labs-corpus.sample.json")
 DASH = "http://localhost:3001/dashboard/api/internal"
 OLLAMA = "http://localhost:11434/api/generate"
-PG_DSN = "host=localhost port=5432 dbname=mailbox user=mailbox password=mailbox"
+PG_CONTAINER = os.environ.get("PG_CONTAINER", "mailbox-postgres-1")
+PG_DB = os.environ.get("POSTGRES_DB", "mailbox")
+PG_USER = os.environ.get("POSTGRES_USER", "mailbox")
 
 LABELS = ["inquiry", "reorder", "scheduling", "follow_up",
           "internal", "spam_marketing", "escalate", "unknown"]
@@ -43,12 +44,21 @@ def http_post(url, payload):
         return json.loads(r.read())
 
 
-def get_body_from_db(conn, row_id):
-    cur = conn.cursor()
-    cur.execute("SELECT body FROM mailbox.inbox_messages WHERE id = %s", (int(row_id),))
-    r = cur.fetchone()
-    cur.close()
-    return r[0] if r else None
+def fetch_all_db_bodies(ids):
+    """Fetch all batch-1 bodies in one docker exec call -> {id: body}."""
+    if not ids:
+        return {}
+    id_list = ",".join(str(int(i)) for i in ids)
+    sql = (
+        "COPY (SELECT json_agg(json_build_object('id', id, 'body', body)) "
+        f"FROM mailbox.inbox_messages WHERE id IN ({id_list})) TO STDOUT"
+    )
+    out = subprocess.check_output([
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", PG_DB, "-At", "-c", sql,
+    ], text=True)
+    rows = json.loads(out.strip()) or []
+    return {str(r["id"]): (r["body"] or "") for r in rows}
 
 
 def classify(from_addr, subject, body):
@@ -84,7 +94,9 @@ def main():
 
     print(f"Scoring {len(corpus)} rows (source={args.source})", file=sys.stderr)
 
-    conn = psycopg2.connect(PG_DSN) if any(r["source"] == "db" for r in corpus) else None
+    db_ids = [r["id"] for r in corpus if r["source"] == "db"]
+    body_cache = fetch_all_db_bodies(db_ids)
+    print(f"Fetched {len(body_cache)} bodies from DB", file=sys.stderr)
     out_path = os.path.join(os.path.dirname(__file__),
                             f"heron-labs-corpus.scored-{date.today().isoformat()}.csv")
     results = []
@@ -95,7 +107,7 @@ def main():
                     "match"])
         for i, row in enumerate(corpus, 1):
             if row["source"] == "db":
-                body = get_body_from_db(conn, row["id"]) or row["snippet"]
+                body = body_cache.get(str(row["id"])) or row["snippet"]
             else:
                 body = row["snippet"]
             try:
