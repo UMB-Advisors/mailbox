@@ -13,18 +13,18 @@
     "id": "911",
     "from_addr": "accounting@heronlabsinc.com",
     "subject": "Re: We Stopped Shipping Orders",
-    "snippet": "how do i pay with updated credit card?",
+    "snippet": "Internal team member (Sam) asking how to pay with updated credit card inside the escalate thread",
     "label": "internal",
-    "reasoning": "Sender is internal team (Sam in accounting)"
+    "reasoning": "Team-internal question seeking Dustin's input on payment logistics"
   },
   {
     "source": "db",
     "id": "912",
     "from_addr": "jt@heronlabsinc.com",
     "subject": "Re: EnerGemz Gummy Manufacturing",
-    "snippet": "Heron team confirming PO submission process to a customer",
-    "label": "internal",
-    "reasoning": "Sender is internal (Julie Tran)"
+    "snippet": "Heron team member (Julie) confirming PO submission process to a customer",
+    "label": "follow_up",
+    "reasoning": "Reply inside an active customer thread \u2014 operationally follow_up regardless of who pressed send"
   },
   {
     "source": "db",
@@ -49,9 +49,9 @@
     "id": "915",
     "from_addr": "eddie@heronlabsinc.com",
     "subject": "Re: Kevin meet Clinton/Dustin [Gummies]",
-    "snippet": "Internal team replying to a prospect intro about samples",
-    "label": "internal",
-    "reasoning": "Sender is internal (Eddie)"
+    "snippet": "Heron team member (Eddie) replying inside a prospect intro thread about samples",
+    "label": "follow_up",
+    "reasoning": "Reply inside an active external thread \u2014 follow_up rather than internal"
   },
   {
     "source": "db",
@@ -78,7 +78,7 @@
     "subject": "Daily Meetings Brief (Gmail)",
     "snippet": "Auto digest: 'No meetings today, nothing to prepare'",
     "label": "spam_marketing",
-    "reasoning": "Recurring auto-newsletter \u2014 no action required (taxonomy doesn't have a 'tool notification' bucket; spam_marketing is the closest fit)"
+    "reasoning": "Recurring auto-newsletter \u2014 no action required"
   },
   {
     "source": "db",
@@ -94,27 +94,27 @@
     "id": "920",
     "from_addr": "jt@heronlabsinc.com",
     "subject": "Re: Docs for TikTok Shop - Darlin' Wellness",
-    "snippet": "Heron team updating customer on production timeline slip",
-    "label": "internal",
-    "reasoning": "Sender is internal (Julie). Customer-facing content but internal sender"
+    "snippet": "Heron team (Julie) updating customer on production timeline slip",
+    "label": "follow_up",
+    "reasoning": "Reply inside an active customer thread"
   },
   {
     "source": "db",
     "id": "921",
     "from_addr": "eddie@heronlabsinc.com",
     "subject": "Re: LBW Extract Samples",
-    "snippet": "Heron team negotiating sample sizes (Lion's Mane, Reishi) with a customer",
-    "label": "internal",
-    "reasoning": "Sender is internal (Eddie)"
+    "snippet": "Heron team (Eddie) negotiating sample sizes (Lion's Mane, Reishi) with a customer",
+    "label": "follow_up",
+    "reasoning": "Reply inside an active customer sample thread"
   },
   {
     "source": "db",
     "id": "922",
     "from_addr": "jt@heronlabsinc.com",
     "subject": "Re: Paul Daniels x Heron Labs gummies",
-    "snippet": "Heron team replying about collagen formulation options",
-    "label": "internal",
-    "reasoning": "Sender is internal (Julie)"
+    "snippet": "Heron team (Julie) replying about collagen formulation options",
+    "label": "follow_up",
+    "reasoning": "Reply inside an active customer formulation thread"
   },
   {
     "source": "db",
@@ -139,9 +139,9 @@
     "id": "925",
     "from_addr": "jt@heronlabsinc.com",
     "subject": "Re: New Contact: Dylan Harrison from HeroChews",
-    "snippet": "Heron team replying to Dylan about protein gummy progress",
-    "label": "internal",
-    "reasoning": "Sender is internal (Julie)"
+    "snippet": "Heron team (Julie) replying to Dylan about protein gummy progress",
+    "label": "follow_up",
+    "reasoning": "Reply inside an active prospect thread"
   },
   {
     "source": "db",
@@ -157,9 +157,9 @@
     "id": "927",
     "from_addr": "jt@heronlabsinc.com",
     "subject": "Re: Julie <> Isabelle",
-    "snippet": "Heron team replying with availability for a Friday morning meeting",
-    "label": "internal",
-    "reasoning": "Sender is internal (Julie)"
+    "snippet": "Heron team (Julie) replying with availability for a Friday morning meeting",
+    "label": "scheduling",
+    "reasoning": "Meeting logistics \u2014 calendar scheduling regardless of sender"
   },
   {
     "source": "db",
@@ -175,81 +175,9 @@
     "id": "969",
     "from_addr": "roni@heronlabsinc.com",
     "subject": "Re: Invoice 260203 Z from Heron Labs Inc. due 02/12/2026",
-    "snippet": "Empty/short reply from internal team member",
+    "snippet": "Empty/short reply from internal team member inside escalate thread",
     "label": "internal",
-    "reasoning": "Sender is internal (Roni)"
-  },
-  {
-    "source": "db",
-    "id": "909",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "Re: test",
-    "snippet": "'test test' \u2014 one of Dustin's pipeline-validation emails",
-    "label": "internal",
-    "reasoning": "Operator self-testing the appliance"
-  },
-  {
-    "source": "db",
-    "id": "0",
-    "from_addr": "sales@heronlabsinc.com",
-    "subject": "Moderator's spam report for sales@heronlabsinc.com",
-    "snippet": "Google Groups moderator queue notification",
-    "label": "internal",
-    "reasoning": "System notification about internal moderation queue"
-  },
-  {
-    "source": "db",
-    "id": "26",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "[mailbox-test] live ingestion proof",
-    "snippet": "Dustin self-test for ingestion pipeline",
-    "label": "internal",
-    "reasoning": "Operator smoke test"
-  },
-  {
-    "source": "db",
-    "id": "1",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "[mailbox-test] post-activation",
-    "snippet": "Dustin self-test post-activation",
-    "label": "internal",
-    "reasoning": "Operator smoke test"
-  },
-  {
-    "source": "db",
-    "id": "2",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "[mailbox-test] smoke test 004",
-    "snippet": "Dustin self-test #4",
-    "label": "internal",
-    "reasoning": "Operator smoke test"
-  },
-  {
-    "source": "db",
-    "id": "3",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "[mailbox-test] smoke test 003",
-    "snippet": "Dustin self-test #3",
-    "label": "internal",
-    "reasoning": "Operator smoke test"
-  },
-  {
-    "source": "db",
-    "id": "4",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "[mailbox-test] smoke test 002",
-    "snippet": "Dustin self-test #2",
-    "label": "internal",
-    "reasoning": "Operator smoke test"
-  },
-  {
-    "source": "db",
-    "id": "5",
-    "from_addr": "dustin@heronlabsinc.com",
-    "subject": "[mailbox-test] smoke test 001",
-    "snippet": "Dustin self-test #1 (literally asks to be classified as 'test')",
-    "label": "internal",
-    "reasoning": "Operator smoke test"
+    "reasoning": "Short team-internal acknowledgement; not externally directed"
   },
   {
     "source": "gmail",
