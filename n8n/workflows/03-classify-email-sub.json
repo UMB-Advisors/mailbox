@@ -92,7 +92,7 @@
         "url": "http://ollama:11434/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": {{ JSON.stringify($json.model) }},\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false,\n  \"format\": \"json\"\n}",
+        "jsonBody": "={\n  \"model\": {{ JSON.stringify($json.model) }},\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false,\n  \"format\": \"json\",\n  \"options\": { \"temperature\": 0 }\n}",
         "options": {
           "timeout": 60000
         }

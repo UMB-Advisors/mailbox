@@ -11,8 +11,15 @@
 // but not consulted yet.
 //
 // Configuration via env (defaults baked in for the live operator):
-//   OPERATOR_DOMAINS   = comma-separated domains (default: heronlabsinc.com)
-//   OPERATOR_ALLOWLIST = comma-separated full addresses (default: empty)
+//   OPERATOR_DOMAINS         = comma-separated domains (default: heronlabsinc.com)
+//   OPERATOR_ALLOWLIST       = comma-separated full addresses (default: empty)
+//   OPERATOR_INBOX_EXCEPTIONS = comma-separated addresses that should NOT trigger
+//                              the override even though they sit on the operator
+//                              domain — e.g. role inboxes (sales@, support@) that
+//                              receive prospect mail through aliases. Default seeds
+//                              sales@heronlabsinc.com because the 02-04b post-D50
+//                              scoring caught a real prospect inquiry sent through
+//                              that address being misrouted to local.
 
 import type { Category } from './prompt';
 
@@ -31,6 +38,11 @@ export const OPERATOR_DOMAINS: ReadonlyArray<string> = splitEnv(
 export const OPERATOR_ALLOWLIST: ReadonlyArray<string> = splitEnv(
   process.env.OPERATOR_ALLOWLIST,
   '',
+);
+
+export const OPERATOR_INBOX_EXCEPTIONS: ReadonlyArray<string> = splitEnv(
+  process.env.OPERATOR_INBOX_EXCEPTIONS,
+  'sales@heronlabsinc.com',
 );
 
 export interface PreclassContext {
@@ -60,8 +72,15 @@ export function precheck(ctx: PreclassContext): PreclassResult | null {
   const fromAddr = extractAddress(ctx.from);
   if (!fromAddr) return null;
 
+  // Allowlist always wins — explicit named addresses are intentional.
   if (OPERATOR_ALLOWLIST.includes(fromAddr)) {
     return { category: 'internal', confidence: 1, source: 'operator-allowlist' };
+  }
+
+  // Role-inbox exceptions short-circuit the domain rule. These addresses
+  // sit on the operator domain but legitimately receive prospect mail.
+  if (OPERATOR_INBOX_EXCEPTIONS.includes(fromAddr)) {
+    return null;
   }
 
   const domain = extractDomain(fromAddr);

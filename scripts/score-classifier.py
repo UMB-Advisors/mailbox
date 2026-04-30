@@ -79,7 +79,8 @@ def classify(from_addr, subject, body):
     p = http_post(f"{DASH}/classification-prompt",
                   {"from": from_addr, "subject": subject, "body": body or ""})
     t0 = time.time()
-    r = http_post(OLLAMA, {"model": p["model"], "prompt": p["prompt"], "stream": False})
+    r = http_post(OLLAMA, {"model": p["model"], "prompt": p["prompt"],
+                           "stream": False, "options": {"temperature": 0}})
     latency_ms = int((time.time() - t0) * 1000)
     raw = r.get("response", "")
     n = http_post(f"{DASH}/classification-normalize",
