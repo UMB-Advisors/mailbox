@@ -29,7 +29,7 @@ export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
   follow_up:
     'Continuation of a prior thread the recipient was already engaged in.',
   internal:
-    'From a team member, contractor, or known internal stakeholder of the operator.',
+    'Team-internal coordination from the operator\'s own staff/contractors with no customer or prospect being addressed in this email.',
   spam_marketing:
     'Cold solicitation, marketing newsletter, sales pitch, lead-gen blast, recruiter spam.',
   escalate:
@@ -37,6 +37,18 @@ export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
   unknown:
     'Cannot be confidently placed in any other category.',
 };
+
+// Operator-identity injection — fixes the catastrophic `internal` recall
+// observed in MAIL-08 scoring (D-50). Without this, the model has no way to
+// tell which sender domains belong to the operator.
+export const OPERATOR_DOMAINS = (
+  process.env.OPERATOR_DOMAINS ?? 'heronlabsinc.com,elefanteinc.com'
+)
+  .split(',')
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+
+export const OPERATOR_NAME = process.env.OPERATOR_NAME ?? 'Heron Labs';
 
 export interface ClassifierInput {
   from: string;
@@ -53,8 +65,11 @@ export function buildPrompt(input: ClassifierInput): string {
 
   const safeBody = (input.body ?? '').slice(0, 4000);
 
+  const domainList = OPERATOR_DOMAINS.map((d) => `@${d}`).join(', ');
+
   return `/no_think
-You are an email classifier for a small CPG brand operator.
+You are an email classifier for ${OPERATOR_NAME}, a small CPG brand operator.
+The operator's own email domains are: ${domainList}.
 Classify the email into exactly one of these 8 categories:
 
 ${catLines}
@@ -65,6 +80,8 @@ Output a single JSON object and nothing else:
 Rules:
 - "category" must be one of: ${CATEGORIES.join(', ')}.
 - "confidence" reflects how sure you are (0.0 = guessing, 1.0 = certain).
+- Use "internal" ONLY when the sender's email domain is in [${domainList}] AND the email is internal team coordination (no customer or prospect being addressed). If a team member is replying to a customer/prospect, classify by what the THREAD is about (follow_up, scheduling, reorder, etc.) — not internal.
+- If the sender domain is in [${domainList}] but the email is clearly addressed to a customer or prospect, prefer follow_up / scheduling / reorder over internal.
 - If unsure, use "unknown" with low confidence rather than guessing.
 - No prose, no markdown, no explanations — JSON only.
 
