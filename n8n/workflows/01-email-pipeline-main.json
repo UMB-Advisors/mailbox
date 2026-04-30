@@ -6,19 +6,17 @@
         "rule": {
           "interval": [
             {
-              "field": "minutes"
+              "field": "minutes",
+              "minutesInterval": 5
             }
           ]
         }
       },
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
-      "position": [
-        0,
-        0
-      ],
+      "position": [0, 0],
       "id": "9cb2c0c7-3477-4660-8729-e78b71189c6a",
-      "name": "Every Minute"
+      "name": "Every 5 Minutes"
     },
     {
       "parameters": {
@@ -32,10 +30,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        128,
-        0
-      ],
+      "position": [220, 0],
       "id": "9024ea76-59b0-4ff6-a4d2-f7340579e1e5",
       "name": "Get many messages",
       "webhookId": "6c8a8428-a2cb-4c88-98d8-df896078f914",
@@ -52,56 +47,56 @@
           "assignments": [
             {
               "id": "f472d586-ec54-42b1-8ce4-082c01797418",
-              "name": "=message_id",
+              "name": "message_id",
               "value": "={{ $json.id }}",
               "type": "string"
             },
             {
               "id": "f977becc-4ffe-4810-8b3b-fd073fa495bb",
-              "name": "=thread_id",
+              "name": "thread_id",
               "value": "={{ $json.threadId }}",
               "type": "string"
             },
             {
               "id": "b6a9209f-2446-4f5d-81f4-626aff6c1a89",
-              "name": "from",
-              "value": "={{ $json.from.value[0].address }}",
+              "name": "from_addr",
+              "value": "={{ $json.from && $json.from.value && $json.from.value[0] ? $json.from.value[0].address : '' }}",
               "type": "string"
             },
             {
               "id": "7540888f-3c61-4214-9ff9-465932a11a45",
-              "name": "=to",
-              "value": "={{ $json.to.value[0].address }}",
+              "name": "to_addr",
+              "value": "={{ $json.to && $json.to.value && $json.to.value[0] ? $json.to.value[0].address : '' }}",
               "type": "string"
             },
             {
               "id": "876686b7-8b67-497d-8f74-46eafccd534f",
               "name": "subject",
-              "value": "={{ $json.subject }}",
+              "value": "={{ $json.subject || '' }}",
               "type": "string"
             },
             {
               "id": "edd0095e-7a03-41f8-bc00-5088d747f0a1",
-              "name": "=received_at",
+              "name": "received_at",
               "value": "={{ $json.date }}",
               "type": "string"
             },
             {
               "id": "10f256b3-0e87-44a2-a2ec-a45ec2d814fb",
               "name": "snippet",
-              "value": "={{ $json.text.substring(0, 200) }}",
+              "value": "={{ ($json.text || '').substring(0, 200) }}",
               "type": "string"
             },
             {
               "id": "5f661709-b118-4534-a3b6-bfa51df5dba6",
-              "name": "=body",
-              "value": "=={{ $json.text }}",
+              "name": "body",
+              "value": "={{ $json.text || '' }}",
               "type": "string"
             },
             {
               "id": "915491fc-fcf4-4c8b-8e6b-ba81bc2c459c",
-              "name": "=in_reply_to",
-              "value": "=={{ $json.inReplyTo }}",
+              "name": "in_reply_to",
+              "value": "={{ $json.inReplyTo }}",
               "type": "string"
             },
             {
@@ -116,134 +111,9 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [
-        256,
-        0
-      ],
+      "position": [440, 0],
       "id": "cb0c441f-df40-49af-8d26-908f789eb804",
       "name": "Extract Fields"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://ollama:11434/api/generate",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"qwen3:4b-ctx4k\",\n  \"prompt\": {{ JSON.stringify(`/no_think You are an email classifier. Classify this email into exactly one of: action_required, informational, personal, spam, test. Respond with a single JSON object with two fields: classification (the category) and confidence (number between 0 and 1). No other text.\\n\\nFrom: ${$json.from}\\nSubject: ${$json.subject}\\nBody: ${$json.body}`) }},\n  \"stream\": false,\n  \"format\": \"json\"\n}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        384,
-        0
-      ],
-      "id": "3a454fc7-7a44-43e6-8c5b-cfdff48e7a43",
-      "name": "Classify",
-      "executeOnce": false
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "9632bb06-3a65-4005-bb07-af6cb53d26f4",
-              "name": "message_id",
-              "value": "={{ $('Extract Fields').item.json.message_id }}",
-              "type": "string"
-            },
-            {
-              "id": "8709e6fa-cb6d-4ab9-894b-482d9dfc5584",
-              "name": "thread_id",
-              "value": "{{ $('Extract Fields').item.json.thread_id }}",
-              "type": "string"
-            },
-            {
-              "id": "d42d3f56-bc04-4fac-b447-fdd3e66a009b",
-              "name": "from",
-              "value": "={{ $('Extract Fields').item.json.from }}",
-              "type": "string"
-            },
-            {
-              "id": "5f7d0e3f-aa5c-4153-98e5-5373e2d8d971",
-              "name": "to",
-              "value": "={{ $('Extract Fields').item.json.to }}",
-              "type": "string"
-            },
-            {
-              "id": "44611342-d314-4163-8a8d-8b2e1d089b45",
-              "name": "subject",
-              "value": "={{ $('Extract Fields').item.json.subject }}",
-              "type": "string"
-            },
-            {
-              "id": "904789ad-fb53-4b5b-9227-969dd8e34c2d",
-              "name": "received_at",
-              "value": "={{ $('Extract Fields').item.json.received_at }}",
-              "type": "string"
-            },
-            {
-              "id": "c7aff4b8-4384-463f-b6cd-eccde5d5b2d1",
-              "name": "snippet",
-              "value": "={{ $('Extract Fields').item.json.snippet }}",
-              "type": "string"
-            },
-            {
-              "id": "369bbcdb-4ab6-4182-844c-31161931329e",
-              "name": "body",
-              "value": "={{ $('Extract Fields').item.json.body }}",
-              "type": "string"
-            },
-            {
-              "id": "51bcbead-6f74-4879-ab8c-0e0e99e38b61",
-              "name": "classification",
-              "value": "={{ JSON.parse($json.response).classification }}",
-              "type": "string"
-            },
-            {
-              "id": "537ca35c-c881-4fac-ba2b-37dc0656a8e6",
-              "name": "confidence",
-              "value": "={{ JSON.parse($json.response).confidence }}",
-              "type": "string"
-            },
-            {
-              "id": "c3ca5d61-7859-49b6-8cb4-7d30bab703b9",
-              "name": "classified_at",
-              "value": "={{ $now.toISO() }}",
-              "type": "string"
-            },
-            {
-              "id": "207e8895-f0aa-492b-ba34-4a9758406567",
-              "name": "model",
-              "value": "qwen3:4b",
-              "type": "string"
-            },
-            {
-              "id": "8312f877-5a8d-4e48-b0e2-b1962c950488",
-              "name": "in_reply_to",
-              "value": "={{ $('Extract Fields').item.json.in_reply_to }}",
-              "type": "string"
-            },
-            {
-              "id": "d166acb0-90ba-437b-8070-afd4c9c1ae33",
-              "name": "references",
-              "value": "={{ $('Extract Fields').item.json.references }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        512,
-        0
-      ],
-      "id": "fd69e047-b4f1-4bbd-92d5-04407ae9da07",
-      "name": "Merge Classification"
     },
     {
       "parameters": {
@@ -262,181 +132,30 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "confidence": "={{ Number($json.confidence) }}",
             "message_id": "={{ $json.message_id }}",
             "thread_id": "={{ $json.thread_id }}",
-            "from_addr": "={{ $json.from }}",
-            "to_addr": "={{ $json.to }}",
+            "from_addr": "={{ $json.from_addr }}",
+            "to_addr": "={{ $json.to_addr }}",
             "subject": "={{ $json.subject }}",
             "received_at": "={{ $json.received_at }}",
             "snippet": "={{ $json.snippet }}",
             "body": "={{ $json.body }}",
-            "classification": "=={{ $json.classification }}",
-            "classified_at": "={{ $json.classified_at }}",
-            "model": "={{ $json.model }}",
             "in_reply_to": "={{ $json.in_reply_to }}",
             "references": "={{ $json.references }}"
           },
-          "matchingColumns": [
-            "id"
-          ],
+          "matchingColumns": ["message_id"],
           "schema": [
-            {
-              "id": "id",
-              "displayName": "id",
-              "required": false,
-              "defaultMatch": true,
-              "display": true,
-              "type": "number",
-              "canBeUsedToMatch": true,
-              "removed": true
-            },
-            {
-              "id": "message_id",
-              "displayName": "message_id",
-              "required": true,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "thread_id",
-              "displayName": "thread_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "from_addr",
-              "displayName": "from_addr",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "to_addr",
-              "displayName": "to_addr",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "subject",
-              "displayName": "subject",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "received_at",
-              "displayName": "received_at",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "snippet",
-              "displayName": "snippet",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "body",
-              "displayName": "body",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "classification",
-              "displayName": "classification",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "confidence",
-              "displayName": "confidence",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "classified_at",
-              "displayName": "classified_at",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "model",
-              "displayName": "model",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "created_at",
-              "displayName": "created_at",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true,
-              "removed": true
-            },
-            {
-              "id": "draft_id",
-              "displayName": "draft_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "canBeUsedToMatch": true,
-              "removed": true
-            },
-            {
-              "id": "in_reply_to",
-              "displayName": "in_reply_to",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "references",
-              "displayName": "references",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            }
+            {"id": "id", "displayName": "id", "required": false, "defaultMatch": true, "display": true, "type": "number", "canBeUsedToMatch": true, "removed": true},
+            {"id": "message_id", "displayName": "message_id", "required": true, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "thread_id", "displayName": "thread_id", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "from_addr", "displayName": "from_addr", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "to_addr", "displayName": "to_addr", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "subject", "displayName": "subject", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "received_at", "displayName": "received_at", "required": false, "display": true, "type": "dateTime", "canBeUsedToMatch": true},
+            {"id": "snippet", "displayName": "snippet", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "body", "displayName": "body", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "in_reply_to", "displayName": "in_reply_to", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "references", "displayName": "references", "required": false, "display": true, "type": "string", "canBeUsedToMatch": true}
           ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
@@ -447,76 +166,55 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [
-        640,
-        0
-      ],
+      "position": [660, 0],
       "id": "b03f0cf8-12fb-4a81-91b2-118fcdf91845",
-      "name": "Store in DB",
+      "name": "Insert Inbox (skip dupes)",
       "credentials": {
         "postgres": {
           "id": "JFX4tvrffvKnTouV",
           "name": "MailBox Postgres"
         }
       }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "MlbxClsfySub0001",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "inbox_message_id": "={{ $json.id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {"id": "inbox_message_id", "displayName": "inbox_message_id", "required": true, "display": true, "type": "number"}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [880, 0],
+      "id": "exw00000-0000-0000-0000-000000000001",
+      "name": "Run Classify Sub"
     }
   ],
   "pinData": {},
   "connections": {
-    "Every Minute": {
-      "main": [
-        [
-          {
-            "node": "Get many messages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Every 5 Minutes": {
+      "main": [[{"node": "Get many messages", "type": "main", "index": 0}]]
     },
     "Get many messages": {
-      "main": [
-        [
-          {
-            "node": "Extract Fields",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Extract Fields", "type": "main", "index": 0}]]
     },
     "Extract Fields": {
-      "main": [
-        [
-          {
-            "node": "Classify",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Insert Inbox (skip dupes)", "type": "main", "index": 0}]]
     },
-    "Classify": {
-      "main": [
-        [
-          {
-            "node": "Merge Classification",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge Classification": {
-      "main": [
-        [
-          {
-            "node": "Store in DB",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Insert Inbox (skip dupes)": {
+      "main": [[{"node": "Run Classify Sub", "type": "main", "index": 0}]]
     }
   },
   "active": true,
