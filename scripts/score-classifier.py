@@ -82,11 +82,14 @@ def classify(from_addr, subject, body):
     r = http_post(OLLAMA, {"model": p["model"], "prompt": p["prompt"], "stream": False})
     latency_ms = int((time.time() - t0) * 1000)
     raw = r.get("response", "")
-    n = http_post(f"{DASH}/classification-normalize", {"raw": raw})
+    n = http_post(f"{DASH}/classification-normalize",
+                  {"raw": raw, "from": from_addr, "to": ""})
     return {
         "category": n["category"],
         "confidence": n.get("confidence", 0),
         "json_parse_ok": n.get("json_parse_ok", False),
+        "preclass_applied": n.get("preclass_applied", False),
+        "preclass_source": n.get("preclass_source"),
         "latency_ms": latency_ms,
         "raw": raw[:300],
     }
@@ -136,7 +139,7 @@ def main():
         w = csv.writer(out)
         w.writerow(["id", "source", "from_addr", "subject", "true_label",
                     "pred_label", "confidence", "json_parse_ok", "latency_ms",
-                    "match"])
+                    "match", "preclass_applied", "preclass_source"])
         for i, row in enumerate(corpus, 1):
             if row["source"] == "db":
                 body = body_cache.get(str(row["id"])) or row["snippet"]
@@ -151,7 +154,8 @@ def main():
             results.append({**row, **res, "match": match})
             w.writerow([row["id"], row["source"], row["from_addr"], row["subject"],
                         row["label"], res["category"], res["confidence"],
-                        res["json_parse_ok"], res["latency_ms"], match])
+                        res["json_parse_ok"], res["latency_ms"], match,
+                        res["preclass_applied"], res["preclass_source"] or ""])
             print(f"[{i}/{len(corpus)}] {row['id']:>20} true={row['label']:14s} "
                   f"pred={res['category']:14s} {'OK' if match else 'MISS'} "
                   f"({res['latency_ms']}ms)", file=sys.stderr)

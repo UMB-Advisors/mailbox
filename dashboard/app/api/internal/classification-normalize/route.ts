@@ -6,10 +6,17 @@ export const dynamic = 'force-dynamic';
 // D-06 / MAIL-07 — strip <think> tokens, parse JSON, fall back to
 // {category: 'unknown', confidence: 0} on any parse failure. Exposed for the
 // n8n classify sub-workflow so normalization logic stays in code, not in JSON.
+//
+// D-50 — accept optional `from` / `to` so the deterministic operator-identity
+// preclass in lib/classification/preclass.ts can override the LLM verdict.
 export async function POST(req: NextRequest) {
   try {
-    const { raw } = (await req.json()) as { raw?: string };
-    const result = normalizeClassifierOutput(raw ?? '');
+    const { raw, from, to } = (await req.json()) as {
+      raw?: string;
+      from?: string;
+      to?: string;
+    };
+    const result = normalizeClassifierOutput(raw ?? '', { from, to });
     return NextResponse.json(result);
   } catch (error) {
     console.error('POST /api/internal/classification-normalize failed:', error);

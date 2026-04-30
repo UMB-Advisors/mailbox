@@ -109,7 +109,7 @@
         "url": "http://mailbox-dashboard:3001/dashboard/api/internal/classification-normalize",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"raw\": {{ JSON.stringify($json.response || '') }}\n}",
+        "jsonBody": "={\n  \"raw\": {{ JSON.stringify($json.response || '') }},\n  \"from\": {{ JSON.stringify($('Load Inbox Row').item.json.from_addr || '') }},\n  \"to\": {{ JSON.stringify($('Load Inbox Row').item.json.to_addr || '') }}\n}",
         "options": {
           "timeout": 5000
         }
