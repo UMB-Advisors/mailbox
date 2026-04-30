@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 2 in lean execution; 02-03 partial (migration 007 applied; ingestion workflow live with thread-header capture validated)
-stopped_at: 02-03 partial done — migration 007 (in_reply_to + references columns) applied to live Postgres; MailBOX n8n workflow updated to capture threading headers and committed to n8n/workflows/01-email-pipeline-main.json. Reply email at id=909 validated end-to-end with both threading columns populated. Known issues for 02-04: schedule trigger still firing every 1 min (UI rename to 5min did not persist); executeOnce off on Classify means up to 20 Ollama calls per run; legacy classification taxonomy still in use until MAIL-05 migration.
-last_updated: "2026-04-28T08:16:22.000Z"
+status: Phase 2 in lean execution; 02-04a complete (MAIL-05 classifier deployed and verified end-to-end; corpus + scoring deferred to 02-04b)
+stopped_at: 02-04a verified live on Jetson — classifier prompt + normalize + 3 internal API endpoints + MailBOX-Classify sub-workflow + main refactored to filter dupes / 5-min schedule. Dashboard rebuilt with system-font patch. End-to-end fire 2026-04-30 06:35 UTC: real Heron Labs invoice email classified `reorder` @ 0.9 confidence, 1757ms latency, json_parse_ok=t. Live-gate correctly blocked drafts row at stage=pending_admin. 02-04b (corpus + scoring) and 02-07 (drafting handoff) are next.
+last_updated: "2026-04-29T23:30:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
@@ -77,11 +77,26 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - Workflow JSON exported and committed to `n8n/workflows/01-email-pipeline-main.json`
 - End-to-end validated: reply email at id=909 has both `in_reply_to` and `references` populated
 
-### Known issues to resolve in 02-04 work
-- Classify node has `executeOnce: false` (correct) but workflow still polls every 1 minute (UI 5-min change did not persist), causing up to 20 Ollama classifier calls per run
-- Legacy classification taxonomy still in use (`action_required`, `informational`, etc.); MAIL-05 8-category taxonomy migration deferred to 02-04
-- Filter-dupes-before-classify (Fix C from session log) deferred to 02-04 work
-- ID jump from 26 → 909 in inbox_messages.id sequence is harmless but visible (sequence bumped during failed Insert experiments)
+### Phase 2 Plan 02-04a: Partial — MAIL-05 classifier + classify sub-workflow + live-gate stub (2026-04-29)
+- Dashboard `lib/classification/{prompt,normalize}.ts` with 8-category MAIL-05 taxonomy + `<think>` strip + hard fallback to `unknown` (D-05/D-06/D-07)
+- Three internal API endpoints under `/dashboard/api/`:
+  - `POST internal/classification-prompt` — D-29 source of truth (deviation: POST not GET because body too large for query string)
+  - `POST internal/classification-normalize` — applies normalize logic
+  - `GET onboarding/live-gate` — D-49 boundary stub, fails closed
+- MailBOX main refactored: 5-min schedule (minutesInterval bug fixed), classification removed inline, ingest+filter-dupes-before-classify via skipOnConflict, hands new row id to sub via Execute Workflow node
+- New MailBOX-Classify sub-workflow (id `MlbxClsfySub0001`, 12 nodes): Trigger → Load Row → Build Prompt → Mark Start → Ollama → Normalize → Insert classification_log → Drop spam? → Live Gate → Onboarding Live? → Insert Draft Stub (with `auto_send_blocked` for escalate per D-32; placeholder `draft_body=''`/`model='pending'` until 02-07)
+- Drafting handoff intentionally NOT wired (deferred to 02-07)
+- Dashboard rebuilt with `next/font/google` removed (system fonts via CSS variables in `globals.css`) — Jetson appliance builds offline; previous behavior failed on first boot due to `CERT_NOT_YET_VALID` from epoch-zero clock
+- Live verification: `docker compose ps mailbox-dashboard` healthy, all three endpoints curl-verified, both workflows in workflow_entity (main active, sub inactive — Execute Workflow Trigger is not a self-starting trigger)
+- See: `.planning/phases/02-email-pipeline-core/02-04a-classification-routing-SUMMARY-v1-2026-04-29.md`
+
+### Known issues / parked
+- 02-04a: end-to-end classify chain awaits first inbound email (no new emails since deploy; verify by checking `mailbox.classification_log` after schedule fires)
+- 02-04a: existing legacy `MailBOX-Drafts` workflow (NIM-based) still active — may double-draft once 02-07 lands; needs deactivation guard
+- 02-03 carry-forward: schedule trigger 1-min bug — RESOLVED in 02-04a (`minutesInterval: 5`)
+- 02-03 carry-forward: legacy taxonomy — RESOLVED in 02-04a (MAIL-05 8-cat in canonical prompt)
+- 02-03 carry-forward: filter-dupes-before-classify — RESOLVED in 02-04a (`Insert (skipOnConflict) → Run Classify Sub`)
+- ID jump from 26 → 909 in inbox_messages.id sequence — cosmetic only
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
