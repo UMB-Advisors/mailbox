@@ -1,25 +1,9 @@
 import type { Metadata } from 'next';
-import { IBM_Plex_Mono, Outfit, Source_Serif_4 } from 'next/font/google';
 import './globals.css';
 
-const outfit = Outfit({
-  subsets: ['latin'],
-  variable: '--font-sans',
-  display: 'swap',
-});
-
-const ibmPlexMono = IBM_Plex_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-mono',
-  display: 'swap',
-});
-
-const sourceSerif = Source_Serif_4({
-  subsets: ['latin'],
-  variable: '--font-serif',
-  display: 'swap',
-});
+// Font variables (--font-sans/mono/serif) are defined as system stacks in
+// globals.css. The appliance builds offline so we don't pull from Google
+// Fonts at build time.
 
 export const metadata: Metadata = {
   title: 'MailBox One',
@@ -32,10 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html
-      lang="en"
-      className={`${outfit.variable} ${ibmPlexMono.variable} ${sourceSerif.variable}`}
-    >
+    <html lang="en">
       <body>{children}</body>
     </html>
   );
