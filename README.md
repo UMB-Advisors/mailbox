@@ -107,7 +107,7 @@ flowchart TB
 
 ```bash
 # Clone the repository
-git clone https://github.com/ConsultingFuture4200/mailbox.git
+git clone https://github.com/UMB-Advisors/mailbox.git
 cd mailbox
 
 # Copy environment template and configure
