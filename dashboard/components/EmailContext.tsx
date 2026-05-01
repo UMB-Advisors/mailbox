@@ -1,3 +1,4 @@
+import { formatEmailBody } from '@/lib/format-body';
 import type { InboxMessage } from '@/lib/types';
 
 export function EmailContext({ message }: { message: InboxMessage }) {
@@ -13,8 +14,8 @@ export function EmailContext({ message }: { message: InboxMessage }) {
       </dl>
       {message.body && (
         <div className="rounded border border-border-subtle bg-bg-deep p-3">
-          <pre className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink-muted">
-            {message.body}
+          <pre className="whitespace-pre-wrap break-words font-serif text-sm leading-relaxed text-ink-muted">
+            {formatEmailBody(message.body)}
           </pre>
         </div>
       )}
