@@ -7,7 +7,10 @@
       },
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "id": "trg00000-0000-0000-0000-000000000001",
       "name": "When Called by Main"
     },
@@ -21,7 +24,10 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "id": "pgr00000-0000-0000-0000-000000000002",
       "name": "Load Inbox Row",
       "credentials": {
@@ -44,7 +50,10 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [440, 0],
+      "position": [
+        440,
+        0
+      ],
       "id": "htp00000-0000-0000-0000-000000000003",
       "name": "Build Prompt"
     },
@@ -82,7 +91,10 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [660, 0],
+      "position": [
+        660,
+        0
+      ],
       "id": "set00000-0000-0000-0000-000000000004",
       "name": "Mark Start"
     },
@@ -99,7 +111,10 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [880, 0],
+      "position": [
+        880,
+        0
+      ],
       "id": "htp00000-0000-0000-0000-000000000005",
       "name": "Call Ollama"
     },
@@ -116,7 +131,10 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [1100, 0],
+      "position": [
+        1100,
+        0
+      ],
       "id": "htp00000-0000-0000-0000-000000000006",
       "name": "Normalize"
     },
@@ -178,7 +196,10 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1320, 0],
+      "position": [
+        1320,
+        0
+      ],
       "id": "set00000-0000-0000-0000-000000000007",
       "name": "Shape Log Row"
     },
@@ -210,21 +231,72 @@
           },
           "matchingColumns": [],
           "schema": [
-            {"id": "inbox_message_id", "displayName": "inbox_message_id", "required": true, "display": true, "type": "number"},
-            {"id": "category", "displayName": "category", "required": true, "display": true, "type": "string"},
-            {"id": "confidence", "displayName": "confidence", "required": true, "display": true, "type": "number"},
-            {"id": "model_version", "displayName": "model_version", "required": true, "display": true, "type": "string"},
-            {"id": "latency_ms", "displayName": "latency_ms", "required": false, "display": true, "type": "number"},
-            {"id": "raw_output", "displayName": "raw_output", "required": false, "display": true, "type": "string"},
-            {"id": "json_parse_ok", "displayName": "json_parse_ok", "required": true, "display": true, "type": "boolean"},
-            {"id": "think_stripped", "displayName": "think_stripped", "required": true, "display": true, "type": "boolean"}
+            {
+              "id": "inbox_message_id",
+              "displayName": "inbox_message_id",
+              "required": true,
+              "display": true,
+              "type": "number"
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": true,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": true,
+              "display": true,
+              "type": "number"
+            },
+            {
+              "id": "model_version",
+              "displayName": "model_version",
+              "required": true,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "latency_ms",
+              "displayName": "latency_ms",
+              "required": false,
+              "display": true,
+              "type": "number"
+            },
+            {
+              "id": "raw_output",
+              "displayName": "raw_output",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "json_parse_ok",
+              "displayName": "json_parse_ok",
+              "required": true,
+              "display": true,
+              "type": "boolean"
+            },
+            {
+              "id": "think_stripped",
+              "displayName": "think_stripped",
+              "required": true,
+              "display": true,
+              "type": "boolean"
+            }
           ]
         },
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1540, 0],
+      "position": [
+        1540,
+        0
+      ],
       "id": "pgi00000-0000-0000-0000-000000000008",
       "name": "Insert Classification Log",
       "credentials": {
@@ -260,7 +332,10 @@
       },
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1760, 0],
+      "position": [
+        1760,
+        0
+      ],
       "id": "ifn00000-0000-0000-0000-000000000009",
       "name": "Drop Spam?"
     },
@@ -274,7 +349,10 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [1980, -100],
+      "position": [
+        1980,
+        -100
+      ],
       "id": "htp00000-0000-0000-0000-000000000010",
       "name": "Live Gate"
     },
@@ -304,7 +382,10 @@
       },
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2200, -100],
+      "position": [
+        2200,
+        -100
+      ],
       "id": "ifn00000-0000-0000-0000-000000000011",
       "name": "Onboarding Live?"
     },
@@ -344,29 +425,128 @@
           },
           "matchingColumns": [],
           "schema": [
-            {"id": "inbox_message_id", "displayName": "inbox_message_id", "required": true, "display": true, "type": "number"},
-            {"id": "draft_body", "displayName": "draft_body", "required": true, "display": true, "type": "string"},
-            {"id": "model", "displayName": "model", "required": true, "display": true, "type": "string"},
-            {"id": "status", "displayName": "status", "required": false, "display": true, "type": "string"},
-            {"id": "from_addr", "displayName": "from_addr", "required": false, "display": true, "type": "string"},
-            {"id": "to_addr", "displayName": "to_addr", "required": false, "display": true, "type": "string"},
-            {"id": "subject", "displayName": "subject", "required": false, "display": true, "type": "string"},
-            {"id": "body_text", "displayName": "body_text", "required": false, "display": true, "type": "string"},
-            {"id": "received_at", "displayName": "received_at", "required": false, "display": true, "type": "dateTime"},
-            {"id": "message_id", "displayName": "message_id", "required": false, "display": true, "type": "string"},
-            {"id": "thread_id", "displayName": "thread_id", "required": false, "display": true, "type": "string"},
-            {"id": "in_reply_to", "displayName": "in_reply_to", "required": false, "display": true, "type": "string"},
-            {"id": "references", "displayName": "references", "required": false, "display": true, "type": "string"},
-            {"id": "classification_category", "displayName": "classification_category", "required": false, "display": true, "type": "string"},
-            {"id": "classification_confidence", "displayName": "classification_confidence", "required": false, "display": true, "type": "number"},
-            {"id": "auto_send_blocked", "displayName": "auto_send_blocked", "required": false, "display": true, "type": "boolean"}
+            {
+              "id": "inbox_message_id",
+              "displayName": "inbox_message_id",
+              "required": true,
+              "display": true,
+              "type": "number"
+            },
+            {
+              "id": "draft_body",
+              "displayName": "draft_body",
+              "required": true,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "model",
+              "displayName": "model",
+              "required": true,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "from_addr",
+              "displayName": "from_addr",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "to_addr",
+              "displayName": "to_addr",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "body_text",
+              "displayName": "body_text",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "received_at",
+              "displayName": "received_at",
+              "required": false,
+              "display": true,
+              "type": "dateTime"
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "in_reply_to",
+              "displayName": "in_reply_to",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "references",
+              "displayName": "references",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "classification_category",
+              "displayName": "classification_category",
+              "required": false,
+              "display": true,
+              "type": "string"
+            },
+            {
+              "id": "classification_confidence",
+              "displayName": "classification_confidence",
+              "required": false,
+              "display": true,
+              "type": "number"
+            },
+            {
+              "id": "auto_send_blocked",
+              "displayName": "auto_send_blocked",
+              "required": false,
+              "display": true,
+              "type": "boolean"
+            }
           ]
         },
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [2420, -100],
+      "position": [
+        2420,
+        -100
+      ],
       "id": "pgi00000-0000-0000-0000-000000000012",
       "name": "Insert Draft Stub",
       "credentials": {
@@ -375,47 +555,196 @@
           "name": "MailBox Postgres"
         }
       }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "tdsub-draft-id",
+              "name": "draft_id",
+              "value": "={{ Number($json.id) }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        -100
+      ],
+      "id": "set00000-0000-0000-0000-000000000013",
+      "name": "Pack Draft Id"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "MlbxDraftSub0001",
+          "mode": "id",
+          "cachedResultName": "MailBOX-Draft"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2860,
+        -100
+      ],
+      "id": "exw00000-0000-0000-0000-000000000014",
+      "name": "Trigger Draft Sub"
     }
   ],
   "pinData": {},
   "connections": {
     "When Called by Main": {
-      "main": [[{"node": "Load Inbox Row", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Load Inbox Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Load Inbox Row": {
-      "main": [[{"node": "Build Prompt", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build Prompt": {
-      "main": [[{"node": "Mark Start", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Mark Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Mark Start": {
-      "main": [[{"node": "Call Ollama", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Call Ollama": {
-      "main": [[{"node": "Normalize", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Normalize": {
-      "main": [[{"node": "Shape Log Row", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Shape Log Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Shape Log Row": {
-      "main": [[{"node": "Insert Classification Log", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Insert Classification Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Insert Classification Log": {
-      "main": [[{"node": "Drop Spam?", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Drop Spam?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Drop Spam?": {
       "main": [
-        [{"node": "Live Gate", "type": "main", "index": 0}],
+        [
+          {
+            "node": "Live Gate",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Live Gate": {
-      "main": [[{"node": "Onboarding Live?", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Onboarding Live?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Onboarding Live?": {
       "main": [
-        [{"node": "Insert Draft Stub", "type": "main", "index": 0}],
+        [
+          {
+            "node": "Insert Draft Stub",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
+      ]
+    },
+    "Insert Draft Stub": {
+      "main": [
+        [
+          {
+            "node": "Pack Draft Id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Draft Id": {
+      "main": [
+        [
+          {
+            "node": "Trigger Draft Sub",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
