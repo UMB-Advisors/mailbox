@@ -73,9 +73,7 @@ export default async function StatusPage() {
             label="n8n active workflows"
             value={activeWorkflowCount ?? '—'}
             sub="MailBOX + MailBOX-Send expected = 2"
-            tone={
-              activeWorkflowCount !== null && activeWorkflowCount < 2 ? 'red' : 'default'
-            }
+            tone={activeWorkflowCount !== null && activeWorkflowCount < 2 ? 'red' : 'default'}
           />
           <Stat
             label="Last email"
@@ -90,29 +88,15 @@ export default async function StatusPage() {
             Drafts (last 24h)
           </h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Stat
-              label="Total"
-              value={draftCounts24h?.total ?? '—'}
-            />
-            <Stat
-              label="Sent"
-              value={draftCounts24h?.sent ?? '—'}
-              tone="green"
-            />
-            <Stat
-              label="Pending"
-              value={draftCounts24h?.pending ?? '—'}
-              tone="orange"
-            />
+            <Stat label="Total" value={draftCounts24h?.total ?? '—'} />
+            <Stat label="Sent" value={draftCounts24h?.sent ?? '—'} tone="green" />
+            <Stat label="Pending" value={draftCounts24h?.pending ?? '—'} tone="orange" />
             <Stat
               label="Failed"
               value={draftCounts24h?.failed ?? '—'}
               tone={draftCounts24h && draftCounts24h.failed > 0 ? 'red' : 'default'}
             />
-            <Stat
-              label="Rejected"
-              value={draftCounts24h?.rejected ?? '—'}
-            />
+            <Stat label="Rejected" value={draftCounts24h?.rejected ?? '—'} />
           </div>
         </section>
 
@@ -160,14 +144,10 @@ export default async function StatusPage() {
           <Card title="Last inference">
             <div className="flex items-baseline gap-2">
               <span className="font-mono text-2xl font-semibold tracking-tight">
-                {lastInference.latency_ms !== null
-                  ? `${lastInference.latency_ms}ms`
-                  : '—'}
+                {lastInference.latency_ms !== null ? `${lastInference.latency_ms}ms` : '—'}
               </span>
               {lastInference.at && (
-                <span className="text-xs text-ink-dim">
-                  {formatRelative(lastInference.at)}
-                </span>
+                <span className="text-xs text-ink-dim">{formatRelative(lastInference.at)}</span>
               )}
             </div>
             <p className="mt-1 text-xs text-ink-dim">
@@ -190,8 +170,7 @@ export default async function StatusPage() {
                     className="h-full bg-accent-blue"
                     style={{
                       width: `${Math.round(
-                        ((diskFree.total_bytes - diskFree.free_bytes) / diskFree.total_bytes) *
-                          100,
+                        ((diskFree.total_bytes - diskFree.free_bytes) / diskFree.total_bytes) * 100,
                       )}%`,
                     }}
                   />
@@ -210,9 +189,11 @@ export default async function StatusPage() {
           <Card>
             {ollamaModels === null ? (
               <p className="text-sm text-accent-red">
-                Ollama unreachable at <code className="font-mono">{
-                  process.env.OLLAMA_BASE_URL ?? 'http://ollama:11434'
-                }</code> — local drafting path is degraded; cloud route still works.
+                Ollama unreachable at{' '}
+                <code className="font-mono">
+                  {process.env.OLLAMA_BASE_URL ?? 'http://ollama:11434'}
+                </code>{' '}
+                — local drafting path is degraded; cloud route still works.
               </p>
             ) : ollamaModels.length === 0 ? (
               <p className="text-sm text-ink-dim">
@@ -224,9 +205,7 @@ export default async function StatusPage() {
                   <li key={m.name} className="flex items-center justify-between">
                     <span className="font-mono">{m.name}</span>
                     {m.size_vram !== undefined && (
-                      <span className="text-xs text-ink-dim">
-                        {formatBytes(m.size_vram)} VRAM
-                      </span>
+                      <span className="text-xs text-ink-dim">{formatBytes(m.size_vram)} VRAM</span>
                     )}
                   </li>
                 ))}
@@ -296,9 +275,7 @@ function Stat({ label, value, sub, mono, tone = 'default' }: StatProps) {
 function Card({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div className="rounded border border-border-subtle bg-bg-panel p-4">
-      {title && (
-        <div className="mb-2 text-xs uppercase tracking-wider text-ink-dim">{title}</div>
-      )}
+      {title && <div className="mb-2 text-xs uppercase tracking-wider text-ink-dim">{title}</div>}
       {children}
     </div>
   );
