@@ -153,6 +153,17 @@ export interface SentHistory {
   to_addr: string;
 }
 
+export interface StateTransitions {
+  actor: Generated<string>;
+  draft_id: number;
+  from_status: string;
+  hash_chain: string | null;
+  id: Generated<Int8>;
+  reason: string | null;
+  to_status: string;
+  transitioned_at: Generated<string>;
+}
+
 export interface DB {
   classification_log: ClassificationLog;
   drafts: Drafts;
@@ -162,4 +173,5 @@ export interface DB {
   persona: Persona;
   rejected_history: RejectedHistory;
   sent_history: SentHistory;
+  state_transitions: StateTransitions;
 }
