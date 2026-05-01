@@ -1,7 +1,7 @@
 'use client';
 
-import type { DraftWithMessage } from '@/lib/types';
 import { ChevronRight } from 'lucide-react';
+import type { DraftWithMessage } from '@/lib/types';
 import { ClassificationChip } from './ClassificationChip';
 import { TimeAgo } from './TimeAgo';
 
@@ -15,8 +15,7 @@ export function DraftCard({
   onToggle: () => void;
 }) {
   const m = draft.message;
-  const previewLine =
-    draft.draft_body.split('\n').find((l) => l.trim().length > 0) ?? '';
+  const previewLine = draft.draft_body.split('\n').find((l) => l.trim().length > 0) ?? '';
 
   return (
     <button
@@ -41,14 +40,9 @@ export function DraftCard({
           />
         </div>
       </div>
-      <p className="mb-2 truncate font-sans text-base font-medium">
-        {m.subject ?? '(no subject)'}
-      </p>
+      <p className="mb-2 truncate font-sans text-base font-medium">{m.subject ?? '(no subject)'}</p>
       <p className="mb-2 line-clamp-2 text-sm text-ink-muted">{previewLine}</p>
-      <ClassificationChip
-        classification={m.classification}
-        confidence={m.confidence}
-      />
+      <ClassificationChip classification={m.classification} confidence={m.confidence} />
     </button>
   );
 }

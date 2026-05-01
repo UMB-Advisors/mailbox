@@ -22,9 +22,7 @@ export function ClassificationChip({
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[11px] ${palette}`}
     >
       <span>{classification}</span>
-      {conf != null && (
-        <span className="text-ink-dim">{Math.round(conf * 100)}%</span>
-      )}
+      {conf != null && <span className="text-ink-dim">{Math.round(conf * 100)}%</span>}
     </span>
   );
 }

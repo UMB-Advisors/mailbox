@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import { AlertCircle, ChevronDown, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
 import type { DraftWithMessage } from '@/lib/types';
 import { TimeAgo } from './TimeAgo';
 

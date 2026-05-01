@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useEffect } from 'react';
 
 export function Toast({
   kind,

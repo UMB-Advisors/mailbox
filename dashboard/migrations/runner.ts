@@ -1,7 +1,7 @@
-import { Client } from 'pg';
 import { readdir, readFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Client } from 'pg';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -20,16 +20,13 @@ async function main() {
     );
   `);
 
-  const files = (await readdir(here))
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
+  const files = (await readdir(here)).filter((f) => f.endsWith('.sql')).sort();
 
   for (const f of files) {
     const version = f.replace(/\.sql$/, '');
-    const { rows } = await client.query(
-      'SELECT 1 FROM mailbox.migrations WHERE version = $1',
-      [version],
-    );
+    const { rows } = await client.query('SELECT 1 FROM mailbox.migrations WHERE version = $1', [
+      version,
+    ]);
     if (rows.length > 0) {
       console.log(`[skip] ${version} (already applied)`);
       continue;
@@ -39,10 +36,7 @@ async function main() {
     await client.query('BEGIN');
     try {
       await client.query(sql);
-      await client.query(
-        'INSERT INTO mailbox.migrations (version) VALUES ($1)',
-        [version],
-      );
+      await client.query('INSERT INTO mailbox.migrations (version) VALUES ($1)', [version]);
       await client.query('COMMIT');
       console.log(`[ok]    ${version}`);
     } catch (err) {

@@ -2,13 +2,7 @@
 
 import { Sparkles, X } from 'lucide-react';
 
-export function NewDraftsBanner({
-  count,
-  onDismiss,
-}: {
-  count: number;
-  onDismiss: () => void;
-}) {
+export function NewDraftsBanner({ count, onDismiss }: { count: number; onDismiss: () => void }) {
   if (count === 0) return null;
 
   return (

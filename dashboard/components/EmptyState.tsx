@@ -15,9 +15,7 @@ export function EmptyState() {
       <CheckCircle2 size={32} className="text-accent-green" />
       <p className="font-sans text-base font-medium">All caught up</p>
       <p className="text-sm text-ink-muted">No drafts waiting.</p>
-      {stamp && (
-        <p className="font-mono text-xs text-ink-dim">Last checked {stamp}</p>
-      )}
+      {stamp && <p className="font-mono text-xs text-ink-dim">Last checked {stamp}</p>}
     </div>
   );
 }

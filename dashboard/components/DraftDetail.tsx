@@ -46,12 +46,7 @@ export function DraftDetail({
           )}
         </p>
       </div>
-      <ActionButtons
-        busy={busy}
-        onApprove={onApprove}
-        onEdit={onEdit}
-        onReject={onReject}
-      />
+      <ActionButtons busy={busy} onApprove={onApprove} onEdit={onEdit} onReject={onReject} />
     </article>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { DraftWithMessage } from '@/lib/types';
 
 const MAX_BODY = 10_000;
@@ -74,9 +74,7 @@ export function EditModal({
         </header>
         <div className="flex-1 space-y-3 overflow-auto p-4">
           <label className="block">
-            <span className="mb-1 block font-mono text-xs text-ink-dim">
-              Subject (optional)
-            </span>
+            <span className="mb-1 block font-mono text-xs text-ink-dim">Subject (optional)</span>
             <input
               type="text"
               value={subject}
