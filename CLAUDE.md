@@ -165,6 +165,16 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ### `inbox_messages` denormalization
 `mailbox.inbox_messages` carries its own `classification`, `confidence`, `classified_at`, `model`, `draft_id` columns alongside the per-draft state in `mailbox.drafts`. Treat `inbox_messages` as the message-level snapshot of the latest classification + currently linked draft. `mailbox.classification_log` is the append-only history.
 
+### `rag_context_refs` field semantics (STAQPRO-191 / STAQPRO-192)
+`mailbox.drafts.rag_context_refs` and `mailbox.sent_history.rag_context_refs` are both `jsonb DEFAULT '[]'::jsonb`. They store a JSON array of Qdrant point UUIDs (RFC 4122 v4) that were retrieved to augment the draft prompt at draft-assembly time. Empty array `[]` means one of: retrieval was gated (`cloud_gated`), upstream unavailable (`embed_unavailable`, `qdrant_unavailable`), or the counterparty had no prior history (`no_hits`).
+
+- **`drafts.rag_context_refs`** is written by `/api/internal/draft-prompt` (STAQPRO-191) at the moment the draft is assembled. Truth at draft time.
+- **`sent_history.rag_context_refs`** is the post-send archival snapshot. The migration 010 archival trigger (STAQPRO-189) carries the column over alongside the rest of the row when status flips to `'sent'`. Truth at send time.
+
+The point UUIDs are deterministic (`sha256(message_id)`-derived per `dashboard/lib/rag/qdrant.ts:pointIdFromMessageId`), so given a stored UUID + the original `inbox_messages.message_id` corpus, you can replay which prior messages a draft saw. Combined with the `mailbox.state_transitions` log (STAQPRO-185), this gives a full audit chain: which retrieval refs → which draft → which final outcome (approved | edited | rejected | sent).
+
+**Do NOT mutate these arrays after the trigger fires.** Both columns are point-in-time snapshots; later edits or re-retrievals do not retroactively write back. Future re-eval work that wants "what would today's RAG return" should query Qdrant fresh, not edit historical refs.
+
 ### Route handler pattern
 All API handlers under `dashboard/app/api/**/route.ts` follow the App Router contract: export named handlers (`GET`, `POST`, `PATCH`) that accept `(request: Request, { params })` and return a `Response`. Internal routes (`/api/internal/*`) are not auth-gated by Caddy basic_auth — they're called from n8n inside the docker network. **STAQPRO-138 is in flight**: replace inline `typeof x !== 'string'` checks with zod schemas in `dashboard/lib/schemas/` parsed by a shared validate middleware (`dashboard/lib/middleware/validate.ts`).
 
