@@ -298,7 +298,9 @@ This local clone is the source of truth. Edit here, commit, push, then on the Je
     git add . && git commit -m "..." && git push origin master
 
     # Apply on the Jetson (one-liner from this workstation)
-    ssh jetson 'cd ~/mailbox && git pull && docker compose up -d --build'
+    ssh jetson 'cd ~/mailbox && git pull && docker compose up -d --build --remove-orphans'
+
+**Always pass `--remove-orphans`** on full-stack `up` calls. When a service is removed from `docker-compose.yml` (e.g., the ttyd removal in STAQPRO-182), the running container becomes an orphan and keeps its host port binding — `--remove-orphans` cleans it up automatically. Without it, you'll see `docker compose down <service>` return "no such service" while the container is still listening.
 
 For Caddy-only or config-only changes (no rebuild), restart the container:
 

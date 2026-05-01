@@ -118,7 +118,7 @@ cp .env.example .env
 # Gmail OAuth is provisioned in n8n on first run — no IMAP/SMTP credentials needed.
 
 # Start all services
-docker compose up -d
+docker compose up -d --remove-orphans
 ```
 
 > [!TIP]
