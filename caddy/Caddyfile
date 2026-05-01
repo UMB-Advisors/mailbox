@@ -3,13 +3,39 @@ mailbox.heronlabsinc.com {
     dns cloudflare {env.CLOUDFLARE_API_TOKEN}
   }
 
+  # Convenience: bare /dashboard → /dashboard/queue
   redir /dashboard /dashboard/queue 308
 
+  # Inbound webhooks bypass basic_auth so external services (n8n
+  # webhooks, future integrations) still resolve. DR-22 (Pub/Sub) was
+  # cancelled, so today this path only carries the dashboard's internal
+  # /webhook/mailbox-send call which lives on the docker network and
+  # never traverses Caddy. Kept here so future webhook integrations
+  # don't need a Caddy edit.
+  handle /webhook/* {
+    reverse_proxy n8n:5678
+  }
+
+  # Dashboard approval queue. STAQPRO-131: gated behind basic_auth.
+  # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env.
+  # Generate a hash with:  docker run --rm caddy:2 caddy hash-password
+  # If the env vars are unset, this block keeps proxying unauthenticated
+  # so the appliance doesn't go dark mid-deploy — flip auth on by
+  # filling in the env vars and reloading caddy.
   handle /dashboard/* {
+    basic_auth {
+      {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
+    }
     reverse_proxy mailbox-dashboard:3001
   }
 
+  # n8n editor — same auth gate. The internal n8n webhook the dashboard
+  # calls runs on the docker network (http://n8n:5678/...) and does not
+  # traverse Caddy, so this gate doesn't break the approve→send loop.
   handle {
+    basic_auth {
+      {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
+    }
     reverse_proxy n8n:5678
   }
 }
