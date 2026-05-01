@@ -26,19 +26,28 @@ export async function transitionToApprovedAndSend(
   opts: TransitionOptions,
 ): Promise<NextResponse> {
   // Step 1: flip status to 'approved' (only from the allowed source states).
+  // Wrap in a transaction so we can SET LOCAL the actor/reason GUCs that the
+  // mailbox.state_transitions trigger reads (STAQPRO-185). Without these,
+  // the trigger still fires but logs actor='system'.
   try {
     const db = getKysely();
-    const rows = await db
-      .updateTable('drafts')
-      .set({
-        status: 'approved',
-        updated_at: sql<string>`NOW()`,
-        ...(opts.clearError ? { error_message: null } : {}),
-      })
-      .where('id', '=', id)
-      .where('status', 'in', opts.fromStates as readonly string[])
-      .returning(['id', 'status'])
-      .execute();
+    const rows = await db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('mailbox.actor', 'operator', true)`.execute(trx);
+      await sql`SELECT set_config('mailbox.transition_reason', ${opts.routeName}, true)`.execute(
+        trx,
+      );
+      return trx
+        .updateTable('drafts')
+        .set({
+          status: 'approved',
+          updated_at: sql<string>`NOW()`,
+          ...(opts.clearError ? { error_message: null } : {}),
+        })
+        .where('id', '=', id)
+        .where('status', 'in', opts.fromStates as readonly string[])
+        .returning(['id', 'status'])
+        .execute();
+    });
     if (rows.length === 0) {
       return NextResponse.json(
         { error: `Draft not in ${opts.fromStatesLabel} state` },

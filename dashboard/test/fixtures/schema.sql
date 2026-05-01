@@ -601,6 +601,50 @@ ALTER TABLE ONLY mailbox.inbox_messages
 
 
 --
+-- Migration 009 — STAQPRO-185 state_transitions log + trigger.
+-- Appended manually to the snapshot until the next pg_dump refresh on Bob.
+--
+
+CREATE TABLE mailbox.state_transitions (
+    id          bigserial PRIMARY KEY,
+    draft_id    integer NOT NULL REFERENCES mailbox.drafts(id) ON DELETE CASCADE,
+    from_status text NOT NULL,
+    to_status   text NOT NULL,
+    transitioned_at timestamptz NOT NULL DEFAULT NOW(),
+    actor       text NOT NULL DEFAULT 'system',
+    reason      text,
+    hash_chain  text
+);
+
+CREATE INDEX state_transitions_draft_id_idx
+    ON mailbox.state_transitions (draft_id, transitioned_at DESC);
+
+CREATE INDEX state_transitions_transitioned_at_idx
+    ON mailbox.state_transitions (transitioned_at DESC);
+
+CREATE OR REPLACE FUNCTION mailbox.log_draft_state_transition()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        INSERT INTO mailbox.state_transitions (draft_id, from_status, to_status, actor, reason)
+        VALUES (
+            NEW.id,
+            OLD.status,
+            NEW.status,
+            COALESCE(NULLIF(current_setting('mailbox.actor', true), ''), 'system'),
+            NULLIF(current_setting('mailbox.transition_reason', true), '')
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER drafts_log_state_transition
+    AFTER UPDATE OF status ON mailbox.drafts
+    FOR EACH ROW
+    EXECUTE FUNCTION mailbox.log_draft_state_transition();
+
+--
 -- PostgreSQL database dump complete
 --
 
