@@ -22,35 +22,34 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 <!-- GSD:stack-start source:research/STACK.md -->
 ## Technology Stack
 
-## Recommended Stack
-### Core Technologies
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| Ollama | 0.18.4 (latest stable as of 2026-04-02; 0.19.0 preview available) | Local LLM inference server | Native JetPack 6 support; official ARM64 CUDA image via `jetson-containers`; single-command model management; built-in GPU passthrough in Docker Compose via NVIDIA runtime; n8n has a first-class Ollama Model node |
-| Qdrant | 1.17.1 | Vector database for RAG | Rust-native binary = low idle memory; official multi-arch Docker image (linux/arm64); payload filtering eliminates extra DB round-trips; active development with weekly releases; outperforms pgvector for pure vector workloads |
-| n8n | 2.14.2 (2.x stable) | Workflow orchestrator | Native IMAP trigger + Gmail trigger nodes; built-in Ollama Model node; built-in Anthropic Chat Model node; ARM64 Docker image officially supported (`n8nio/n8n:latest-arm64`); visual debugging speeds iteration; fair-code license allows self-hosting |
-| Postgres | 17-alpine | Operational datastore | Multi-arch Docker official image with zero configuration; `postgres:17-alpine` is smallest footprint (~80MB) vs standard (~350MB); stores n8n workflow state, approval queue records, sent history, persona config |
-| Node.js + Express | 22 LTS (Node.js); 4.x (Express) | Dashboard API backend | Official `node:22-alpine` is multi-arch; Express is the minimal-overhead choice for a small appliance REST/WebSocket API; avoids heavyweight frameworks on 8GB unified memory |
-| React + Vite | React 18.x; Vite 6.x | Dashboard UI | Vite 6 produces smallest production bundles; multi-stage Docker build → nginx:alpine serves static files, eliminating Node.js process at runtime; React 18 concurrent mode reduces perceived latency on slow LAN |
-### Models
-| Model | Pull Tag | Size (VRAM) | Purpose | Why Recommended |
-|-------|----------|------------|---------|-----------------|
-| Qwen3-4B | `qwen3:4b` (Q4_K_M default) | ~2.7 GB | Email classification + simple draft generation | Q4_K_M quantization confirmed available on Ollama library; 32K context window natively; thinking/non-thinking mode toggle; outperforms Llama-3.2-3B on classification tasks at same size; validated on Jetson-class hardware |
-| nomic-embed-text | `nomic-embed-text:v1.5` | 274 MB | RAG embeddings | 274MB — leaves substantial headroom alongside Qwen3-4B; 45M+ downloads (most-used embedding model on Ollama); 2K context window appropriate for email chunks; v1.5 is current stable (v2-moe exists but 475M params adds pressure on 8GB budget) |
-| claude-haiku-4-5-20251001 | API only | — (cloud) | Complex draft generation, escalation handling | Released Oct 2025; $1/1M input tokens; 200K context; matches Sonnet 4 on coding benchmarks; n8n Anthropic Chat Model node supports model ID string override |
-### Supporting Libraries (Dashboard Service)
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| `@anthropic-ai/sdk` | latest (npm) | Anthropic API calls from Node.js | Used when making direct API calls outside n8n (e.g., from dashboard backend for persona extraction during onboarding) |
-| `drizzle-orm` | ^0.31 | Type-safe Postgres ORM | Dashboard backend: approval queue, sent history, config tables. Lightweight, no codegen step, works with `postgres:17` |
-| `drizzle-kit` | ^0.22 | Migration management | Paired with drizzle-orm; generates SQL migrations from schema changes |
-| `ws` | ^8 | WebSocket server | Dashboard backend: real-time approval queue push to browser |
-| `@qdrant/js-client-rest` | ^1.11 | Qdrant REST client | Dashboard backend: knowledge base management UI queries |
-| `imapflow` | ^1.0 | IMAP client | Used only if n8n IMAP polling proves insufficient (rate limits, OAuth2 edge cases) — keep as fallback |
-| `nodemailer` | ^6 | SMTP sending | Same fallback role as imapflow — n8n Send Email node covers the primary path |
-| `zod` | ^3 | Runtime validation | API request/response validation in Express routes |
-| `react-query` | ^5 (TanStack Query) | Server state management | Dashboard: approval queue polling, optimistic updates on approve/reject actions |
-| `tailwindcss` | ^4 | Utility CSS | Mobile-responsive dashboard; zero runtime overhead; v4 removes config file requirement |
+> **As-built status (2026-05-01)** — this section reflects the live appliance, not aspirational recommendations. Customer #1 is at `mailbox.heronlabsinc.com`; customer #2 target 2026-05-20. Major divergences from the original STACK.md research doc are flagged with the relevant Decision Record (DR-NN).
+
+### Core Technologies (live)
+| Technology | Version | Purpose | Notes |
+|------------|---------|---------|-------|
+| Ollama | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference server | JetPack 6 ARM64 CUDA image via `jetson-containers`. GPU passthrough via NVIDIA runtime. |
+| Qdrant | 1.17.1 | Vector database for RAG | Deployed but not yet wired — Phase 2 RAG. `MALLOC_CONF=narenas:1` set per ARM64 jemalloc workaround (issue #4298). |
+| n8n | **1.123.35** (pinned per **DR-17**) | Workflow runtime | Pinned at 1.x deliberately — 2.x migration deferred. Sub-workflows: `MailBOX` (schedule trigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`. **Ingress = Schedule (5 min) + Gmail Get** per DR-22 KILL of Pub/Sub push. No IMAP. |
+| Postgres | 17-alpine | Operational datastore | Schema `mailbox`. Hosts n8n's `workflow_entity` table on the same DB. |
+| Next.js 14 dashboard | App Router + Drizzle | Approval queue UI + internal API routes | **DR-24**: dedicated Next.js service (`mailbox-dashboard`), not an Express+Vite SPA and not a Brain plugin. Internal routes: `/api/internal/{draft-prompt,draft-finalize,classification-prompt,classification-normalize,onboarding/live-gate}` plus CRUD under `/api/drafts/...`. |
+| Caddy | 2.x | Public HTTPS + auth gate | Cloudflare DNS-01 cert. `basic_auth` on `/dashboard/*` and `/` (n8n editor) per **STAQPRO-131**. `/webhook/*` deliberately bypasses auth. Bcrypt `$` chars need `$$` escaping in `.env`. |
+| ttyd | latest | Browser terminal | Port 7681, basic auth. |
+### Models (live)
+| Model | Pull Tag / Provider | Size (VRAM) | Purpose | Notes |
+|-------|----------|------------|---------|-------|
+| Qwen3-4B (custom ctx) | `qwen3:4b-ctx4k` (4096 ctx) | ~2.7 GB | Classifier + local drafter | Custom Modelfile to cap context at 4096 (DR-18). Routes via `LOCAL_CATEGORIES`: `reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`. `/no_think` directive on classify path. |
+| nomic-embed-text | `nomic-embed-text:v1.5` | 274 MB | RAG embeddings | Pulled but not yet wired (Phase 2 RAG). |
+| gpt-oss:120b | Ollama Cloud (`ollama.com`) | — (cloud) | Cloud-escalation drafter — **default cloud model** | Per Eric's 2026-04-30 pivot superseding DR-23. Same `/api/chat` shape as local Ollama → swap baseUrl + key only. Routes via `CLOUD_CATEGORIES`: `escalate`, `unknown`, plus any `confidence < 0.75` safety net. |
+| claude-haiku-4-5-20251001 | Anthropic API | — (cloud) | Alt-cloud fallback (config-ready, not active) | Wired via `ANTHROPIC_API_KEY` env; commented out in `.env.example` so the Ollama Cloud path is the live default. Switch by populating `ANTHROPIC_API_KEY` and pointing the draft route at the Anthropic provider. |
+### Supporting Libraries (Dashboard Service — Next.js 14)
+| Library | Version | Purpose | Notes |
+|---------|---------|---------|-------|
+| `next` | 14.x | Framework + dashboard runtime | App Router. Internal API routes under `app/api/**/route.ts`. |
+| `drizzle-orm` | ^0.31 | Type-safe Postgres ORM | Per 2026-04-27 ADR (Dashboard Stack Pivot): Drizzle stays for MVP. Prisma migration deferred post-customer-#2 (STAQPRO-136 reopened). |
+| `drizzle-kit` | ^0.22 | Migration management | Paired with drizzle-orm. See `dashboard/drizzle/migrations/`. |
+| `@qdrant/js-client-rest` | ^1.11 | Qdrant REST client | Phase 2 RAG only (not yet wired). |
+| `zod` | ^3 | Runtime validation | **STAQPRO-138** (open): consolidate inline `typeof` checks behind a centralized validation middleware, schemas in `dashboard/lib/schemas/`. ORM-agnostic via `drizzle-zod` today, `zod-prisma-types` post-migration. |
+| `tailwindcss` | ^3 | Utility CSS | Mobile-responsive dashboard. (Note: original STACK.md spec was Tailwind v4 + Vite 6 — DR-24 flipped to Next.js 14 which currently runs Tailwind v3.) |
 ### Development Tools
 | Tool | Purpose | Notes |
 |------|---------|-------|
@@ -68,34 +67,28 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 # --- Dashboard dependencies ---
 # --- React dashboard ---
 ## Docker Compose Service Config (critical settings)
-## Alternatives Considered
-| Recommended | Alternative | When Alternative Makes Sense |
+## Alternatives Considered (historical)
+| In use | Alternative | When alternative might apply |
 |-------------|-------------|------------------------------|
-| Ollama 0.18.x | llama.cpp direct | Only if needing GGUF features not yet in Ollama (e.g., custom sampling); Ollama adds ~50ms overhead but saves massive integration work |
-| Qdrant | pgvector (Postgres extension) | If you want single-DB simplicity and vector scale is < 100K vectors; pgvector has ARM64 Docker support but is 3-4x slower on ANN search |
-| Qdrant | ChromaDB | ChromaDB is Python-only, requires separate Python runtime, higher memory overhead; Qdrant Rust binary is better for resource-constrained hardware |
-| n8n 2.x | Custom Python orchestrator (FastAPI + Celery) | Only if workflow logic becomes too complex for visual editing or if n8n licensing becomes an issue; doubles development time for v1 |
-| Qwen3-4B | Llama-3.2-3B | Llama-3.2-3B is better for fine-tuning (biggest improvement from fine-tuning per distil labs benchmark); Qwen3-4B wins on out-of-the-box classification quality |
-| Qwen3-4B | Mistral-7B | 7B exceeds safe VRAM budget when running alongside nomic-embed-text; leaves < 1GB for Qdrant and system — do not use |
-| nomic-embed-text:v1.5 | nomic-embed-text-v2-moe | v2-moe is 475M params (vs 137M for v1.5) — better accuracy but 3.5x larger; on 8GB unified RAM with Qwen3-4B loaded, v2-moe creates memory pressure; defer until v2 hardware |
-| nomic-embed-text:v1.5 | mxbai-embed-large | Similar accuracy; 335MB vs 274MB; no meaningful advantage for English-only CPG email corpus |
-| claude-haiku-4-5 | claude-sonnet-4-5 | Sonnet is the right escalation model when quality matters more than cost; PRD already includes it as explicit fallback — wire as second Anthropic node in complex draft path |
-| Postgres 17-alpine | SQLite | SQLite is fine for config/persona; Postgres is required because n8n 2.x recommends Postgres for production (avoids SQLite concurrency issues under workflow parallelism) |
-| React + Vite | Next.js | Next.js SSR is unnecessary overhead for a LAN-only dashboard; Vite SPA + Express API is simpler to containerize and debug on edge hardware |
-| nginx:alpine (serve static) | Node.js `serve` package | `serve` keeps a Node.js process running at idle; nginx:alpine is < 10MB and zero CPU at idle — important for power budget |
-| drizzle-orm | Prisma | Prisma has a 35-60MB native binary and background query engine process; drizzle-orm is < 1MB with no background process |
+| Ollama 0.18.x | llama.cpp direct | Only if needing GGUF features not yet in Ollama; Ollama adds ~50ms overhead but saves massive integration work |
+| Qdrant | pgvector | Single-DB simplicity at < 100K vectors; pgvector is 3-4x slower on ANN. Phase 2 RAG decision. |
+| n8n 1.123.35 | Custom Python orchestrator | Only if workflow logic becomes too complex for visual editing or n8n licensing becomes an issue. |
+| Qwen3-4B (Q4_K_M, 4k ctx) | Llama-3.2-3B | Llama-3.2-3B is better for fine-tuning per distil labs; Qwen3-4B wins out-of-the-box classification. We re-tested 2026-04-30; Qwen3 stays. |
+| nomic-embed-text v1.5 | nomic-embed-text-v2-moe | v2-moe is 475M params (vs 137M); creates memory pressure alongside Qwen3-4B on 8GB unified RAM. |
+| Ollama Cloud `gpt-oss:120b` | Anthropic Haiku 4.5 | Both wired; same Ollama-shape API. Haiku is config-ready alt-cloud — flip by populating `ANTHROPIC_API_KEY`. Per 2026-04-30 pivot. |
+| Next.js 14 dashboard | Express + Vite SPA | Original STACK.md spec; **flipped to Next.js per DR-24** (single service, App Router internal API routes, easier OAuth-callback patterns). |
+| Drizzle ORM | Prisma | **2026-04-27 ADR**: Drizzle for MVP. Prisma migration deferred post-customer-#2 (STAQPRO-136 reopened). Prisma has 35-60MB binary + background engine; trade-off acceptable post-MVP for tooling/migrations. |
 ## What NOT to Use
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `docker-ce` (Docker Inc. repo) | Breaks NVIDIA runtime configuration paths on JetPack — GPU passthrough stops working | JetsonHacks `install_nvidia_docker.sh` which installs and configures the correct Docker version |
-| Manual Docker version pinning | JetsonHacks manages the validated Docker version for the installed JetPack; manual pinning risks mismatch. Current validated version is 27.5.1 | Run JetsonHacks `install_nvidia_docker.sh` and let it manage the version |
-| Mistral-7B or any 7B+ model locally | 7B Q4_K_M requires ~4.5GB VRAM; leaves < 3.5GB for embeddings, Qdrant, and OS — system becomes unstable under load | Qwen3-4B (Q4_K_M, ~2.7GB) |
-| nomic-embed-text-v2-moe | 475M active params doubles the embedding memory footprint; on 8GB unified RAM this competes directly with Qwen3-4B | nomic-embed-text:v1.5 (137M params, 274MB) |
-| n8n 1.x | EOL 3 months post 2.0.0 (Dec 2025); security/bug fixes only; 2.x is the actively developed branch | n8n 2.x (current: 2.14.2) |
-| `docker-compose` v1 (standalone binary) | Deprecated upstream; not included in modern Docker; `docker compose` (plugin) is the current standard | Docker Compose v2 plugin (`docker compose`) |
-| Auto-updating containers (`:latest` tags in production) | Silent breakage risk on OTA updates; a broken Qdrant or n8n update at a customer site is a support incident | Pin all service images to specific versions; use GHCR for controlled OTA delivery |
-| ChromaDB | Python-only runtime adds 200-400MB overhead; inferior performance vs Qdrant on Rust hardware | Qdrant |
-| Langchain/LlamaIndex in n8n | These Python orchestrators duplicate what n8n already does natively; adds Python runtime dependency | n8n built-in AI Agent + Ollama Model nodes |
+| `docker-ce` (Docker Inc. repo) | Breaks NVIDIA runtime configuration paths on JetPack — GPU passthrough stops working | JetsonHacks `install_nvidia_docker.sh` |
+| Mistral-7B or any 7B+ local model | 7B Q4_K_M needs ~4.5GB VRAM; leaves < 3.5GB for embeddings + system on 8GB unified RAM | Qwen3-4B (Q4_K_M, ~2.7GB, 4k ctx) |
+| n8n 2.x **on this appliance** | DR-17 deliberately pins 1.123.35. The 2.x stack would invalidate the current workflow JSON + exec-trigger sub-workflow contracts that customer #1 runs against. (The original STACK.md said avoid 1.x; that recommendation was inverted by DR-17 once we found 2.x migration cost > value for MVP.) | n8n 1.123.35 — pinned via `docker-compose.yml` |
+| IMAP polling / SMTP send | The DR-22 KILL settled on n8n's Gmail Get + Gmail Reply nodes via OAuth (refresh token in n8n's encrypted credential store). No `imapflow` or `nodemailer` dependency. | Gmail Get + Gmail Reply (n8n nodes, OAuth via the appliance) |
+| Pub/Sub push ingress | **DR-22 KILLED 2026-04-30** by Linus/Liotta/Neo consensus. Eliminates GCP project, watch renewal cron, and public webhook attack surface. | Schedule trigger (5 min) + Gmail Get polling |
+| `docker-compose` v1 (standalone binary) | Deprecated upstream | Docker Compose v2 plugin (`docker compose`) |
+| Auto-updating `:latest` tags in production | Silent breakage on OTA at a customer site is a support incident | Pin all service images to specific tags or digests; OTA via GHCR with controlled rollout |
+| Langchain/LlamaIndex inside n8n | Duplicates what n8n already does natively; adds Python runtime dependency | n8n built-in AI Agent + Ollama Model nodes |
 ## Stack Patterns by Variant
 - Use `jetson-containers run $(autotag ollama)` instead of `docker run ollama/ollama`
 - The `autotag` command resolves the JetPack-matched image (e.g., `r36.4.0` for JetPack 6.2)
@@ -161,13 +154,90 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+### Draft status state machine
+`mailbox.drafts.status` lifecycle: `pending_classification` → `pending_draft` → `pending_approval` → (`approved` | `rejected`) → (`sent` | `send_failed`). Source of truth for the enum is the Drizzle table definition in `dashboard/lib/db/schema.ts`; route handlers must import that enum, not redeclare string literals (this is what STAQPRO-137 will consolidate). Migration 008 (`drafts_draft_source_check`) broadens the `draft_source` CHECK constraint to cover `local_qwen3`, `cloud_gpt_oss_120b`, `cloud_haiku_4_5`, plus legacy values.
+
+### Route handler pattern
+All API handlers under `dashboard/app/api/**/route.ts` follow the App Router contract: export named handlers (`GET`, `POST`, `PATCH`) that accept `(request: Request, { params })` and return a `Response`. Internal routes (`/api/internal/*`) are not auth-gated by Caddy basic_auth — they're called from n8n inside the docker network. **STAQPRO-138 is in flight**: replace inline `typeof x !== 'string'` checks with zod schemas in `dashboard/lib/schemas/` parsed by a shared validate middleware (`dashboard/lib/middleware/validate.ts`).
+
+### SQL convention
+Two patterns coexist today: (a) Drizzle query builder for typed CRUD against the schema, and (b) raw SQL via `db.execute(sql\`...\`)` for migration-adjacent or join-heavy queries. **Pick one per route file** — don't mix in the same handler. Long-term direction: prefer Drizzle query builder; raw SQL only when query complexity justifies it.
+
+### Comment standard (migration files)
+Per migration 007 (the first migration to land the standard): every migration file opens with a 2-3 line block comment stating (i) what the migration changes, (ii) why (link the Linear issue or DR), and (iii) any reversal/rollback note. Schema-touching SQL only — no DML in migrations unless specifically called out as a backfill.
+
+### `.env` escaping
+Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain literal `$` characters. Docker Compose treats `$` as variable expansion and silently truncates values at the `$`. **Escape every `$` to `$$` in `.env`** or your hash will be empty inside the container. This bit us on the first Caddy deploy.
+
+### n8n workflow editing
+- Sub-workflows that are invoked via `executeWorkflowTrigger` should have `active: false`. n8n's "no native trigger" activation check otherwise emits cosmetic but loud "could not activate" errors every restart.
+- `n8n update:workflow --active=...` is a NO-OP at runtime unless the n8n container is restarted. The flag persists to the DB but the live runtime keeps the old activation state cached.
+- `Insert Inbox (skip dupes)` with no Gmail returns produces an empty `$json` that still fires `Run Classify Sub` once. That's why empty 5-min cycles error harmlessly at `Load Inbox Row`. Pre-existing, benign, but confusing if not explained.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+### Service topology (8-service Docker Compose stack on Jetson)
+
+| Service | Image | Role |
+|---------|-------|------|
+| `postgres` | `postgres:17-alpine` | Operational DB (`mailbox` schema) + n8n's `workflow_entity` table |
+| `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed, Phase 2 RAG — not yet wired) |
+| `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
+| `n8n` | `n8nio/n8n:1.123.35` (DR-17 pin) | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
+| `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on `/dashboard/*` and `/`; `/webhook/*` bypasses |
+| `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
+| `mailbox-migrate` | Drizzle migrate runner | `docker compose --profile migrate run mailbox-migrate` |
+| `ttyd` | tsl0922/ttyd | Browser terminal (port 7681, basic auth) |
+
+### Pipeline flow (live as of 2026-05-01)
+
+```
+Schedule (5 min)
+  └─> Gmail Get  ──> Insert Inbox (skip dupes)
+                         └─> Run Classify Sub  (MailBOX-Classify)
+                                  └─> qwen3:4b-ctx4k classify (with /no_think)
+                                  └─> live-gate check
+                                  └─> Insert Draft Stub
+                                       └─> Run Draft Sub  (MailBOX-Draft)
+                                              ├─ LOCAL route  → qwen3:4b-ctx4k        → /api/internal/draft-finalize
+                                              └─ CLOUD route  → Ollama Cloud (gpt-oss:120b) → /api/internal/draft-finalize
+                                                    (Anthropic Haiku 4.5 = config-ready alt-cloud)
+                                                    └─> mailbox.drafts.status = pending_approval
+                                                          └─> Dashboard approval queue (operator reviews)
+                                                                 └─> approve → Run Send Sub (MailBOX-Send)
+                                                                                   └─> Gmail Reply → mailbox.drafts.status = sent
+```
+
+### Routing rules (`dashboard/lib/classification/prompt.ts:routeFor`)
+
+- `spam_marketing` → drop (no draft created)
+- `confidence < 0.75` → cloud (safety net)
+- `LOCAL_CATEGORIES` (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`) → local Qwen3
+- `CLOUD_CATEGORIES` (`escalate`, `unknown`) → Ollama Cloud (`gpt-oss:120b` default; `OLLAMA_CLOUD_MODEL` env override)
+
+### Active decision records
+
+| DR | Decision | Status |
+|----|----------|--------|
+| DR-17 | Pin n8n to `1.123.35` (avoid 2.x migration for MVP) | Active |
+| DR-18 | `qwen3:4b-ctx4k` @ 4096 ctx as T2 default | Active |
+| DR-22 | Pub/Sub push as Phase 1 ingress | **KILLED 2026-04-30** — stay polling |
+| DR-23 | Anthropic Haiku 4.5 as primary cloud draft model | **SUPERSEDED 2026-04-30** — Ollama Cloud `gpt-oss:120b` is default; Haiku is config-ready alt |
+| DR-24 | Dedicated Next.js 14 dashboard service (not Brain plugin, not Express+Vite SPA) | Active |
+| DR-50 | Deterministic operator-domain preclass for `internal` category (lifted recall 0.22 → PASS) | Active |
+| 2026-04-27 ADR (Dashboard Stack Pivot) | Drizzle stays for MVP; Prisma migration deferred post-customer-#2 (STAQPRO-136 reopened) | Active |
+
+### Public surface (customer #1, `mailbox.heronlabsinc.com`)
+
+- `https://mailbox.heronlabsinc.com/dashboard/queue` — approval queue (basic_auth gated per STAQPRO-131)
+- `https://mailbox.heronlabsinc.com/` — n8n editor (basic_auth gated)
+- `https://mailbox.heronlabsinc.com/webhook/*` — n8n webhook ingress (auth bypass; protected by webhook-internal HMAC)
+
+### Test coverage
+
+**STAQPRO-133 (open)** — there are no Vitest tests yet. The existing `scripts/smoke-test.sh` is **infrastructure** smoke (GPU, Qdrant, Postgres) — it does not exercise the pipeline. Pipeline + schema + route tests are scheduled to land before customer #2.
 <!-- GSD:architecture-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
@@ -233,4 +303,46 @@ For Caddy-only or config-only changes (no rebuild), use:
 - n8n editor: behind LAN-only access at `http://192.168.1.45:5678`
 - Ollama API: `http://192.168.1.45:11434` (LAN only)
 - Qdrant: `http://192.168.1.45:6333` (LAN only)
+
+### Tailscale access
+
+Both Jetsons live on the shared `consultingfutures@gmail.com` tailnet
+(MagicDNS suffix `tail377a9a.ts.net`). Two SSH aliases in `~/.ssh/config`:
+
+| Alias              | Tailnet host                            | IPv4           | Box                                   |
+|--------------------|-----------------------------------------|----------------|---------------------------------------|
+| `jetson-tailscale` | `mailbox-jetson-01.tail377a9a.ts.net`   | `100.65.9.2`   | Local Jetson (alternative to `10.42.0.2` direct ethernet) |
+| `jetson-dustin`    | `bob-tb250-btc.tail377a9a.ts.net`       | `100.65.26.125`| Dustin's Jetson                       |
+
+Both run as user `bob` with identical `/home/bob/mailbox/` layout, so every
+command in "Reading appliance state" / "Deploy flow" works against either by
+swapping the alias.
+
+LAN-only services on his box are reachable via the tailnet hostname
+(provided the compose port bindings are `0.0.0.0`, not `127.0.0.1`):
+
+- Dashboard direct: `http://bob-tb250-btc.tail377a9a.ts.net:3001/dashboard/queue`
+- n8n editor: `http://bob-tb250-btc.tail377a9a.ts.net:5678`
+- Ollama API: `http://bob-tb250-btc.tail377a9a.ts.net:11434`
+- Qdrant: `http://bob-tb250-btc.tail377a9a.ts.net:6333`
+
+Fallback if a port is bound to localhost only:
+
+    ssh -L 5678:localhost:5678 jetson-dustin
+
+#### "Connection refused" on `ssh jetson-dustin`
+
+If `tailscale ping bob-tb250-btc` succeeds but `ssh` returns connection
+refused, the tailnet is fine — sshd is the problem. Have Dustin run on his
+Jetson:
+
+    sudo systemctl enable --now ssh
+    sudo systemctl status ssh
+
+Or enable Tailscale SSH (no key copy needed, ACL-gated):
+
+    sudo tailscale up --ssh
+
+Then add this workstation's `~/.ssh/id_ed25519.pub` to
+`/home/bob/.ssh/authorized_keys` on his box (or rely on Tailscale SSH).
 <!-- GSD:deployment-end -->

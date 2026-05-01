@@ -40,7 +40,7 @@
 
 MailBOX Zero is a dedicated AI email agent that runs on an NVIDIA Jetson Orin Nano Super. The customer plugs in the appliance, connects their email account, completes guided onboarding, and gets an always-on assistant that handles inbound operational email — triage, drafting, and (with human approval) sending — entirely on-device.
 
-All email content and knowledge base data stays on the local appliance. Cloud API calls to Anthropic Claude are used only for complex drafts and escalation handling, with no bulk corpus ever leaving the device.
+All email content stays on the local appliance. Cloud API calls (Ollama Cloud `gpt-oss:120b` by default; Anthropic Haiku 4.5 wired as a config-ready alternative) are made only for cloud-routed drafts — typically `escalate` / `unknown` categories or any classification with `confidence < 0.75`. No bulk corpus ever leaves the device.
 
 Sold as a managed product with white-glove onboarding and an optional support subscription.
 
@@ -58,13 +58,14 @@ If you spend two or more hours a day in your inbox and the volume keeps growing,
 
 ## Features
 
-- **On-device AI triage** — Qwen3-4B classifies and prioritizes inbound email in under 30 seconds
-- **Draft generation** — local model handles routine replies; Claude Haiku 4.5 escalates for complex threads
+- **On-device AI triage** — Qwen3-4B (4096 ctx) classifies and prioritizes inbound email in under 30 seconds
+- **Two-path draft generation** — local Qwen3-4B for routine replies (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`); Ollama Cloud `gpt-oss:120b` for `escalate` / `unknown` / low-confidence cases (Haiku 4.5 is wired as alt-cloud, swap in `.env`)
 - **Human-in-the-loop** — every outbound email requires explicit approval via the dashboard before sending
-- **Privacy-first** — all email content and RAG knowledge base stored exclusively on-device
-- **RAG knowledge base** — Qdrant vector search over past emails and brand context for accurate, on-brand drafts
-- **Visual workflow editor** — n8n orchestrates the full email pipeline with visual debugging
-- **Mobile-ready dashboard** — React-based approval queue accessible from any device on the local network
+- **Privacy-first** — all email content stored exclusively on-device; only cloud-routed messages briefly leave the appliance
+- **Public HTTPS + auth gate** — Caddy + Cloudflare DNS-01 cert; basic_auth on `/dashboard/*` and the n8n editor
+- **RAG knowledge base** *(Phase 2)* — Qdrant vector search over past emails and brand context (deployed, not yet wired)
+- **Visual workflow editor** — n8n orchestrates the full pipeline; sub-workflows for classify / draft / send
+- **Mobile-ready dashboard** — Next.js 14 approval queue accessible from any device, gated behind basic_auth
 
 ## Architecture
 
@@ -73,19 +74,19 @@ If you spend two or more hours a day in your inbox and the volume keeps growing,
 title: MailBOX Zero System Architecture
 ---
 flowchart TB
-    A[Inbound Email<br>IMAP Trigger] --> B[n8n Orchestrator]
-    B --> C{Classification}
-    C -->|Simple| D[Qwen3-4B<br>Local Draft]
-    C -->|Complex| E[Claude Haiku 4.5<br>Cloud Draft]
+    A[Inbound Email<br>Gmail Get + Schedule 5 min] --> B[n8n Orchestrator]
+    B --> C{Classification<br>Qwen3-4B}
+    C -->|Local categories<br>reorder, scheduling, follow_up, internal, inquiry| D[Qwen3-4B<br>Local Draft]
+    C -->|Cloud categories<br>escalate, unknown, low confidence| E[Ollama Cloud<br>gpt-oss:120b]
     D --> F[Approval Queue]
     E --> F
-    F --> G[Dashboard UI]
-    G -->|Approved| H[SMTP Send]
+    F --> G[Dashboard UI<br>Next.js 14]
+    G -->|Approved| H[Gmail Reply<br>via n8n]
     G -->|Rejected| I[Archive]
-    J[Knowledge Base] --> D
-    J --> E
-    K[nomic-embed-text] --> J
-    L[(Qdrant)] --> J
+    J[Knowledge Base<br>Phase 2] -.-> D
+    J -.-> E
+    K[nomic-embed-text] -.-> J
+    L[(Qdrant)] -.-> J
     M[(Postgres)] --> B
     M --> F
 ```
@@ -112,7 +113,9 @@ cd mailbox
 
 # Copy environment template and configure
 cp .env.example .env
-# Edit .env with your IMAP/SMTP credentials and Anthropic API key
+# Edit .env: set Postgres + n8n encryption key + Cloudflare DNS token
+# + Caddy basic_auth credentials + Ollama Cloud API key.
+# Gmail OAuth is provisioned in n8n on first run — no IMAP/SMTP credentials needed.
 
 # Start all services
 docker compose up -d
@@ -134,43 +137,45 @@ The dashboard is available at `http://<APPLIANCE_IP>:3001/dashboard/queue` once 
 ## Configuration
 
 > [!IMPORTANT]
-> Set all required environment variables in `.env` before first run. See `.env.example` for the full list.
+> Set all required environment variables in `.env` before first run. See `.env.example` for the full list. Gmail credentials are provisioned via the n8n OAuth flow on first run, not via env vars — the OAuth refresh token lives in n8n's encrypted credential store.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `IMAP_HOST` | Yes | IMAP server hostname |
-| `IMAP_USER` | Yes | Email account username |
-| `IMAP_PASSWORD` | Yes | Email account password or app-specific password |
-| `SMTP_HOST` | Yes | SMTP server hostname |
-| `SMTP_USER` | Yes | SMTP username (often same as IMAP) |
-| `SMTP_PASSWORD` | Yes | SMTP password |
-| `ANTHROPIC_API_KEY` | Yes | Pooled API key for Claude Haiku 4.5 escalation |
 | `POSTGRES_PASSWORD` | Yes | Database password for the operational datastore |
-| `OLLAMA_MODELS` | No | Override default model pull list |
+| `N8N_ENCRYPTION_KEY` | Yes | Encrypts n8n's stored credentials (incl. Gmail OAuth refresh token). Generate: `openssl rand -hex 32` |
+| `CLOUDFLARE_API_TOKEN` | Yes | DNS-edit-scoped token for Caddy's DNS-01 cert issuance |
+| `MAILBOX_BASIC_AUTH_USER` | Yes | Caddy basic_auth username for `/dashboard/*` and the n8n editor (STAQPRO-131) |
+| `MAILBOX_BASIC_AUTH_HASH` | Yes | Bcrypt hash. Generate: `docker run --rm caddy:2 caddy hash-password`. **Escape every `$` to `$$` in `.env`** — Docker Compose otherwise truncates the value |
+| `OLLAMA_CLOUD_API_KEY` | Yes (for cloud-escalation drafts) | Ollama Cloud API key from `ollama.com/cloud`. Empty key disables the cloud path |
+| `OLLAMA_CLOUD_MODEL` | No | Defaults to `gpt-oss:120b`; override per-deploy |
+| `TTYD_PASS` | Yes | Browser-terminal basic_auth password (port 7681) |
+| `ANTHROPIC_API_KEY` | No | Alt-cloud fallback for drafting (Haiku 4.5). Config-ready but not the live default |
 
 <details>
 <summary>Docker Compose services</summary>
 
-The `docker-compose.yml` orchestrates six services:
+The `docker-compose.yml` orchestrates eight services:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| `ollama` | `jetson-containers` autotag | Local LLM inference with GPU passthrough |
-| `qdrant` | `qdrant/qdrant:v1.17.1` | Vector database for RAG |
-| `n8n` | `n8nio/n8n:latest-arm64` | Workflow orchestration (IMAP trigger → classify → draft → queue) |
-| `postgres` | `postgres:17-alpine` | Operational datastore (workflows, approval queue, sent history) |
-| `dashboard-api` | Custom build | Express API for approval queue and knowledge base management |
-| `dashboard-ui` | Custom build | React SPA served via nginx:alpine |
+| `postgres` | `postgres:17-alpine` | Operational datastore (`mailbox` schema) + n8n's `workflow_entity` table |
+| `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed; Phase 2 RAG, not yet wired) |
+| `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference with GPU passthrough (Qwen3-4B + nomic-embed-text) |
+| `n8n` | `n8nio/n8n:1.123.35` (pinned per DR-17) | Workflow orchestration (Schedule + Gmail Get → classify → draft → queue → Gmail Reply) |
+| `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on `/dashboard/*` and `/`; `/webhook/*` bypasses |
+| `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes |
+| `mailbox-migrate` | Drizzle migrate runner | `docker compose --profile migrate run mailbox-migrate` |
+| `ttyd` | `tsl0922/ttyd` | Browser terminal (port 7681, basic_auth gated) |
 
 </details>
 
 ## How It Works
 
-1. **Ingest** — n8n polls the connected inbox via IMAP trigger. New emails are embedded using nomic-embed-text and stored in Qdrant alongside the raw content in Postgres.
-2. **Classify** — Qwen3-4B categorizes each email (order inquiry, vendor follow-up, customer complaint, etc.) and assigns a priority level. Classification uses non-thinking mode for low latency.
-3. **Draft** — Routine replies are drafted locally by Qwen3-4B using RAG context from the knowledge base. Complex or high-stakes threads are escalated to Claude Haiku 4.5 via the Anthropic API.
-4. **Approve** — Every draft enters an approval queue visible in the dashboard. The operator reviews, edits if needed, and approves or rejects each response.
-5. **Send** — Approved drafts are sent via SMTP through n8n. Sent history is logged in Postgres for future RAG context.
+1. **Ingest** — n8n's main `MailBOX` workflow runs on a 5-minute Schedule trigger and pulls new messages via the Gmail Get node (OAuth, no IMAP/SMTP). New emails land in `mailbox.inbox` (deduplicated by `gmail_message_id`). Phase 2 will additionally embed each message with nomic-embed-text and store the vector in Qdrant.
+2. **Classify** — The `MailBOX-Classify` sub-workflow runs Qwen3-4B at 4096 ctx with `/no_think` for low latency, returning a category + confidence. Routes: `LOCAL_CATEGORIES` (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`) → local; `CLOUD_CATEGORIES` (`escalate`, `unknown`) → cloud; any classification with `confidence < 0.75` → cloud safety net; `spam_marketing` → drop.
+3. **Draft** — The `MailBOX-Draft` sub-workflow drafts the reply. Local route: Qwen3-4B (~2.7 GB on-device). Cloud route: Ollama Cloud `gpt-oss:120b` via the same `/api/chat` schema (Anthropic Haiku 4.5 is wired as a config-ready alt-cloud, swap in `.env`).
+4. **Approve** — Every draft enters the approval queue at `https://<appliance>/dashboard/queue` (basic_auth gated). The operator reviews, edits if needed, and approves or rejects.
+5. **Send** — On approve, the dashboard fires the `MailBOX-Send` sub-workflow webhook, which sends the reply via n8n's Gmail Reply node (preserving thread + references). Sent state is recorded in `mailbox.drafts.status = 'sent'`.
 
 ## Tech Stack
 
@@ -183,14 +188,15 @@ The `docker-compose.yml` orchestrates six services:
 
 | Layer | Technology | Role |
 |-------|-----------|------|
-| Inference | Ollama 0.18.x + Qwen3-4B (Q4_K_M) | Local classification and draft generation (~2.7 GB VRAM) |
-| Embeddings | nomic-embed-text v1.5 | RAG embedding for email and knowledge base (274 MB) |
-| Escalation | Claude Haiku 4.5 (API) | Complex draft generation via Anthropic API |
-| Vector DB | Qdrant 1.17.x | Semantic search over email corpus and brand context |
-| Orchestration | n8n 2.14.x | Visual workflow engine with IMAP trigger and AI agent nodes |
-| Datastore | PostgreSQL 17 | Approval queue, sent history, persona config, n8n state |
-| Dashboard | React 18 + Vite 6 + Express 4 | Approval queue UI, knowledge base management, onboarding |
-| Serving | nginx:alpine | Static file serving for the dashboard (< 10 MB, zero idle CPU) |
+| Inference | Ollama 0.18.4 (Jetson autotag) + `qwen3:4b-ctx4k` | Local classification and draft generation (~2.7 GB VRAM) |
+| Embeddings | nomic-embed-text v1.5 | Phase 2 RAG embedding (deployed, not yet wired) |
+| Escalation | Ollama Cloud `gpt-oss:120b` (default); Anthropic Haiku 4.5 (alt-cloud, config-ready) | Cloud-route drafting via the same `/api/chat` schema |
+| Vector DB | Qdrant 1.17.1 | Phase 2 semantic search over email corpus and brand context |
+| Orchestration | n8n 1.123.35 (pinned per DR-17) | Visual workflow engine; sub-workflows for classify / draft / send |
+| Ingress | n8n Schedule trigger (5 min) + Gmail Get (OAuth) | DR-22 KILLED Pub/Sub push 2026-04-30; polling is the live path |
+| Datastore | PostgreSQL 17-alpine | Approval queue, drafts, classification results, n8n state |
+| Dashboard | Next.js 14 (App Router) + Drizzle ORM | Approval queue UI + internal API routes (`mailbox-dashboard` service, per DR-24) |
+| Edge | Caddy 2 + Cloudflare DNS-01 | Public HTTPS, basic_auth on `/dashboard/*` and `/` (STAQPRO-131) |
 
 ## Memory Budget
 
@@ -204,7 +210,7 @@ Total system memory on the Jetson Orin Nano Super is 8 GB unified (shared betwee
 | Qdrant | ~200–400 MB | Scales with vector count; 10K emails ≈ 100 MB index |
 | n8n | ~300 MB | Node.js process |
 | Postgres | ~100 MB | Small operational database |
-| Dashboard | ~100 MB | nginx + Express |
+| Dashboard | ~150 MB | Next.js 14 (App Router) production server |
 | **Total** | **~5.7 GB** | **~2.3 GB headroom for bursts and OS cache** |
 
 > [!WARNING]
@@ -214,13 +220,17 @@ Total system memory on the Jetson Orin Nano Super is 8 GB unified (shared betwee
 
 - [x] Core architecture and Docker Compose orchestration
 - [x] Tech stack validation (Ollama + Qwen3 on Jetson)
-- [ ] n8n workflow: IMAP ingest → classify → draft → approval queue
-- [ ] Dashboard: approval queue with approve/reject/edit actions
-- [ ] Onboarding wizard: guided email connection and persona extraction
-- [ ] RAG pipeline: email embedding and knowledge base search
+- [x] n8n workflow: Gmail Get + Schedule → classify → draft → approval queue (live at customer #1 as of 2026-05-01)
+- [x] Dashboard: approval queue with approve/reject/edit actions (Next.js 14, basic_auth gated)
+- [x] Cloud-escalation drafting (Ollama Cloud `gpt-oss:120b`; Haiku 4.5 alt-cloud config-ready)
+- [x] Public HTTPS + auth gate (Caddy + Cloudflare DNS-01, STAQPRO-131)
+- [ ] **Customer #2 sign-off** — real-Gmail E2E proof + docs sync (in flight, target 2026-05-20)
+- [ ] **Pre-#2 hardening** — STAQPRO-133 (smoke tests), STAQPRO-134 (CI), STAQPRO-138 (zod input validation)
+- [ ] Onboarding wizard (02-08) — guided Gmail OAuth + persona extraction
+- [ ] RAG pipeline: email embedding + Qdrant knowledge base search
 - [ ] OTA update delivery via GitHub Container Registry
 - [ ] Multi-account support
-- [ ] Fine-tuned classification model (Llama 3.2 3B base)
+- [ ] Fine-tuned classification model (Llama 3.2 3B or Qwen3 fine-tune)
 
 ## Contributing
 
