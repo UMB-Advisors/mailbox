@@ -1,5 +1,6 @@
+import { sql } from 'kysely';
 import { NextResponse } from 'next/server';
-import { getPool } from '@/lib/db';
+import { getKysely } from '@/lib/db';
 import { triggerSendWebhook } from '@/lib/n8n';
 import type { DraftStatus } from '@/lib/types';
 
@@ -26,19 +27,19 @@ export async function transitionToApprovedAndSend(
 ): Promise<NextResponse> {
   // Step 1: flip status to 'approved' (only from the allowed source states).
   try {
-    const pool = getPool();
-    const setClauses = opts.clearError
-      ? `status = 'approved', error_message = NULL, updated_at = now()`
-      : `status = 'approved', updated_at = now()`;
-    const result = await pool.query(
-      `UPDATE mailbox.drafts
-          SET ${setClauses}
-        WHERE id = $1
-          AND status = ANY($2::text[])
-        RETURNING id, status`,
-      [id, [...opts.fromStates]],
-    );
-    if (result.rowCount === 0) {
+    const db = getKysely();
+    const rows = await db
+      .updateTable('drafts')
+      .set({
+        status: 'approved',
+        updated_at: sql<string>`NOW()`,
+        ...(opts.clearError ? { error_message: null } : {}),
+      })
+      .where('id', '=', id)
+      .where('status', 'in', opts.fromStates as readonly string[])
+      .returning(['id', 'status'])
+      .execute();
+    if (rows.length === 0) {
       return NextResponse.json(
         { error: `Draft not in ${opts.fromStatesLabel} state` },
         { status: 409 },

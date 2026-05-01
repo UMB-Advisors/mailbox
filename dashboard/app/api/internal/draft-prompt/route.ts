@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import type { Category } from '@/lib/classification/prompt';
-import { getPool } from '@/lib/db';
+import { getKysely } from '@/lib/db';
 import { getPersonaContext } from '@/lib/drafting/persona-stub';
 import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
@@ -20,44 +20,33 @@ export const dynamic = 'force-dynamic';
 // POST (not GET) because the response includes secrets (Ollama Cloud API key)
 // that should not appear in proxy logs as a query string.
 
-const LOAD_DRAFT_SQL = `
-  SELECT
-    id,
-    from_addr,
-    to_addr,
-    subject,
-    body_text,
-    classification_category,
-    classification_confidence
-  FROM mailbox.drafts
-  WHERE id = $1
-  LIMIT 1
-`;
-
-interface DraftRow {
-  id: number;
-  from_addr: string | null;
-  to_addr: string | null;
-  subject: string | null;
-  body_text: string | null;
-  classification_category: Category | null;
-  classification_confidence: number | null;
-}
-
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, draftPromptBodySchema);
   if (!b.ok) return b.response;
   const { draft_id } = b.data;
 
   try {
-    const pool = getPool();
-    const r = await pool.query<DraftRow>(LOAD_DRAFT_SQL, [draft_id]);
-    const row = r.rows[0];
+    const db = getKysely();
+    const row = await db
+      .selectFrom('drafts')
+      .select([
+        'id',
+        'from_addr',
+        'to_addr',
+        'subject',
+        'body_text',
+        'classification_category',
+        'classification_confidence',
+      ])
+      .where('id', '=', draft_id)
+      .limit(1)
+      .executeTakeFirst();
     if (!row) {
       return NextResponse.json({ error: `draft ${draft_id} not found` }, { status: 404 });
     }
+    const classification_category = row.classification_category as Category | null;
 
-    if (!row.classification_category) {
+    if (!classification_category) {
       // Fail closed — every draft row should be created post-classify with a
       // category populated. If we got here, the upstream pipeline broke.
       return NextResponse.json(
@@ -76,12 +65,12 @@ export async function POST(req: NextRequest) {
       to_addr: row.to_addr ?? '',
       subject: row.subject ?? '',
       body_text: row.body_text ?? '',
-      category: row.classification_category,
+      category: classification_category,
       confidence,
       persona,
     });
 
-    const endpoint = pickEndpoint(row.classification_category, confidence);
+    const endpoint = pickEndpoint(classification_category, confidence);
 
     return NextResponse.json({
       draft_id,
