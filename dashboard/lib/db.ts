@@ -1,10 +1,15 @@
+import { Kysely, PostgresDialect } from 'kysely';
 import { Pool, types } from 'pg';
+import type { DB } from '@/lib/db/schema';
 
 // pg returns TIMESTAMPTZ/TIMESTAMP as Date; we want strings to match wire format + our types.
+// Kept on Kysely path too — schema.ts maps timestamp/timestamptz/date to `string` to reflect
+// this runtime behavior (see scripts/codegen-db.sh `--type-mapping`).
 types.setTypeParser(1184, (val: string) => val);
 types.setTypeParser(1114, (val: string) => val);
 
 let pool: Pool | undefined;
+let kysely: Kysely<DB> | undefined;
 
 export function getPool(): Pool {
   if (!pool) {
@@ -20,6 +25,19 @@ export function getPool(): Pool {
     });
   }
   return pool;
+}
+
+// Kysely client wraps the same pg.Pool — one connection budget, two query
+// surfaces during the kysely sweep (STAQPRO-136). Once all queries*.ts +
+// inline pool.query callers are migrated, getPool stays for the migration
+// runner and ad-hoc raw SQL via sql.raw escape hatch.
+export function getKysely(): Kysely<DB> {
+  if (!kysely) {
+    kysely = new Kysely<DB>({
+      dialect: new PostgresDialect({ pool: getPool() }),
+    });
+  }
+  return kysely;
 }
 
 // Body cleanup applied before drafts.draft_body is persisted.
