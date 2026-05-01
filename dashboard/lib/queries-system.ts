@@ -115,6 +115,50 @@ export async function getOllamaLoadedModels(): Promise<OllamaModel[] | null> {
   }
 }
 
+export interface CloudSpend24h {
+  total_usd: number;
+  call_count: number;
+  by_source: Record<string, { total_usd: number; call_count: number }>;
+}
+
+// Cost meter aggregation. Per-call cost is already persisted to
+// mailbox.drafts.cost_usd via computeCost() in draft-finalize. No separate
+// cloud_calls log table needed — drafts IS the per-call log given each draft
+// finalize call is one cloud LLM call. Updated for DR-23 supersession: cloud
+// spend covers Ollama Cloud (gpt-oss:120b primary) AND Anthropic (alt-cloud
+// when ANTHROPIC_API_KEY is set), grouped by drafts.draft_source.
+export async function getCloudSpend24h(): Promise<CloudSpend24h> {
+  const db = getKysely();
+  const rows = await db
+    .selectFrom('drafts')
+    .select((eb) => [
+      eb.ref('draft_source').as('source'),
+      eb.fn.sum<string>('cost_usd').as('total'),
+      eb.fn.countAll<string>().as('count'),
+    ])
+    .where(sql<boolean>`created_at > now() - interval '24 hours'`)
+    .where('draft_source', 'is not', null)
+    .where('cost_usd', 'is not', null)
+    .groupBy('draft_source')
+    .execute();
+
+  const result: CloudSpend24h = { total_usd: 0, call_count: 0, by_source: {} };
+  for (const row of rows) {
+    if (!row.source) continue;
+    const usd = Number(row.total ?? 0);
+    const count = Number(row.count ?? 0);
+    result.by_source[row.source] = { total_usd: usd, call_count: count };
+    // Only count rows where the route went CLOUD (not local) toward the
+    // cloud-spend meter. Local Qwen3 calls cost $0 (run on-device) and
+    // shouldn't show up in the spend meter even if cost_usd was populated.
+    if (row.source === 'cloud' || row.source === 'cloud_haiku') {
+      result.total_usd += usd;
+      result.call_count += count;
+    }
+  }
+  return result;
+}
+
 export interface DraftCounts24h {
   total: number;
   sent: number;

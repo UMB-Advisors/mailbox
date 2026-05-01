@@ -27,6 +27,7 @@ dbDescribe('GET /api/system/status — STAQPRO-146', () => {
     expect(json).toHaveProperty('disk_total_bytes');
     expect(json).toHaveProperty('ollama_models_loaded');
     expect(json).toHaveProperty('drafts_24h');
+    expect(json).toHaveProperty('cloud_spend_24h');
     expect(typeof json.generated_at).toBe('string');
     expect(typeof json.response_time_ms).toBe('number');
   });

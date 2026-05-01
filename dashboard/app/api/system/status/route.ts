@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   getActiveWorkflowCount,
+  getCloudSpend24h,
   getDiskFree,
   getDraftCounts24h,
   getLastEmailReceivedAt,
@@ -36,6 +37,7 @@ export async function GET() {
     diskFree,
     ollamaModels,
     draftCounts24h,
+    cloudSpend24h,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -45,6 +47,7 @@ export async function GET() {
     getDiskFree('/'),
     getOllamaLoadedModels(),
     getDraftCounts24h().catch(() => null),
+    getCloudSpend24h().catch(() => null),
   ]);
 
   return NextResponse.json({
@@ -60,6 +63,7 @@ export async function GET() {
     disk_total_bytes: diskFree?.total_bytes ?? null,
     ollama_models_loaded: ollamaModels,
     drafts_24h: draftCounts24h,
+    cloud_spend_24h: cloudSpend24h,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,
   });
