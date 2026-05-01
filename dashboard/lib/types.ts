@@ -83,6 +83,7 @@ export interface Draft {
   status: DraftStatus;
   created_at: string;
   updated_at: string;
+  sent_at: string | null;
   error_message: string | null;
 }
 
