@@ -7,11 +7,18 @@ mailbox.heronlabsinc.com {
   redir /dashboard /dashboard/queue 308
 
   # Dashboard approval queue. STAQPRO-131: gated behind basic_auth.
-  # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env.
+  # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env, AND
+  # ensure both vars are passed through to the caddy container in
+  # docker-compose.yml's caddy.environment block (not just the .env file).
   # Generate a hash with:  docker run --rm caddy:2 caddy hash-password
-  # If the env vars are unset, this block keeps proxying unauthenticated
-  # so the appliance doesn't go dark mid-deploy — flip auth on by
-  # filling in the env vars and reloading caddy.
+  # The hash contains literal `$` chars — escape every `$` to `$$` in
+  # the .env file or docker-compose silently truncates the value.
+  #
+  # FAIL-CLOSED: Caddy refuses to start if either env var is empty
+  # ("account 0: username and password are required" → crash loop).
+  # This is intentional — an appliance with deployed customer data must
+  # not silently fall through to unauthenticated proxying. If you're
+  # provisioning a fresh appliance, set the env vars BEFORE first boot.
   handle /dashboard/* {
     basic_auth {
       {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
