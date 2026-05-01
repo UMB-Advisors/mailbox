@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel in-progress runs on PR push.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard:
+    name: dashboard (typecheck + test)
+    runs-on: ubuntu-latest
+
+    # Postgres service for DB-backed schema-invariants test cases.
+    # Migrations are applied by the test setup step below — without that, the
+    # CHECK constraints don't exist yet and the DB-backed cases would fail
+    # rather than skip.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mailbox
+          POSTGRES_PASSWORD: mailbox
+          POSTGRES_DB: mailbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: dashboard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations to CI Postgres
+        env:
+          POSTGRES_URL: postgresql://mailbox:mailbox@localhost:5432/mailbox
+        run: npm run migrate
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Vitest (schema invariants + pure code)
+        env:
+          TEST_POSTGRES_URL: postgresql://mailbox:mailbox@localhost:5432/mailbox
+        run: npm test
+
+# Deferred for follow-up commits under STAQPRO-134:
+#   - Lint/format step (Biome recommended; pick + add)
+#   - Workflow JSON drift check (after STAQPRO-133's drift test lands)
+#   - Pipeline smoke test job (separate job; needs Ollama or mocked LLM)
