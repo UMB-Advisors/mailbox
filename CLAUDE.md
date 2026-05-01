@@ -155,7 +155,12 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ## Conventions
 
 ### Draft status state machine
-`mailbox.drafts.status` lifecycle: `pending_classification` → `pending_draft` → `pending_approval` → (`approved` | `rejected`) → (`sent` | `send_failed`). Source of truth for the enum is the Drizzle table definition in `dashboard/lib/db/schema.ts`; route handlers must import that enum, not redeclare string literals (this is what STAQPRO-137 will consolidate). Migration 008 (`drafts_draft_source_check`) broadens the `draft_source` CHECK constraint to cover `local_qwen3`, `cloud_gpt_oss_120b`, `cloud_haiku_4_5`, plus legacy values.
+`mailbox.drafts.status` lifecycle (live CHECK constraint): `pending` → `awaiting_cloud` (when route is `CLOUD_CATEGORIES` and the cloud call is in flight) → (`approved` | `rejected` | `edited`) → (`sent` | `failed`). Source of truth for the enum is the Drizzle table definition in `dashboard/lib/db/schema.ts` mirrored against the Postgres CHECK; route handlers must import that enum, not redeclare string literals (this is what STAQPRO-137 will consolidate).
+
+`drafts.draft_source` (live CHECK constraint): `local` | `cloud` | `local_qwen3` | `cloud_haiku`. Current code populates `local` or `cloud` (the route, not the model); the actual model used is recorded in `drafts.model` (e.g. `qwen3:4b-ctx4k`, `gpt-oss:120b`, `claude-haiku-4-5-20251001`). The `local_qwen3` / `cloud_haiku` qualified values exist in the constraint as historical-compatibility carry-overs from earlier migrations but are not the values written by the live drafting path.
+
+### `inbox_messages` denormalization
+`mailbox.inbox_messages` carries its own `classification`, `confidence`, `classified_at`, `model`, `draft_id` columns alongside the per-draft state in `mailbox.drafts`. Treat `inbox_messages` as the message-level snapshot of the latest classification + currently linked draft. `mailbox.classification_log` is the append-only history.
 
 ### Route handler pattern
 All API handlers under `dashboard/app/api/**/route.ts` follow the App Router contract: export named handlers (`GET`, `POST`, `PATCH`) that accept `(request: Request, { params })` and return a `Response`. Internal routes (`/api/internal/*`) are not auth-gated by Caddy basic_auth — they're called from n8n inside the docker network. **STAQPRO-138 is in flight**: replace inline `typeof x !== 'string'` checks with zod schemas in `dashboard/lib/schemas/` parsed by a shared validate middleware (`dashboard/lib/middleware/validate.ts`).
