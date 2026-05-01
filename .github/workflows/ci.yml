@@ -52,10 +52,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply migrations to CI Postgres
-        env:
-          POSTGRES_URL: postgresql://mailbox:mailbox@localhost:5432/mailbox
-        run: npm run migrate
+      # Apply the canonical schema snapshot (captured from Bob via pg_dump).
+      # The dashboard's incremental .sql migrations assume mailbox.drafts +
+      # mailbox.inbox_messages already exist (created out-of-band on the
+      # appliance), so they cannot bootstrap a fresh DB on their own.
+      # Refresh test/fixtures/schema.sql when migrations land — see the
+      # comment block at the top of that file.
+      - name: Apply schema snapshot to CI Postgres
+        run: |
+          PGPASSWORD=mailbox psql \
+            -h localhost -p 5432 -U mailbox -d mailbox \
+            -v ON_ERROR_STOP=1 \
+            -f test/fixtures/schema.sql
 
       - name: TypeScript typecheck
         run: npm run typecheck
