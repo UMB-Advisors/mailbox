@@ -224,6 +224,19 @@ Schedule (5 min)
 - `LOCAL_CATEGORIES` (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`) → local Qwen3
 - `CLOUD_CATEGORIES` (`escalate`, `unknown`) → Ollama Cloud (`gpt-oss:120b` default; `OLLAMA_CLOUD_MODEL` env override)
 
+### RAG retrieval (M3.5 / STAQPRO-191)
+
+`POST /api/internal/draft-prompt` embeds the inbound message and queries Qdrant `email_messages` with a hard sender filter (`payload.sender == inbound.from_addr`) for counterparty-scoped recall. Top-k snippets land in `lib/drafting/prompt.ts` `rag_refs` (already wired) and the point IDs persist into `drafts.rag_context_refs` for STAQPRO-192 traceability.
+
+**Privacy gate (cloud route)**: per the project Constraints ("All email content stored only on local appliance. No bulk corpus sent to cloud."), retrieved corpus snippets feeding a cloud-route prompt are additional cloud-bound data. Default behavior:
+
+- **LOCAL route** (Qwen3 on-device) — retrieval ALWAYS runs.
+- **CLOUD route** (Ollama Cloud / Anthropic) — retrieval runs only when `RAG_CLOUD_ROUTE_ENABLED=1`. Otherwise the route returns `cloud_gated` and drafting falls back to persona-stub.
+
+Tunables (env): `RAG_RETRIEVE_TOP_K` (default 3, sized for the 4096-token Qwen3 context per DR-18), `RAG_RETRIEVE_EXCERPT_CHARS` (default 600 ≈ 150 tokens per snippet).
+
+Failure modes (`retrieveForDraft` returns `{ refs: [], reason: ... }`): `cloud_gated`, `embed_unavailable`, `qdrant_unavailable`, `no_hits`. Drafting falls back to persona-stub on any non-`ok` reason — RAG is augmentation, not gate.
+
 ### RAG ingestion (M3.5 / STAQPRO-190)
 
 The Qdrant `email_messages` collection (STAQPRO-188) is populated by:

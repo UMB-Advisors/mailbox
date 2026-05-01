@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import type { Category } from '@/lib/classification/prompt';
 import { getKysely } from '@/lib/db';
@@ -5,6 +6,7 @@ import { getPersonaContext } from '@/lib/drafting/persona-stub';
 import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
 import { parseJson } from '@/lib/middleware/validate';
+import { retrieveForDraft } from '@/lib/rag/retrieve';
 import { draftPromptBodySchema } from '@/lib/schemas/internal';
 
 export const dynamic = 'force-dynamic';
@@ -59,6 +61,38 @@ export async function POST(req: NextRequest) {
 
     const persona = await getPersonaContext();
     const confidence = row.classification_confidence ?? 0;
+    const endpoint = pickEndpoint(classification_category, confidence);
+
+    // STAQPRO-191 — retrieval at draft time. Gated to local route by
+    // default (privacy: per-call cloud egress should not include retrieved
+    // local corpus snippets unless operator opts in via
+    // RAG_CLOUD_ROUTE_ENABLED=1). Failures return empty refs and the
+    // existing persona-stub path remains the fallback.
+    const retrieval = await retrieveForDraft({
+      from_addr: row.from_addr ?? '',
+      subject: row.subject ?? null,
+      body_text: row.body_text ?? null,
+      draft_source: endpoint.source,
+    });
+
+    if (retrieval.refs.length > 0) {
+      // Persist point IDs into drafts.rag_context_refs for traceability
+      // (STAQPRO-192 phase 2 reads this). Non-blocking: a write failure
+      // here MUST NOT prevent draft assembly downstream.
+      const refsJson = JSON.stringify(retrieval.refs.map((r) => r.point_id));
+      try {
+        await db
+          .updateTable('drafts')
+          .set({
+            rag_context_refs: sql`${refsJson}::jsonb`,
+            updated_at: sql<string>`NOW()`,
+          })
+          .where('id', '=', draft_id)
+          .execute();
+      } catch (err) {
+        console.error(`[rag] persisting rag_context_refs for draft ${draft_id} failed:`, err);
+      }
+    }
 
     const assembled = assemblePrompt({
       from_addr: row.from_addr ?? '',
@@ -68,9 +102,8 @@ export async function POST(req: NextRequest) {
       category: classification_category,
       confidence,
       persona,
+      rag_refs: retrieval.refs.map((r) => ({ source: r.source, excerpt: r.excerpt })),
     });
-
-    const endpoint = pickEndpoint(classification_category, confidence);
 
     return NextResponse.json({
       draft_id,
@@ -84,6 +117,11 @@ export async function POST(req: NextRequest) {
       messages: assembled.messages,
       max_tokens: assembled.max_tokens,
       temperature: assembled.temperature,
+      // STAQPRO-191 — surface retrieval status so n8n / smoke tests can log it.
+      rag: {
+        refs_count: retrieval.refs.length,
+        reason: retrieval.reason,
+      },
     });
   } catch (error) {
     console.error('POST /api/internal/draft-prompt failed:', error);
