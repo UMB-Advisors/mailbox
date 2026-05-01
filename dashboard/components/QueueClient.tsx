@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '@/lib/api';
 import type { DraftWithMessage } from '@/lib/types';
 import type { ActionKind } from './ActionButtons';
+import { AppNav } from './AppNav';
 import { DraftCard } from './DraftCard';
 import { DraftDetail } from './DraftDetail';
 import { EditModal } from './EditModal';
@@ -178,6 +179,7 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-panel px-4">
         <div className="flex items-center gap-3">
           <h1 className="font-sans text-sm font-semibold tracking-tight">MailBox One</h1>
+          <AppNav active="queue" />
           <span className="rounded-full border border-border bg-bg-deep px-2 py-0.5 font-mono text-[11px] tabular-nums text-ink-muted">
             {visibleActive.length} pending
           </span>
