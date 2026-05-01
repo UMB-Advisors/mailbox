@@ -1,25 +1,37 @@
 import { NextResponse } from 'next/server';
 import {
+  COST_SPIKE_MIN_TRIGGER_USD,
+  DRAFT_BACKLOG_THRESHOLD_HOURS,
+  evaluateAlerts,
+} from '@/lib/alerts';
+import {
   getActiveWorkflowCount,
   getCloudSpend24h,
+  getCloudSpendLastHour,
   getDiskFree,
+  getDraftBacklogAged,
   getDraftCounts24h,
   getLastEmailReceivedAt,
   getLastError,
   getLastInferenceLatency,
+  getN8nFailures24h,
   getOllamaLoadedModels,
   getQueueDepth,
 } from '@/lib/queries-system';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/system/status — STAQPRO-146 / FR-29.
+// GET /api/system/status — STAQPRO-146 / FR-29 (status snapshot) +
+// STAQPRO-128 (operator-facing alerts).
 //
 // Operator-facing health snapshot. Each field falls back to null on
 // individual failure (rather than failing the whole response) so the status
 // page can render partial data when one upstream — Ollama, Postgres, etc. —
 // is unreachable. Response always 200; partial-degradation signal lives in
 // the field values.
+//
+// `alerts` is an array of currently-firing alerts evaluated against the
+// thresholds in lib/alerts.ts. Empty array = healthy.
 //
 // Caddy gates this behind basic_auth (`/dashboard/*` matcher); no separate
 // auth check here. If a public unauthenticated /healthz is ever needed, file
@@ -38,6 +50,9 @@ export async function GET() {
     ollamaModels,
     draftCounts24h,
     cloudSpend24h,
+    draftBacklogAged,
+    n8nFailures24h,
+    cloudSpendLastHour,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -48,7 +63,23 @@ export async function GET() {
     getOllamaLoadedModels(),
     getDraftCounts24h().catch(() => null),
     getCloudSpend24h().catch(() => null),
+    getDraftBacklogAged(DRAFT_BACKLOG_THRESHOLD_HOURS).catch(() => null),
+    getN8nFailures24h(),
+    getCloudSpendLastHour(),
   ]);
+
+  const alerts = evaluateAlerts({
+    draftBacklog: draftBacklogAged,
+    n8nFailures: n8nFailures24h,
+    cloudCostSpike:
+      cloudSpendLastHour !== null && cloudSpend24h !== null
+        ? {
+            last_hour_usd: cloudSpendLastHour,
+            trailing_24h_usd: cloudSpend24h.total_usd,
+            min_trigger_usd: COST_SPIKE_MIN_TRIGGER_USD,
+          }
+        : null,
+  });
 
   return NextResponse.json({
     uptime_seconds: Math.round(process.uptime()),
@@ -64,6 +95,7 @@ export async function GET() {
     ollama_models_loaded: ollamaModels,
     drafts_24h: draftCounts24h,
     cloud_spend_24h: cloudSpend24h,
+    alerts,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,
   });

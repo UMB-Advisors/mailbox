@@ -1,11 +1,20 @@
 import {
+  type Alert,
+  COST_SPIKE_MIN_TRIGGER_USD,
+  DRAFT_BACKLOG_THRESHOLD_HOURS,
+  evaluateAlerts,
+} from '@/lib/alerts';
+import {
   getActiveWorkflowCount,
   getCloudSpend24h,
+  getCloudSpendLastHour,
   getDiskFree,
+  getDraftBacklogAged,
   getDraftCounts24h,
   getLastEmailReceivedAt,
   getLastError,
   getLastInferenceLatency,
+  getN8nFailures24h,
   getOllamaLoadedModels,
   getQueueDepth,
 } from '@/lib/queries-system';
@@ -26,6 +35,9 @@ export default async function StatusPage() {
     ollamaModels,
     draftCounts24h,
     cloudSpend24h,
+    draftBacklogAged,
+    n8nFailures24h,
+    cloudSpendLastHour,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -36,7 +48,23 @@ export default async function StatusPage() {
     getOllamaLoadedModels(),
     getDraftCounts24h().catch(() => null),
     getCloudSpend24h().catch(() => null),
+    getDraftBacklogAged(DRAFT_BACKLOG_THRESHOLD_HOURS).catch(() => null),
+    getN8nFailures24h(),
+    getCloudSpendLastHour(),
   ]);
+
+  const alerts = evaluateAlerts({
+    draftBacklog: draftBacklogAged,
+    n8nFailures: n8nFailures24h,
+    cloudCostSpike:
+      cloudSpendLastHour !== null && cloudSpend24h !== null
+        ? {
+            last_hour_usd: cloudSpendLastHour,
+            trailing_24h_usd: cloudSpend24h.total_usd,
+            min_trigger_usd: COST_SPIKE_MIN_TRIGGER_USD,
+          }
+        : null,
+  });
 
   const uptimeSeconds = Math.round(process.uptime());
 
@@ -60,6 +88,19 @@ export default async function StatusPage() {
             </a>
           </nav>
         </header>
+
+        {alerts.length > 0 && (
+          <section className="mb-6">
+            <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+              Alerts
+            </h2>
+            <ul className="space-y-2">
+              {alerts.map((a) => (
+                <AlertBanner key={a.code} alert={a} />
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Uptime" value={formatUptime(uptimeSeconds)} mono />
@@ -269,6 +310,22 @@ function Stat({ label, value, sub, mono, tone = 'default' }: StatProps) {
       </div>
       {sub && <div className="mt-1 text-xs text-ink-dim">{sub}</div>}
     </div>
+  );
+}
+
+function AlertBanner({ alert }: { alert: Alert }) {
+  const toneClass =
+    alert.severity === 'alarm'
+      ? 'border-accent-red/40 bg-accent-red/10 text-accent-red'
+      : 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange';
+  return (
+    <li className={`rounded border p-3 ${toneClass}`}>
+      <div className="flex items-baseline gap-3">
+        <span className="font-mono text-xs uppercase tracking-wider">{alert.severity}</span>
+        <span className="font-mono text-xs text-ink-dim">{alert.code}</span>
+      </div>
+      <p className="mt-1 text-sm">{alert.message}</p>
+    </li>
   );
 }
 

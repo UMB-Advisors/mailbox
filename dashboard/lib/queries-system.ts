@@ -167,6 +167,77 @@ export interface DraftCounts24h {
   rejected: number;
 }
 
+// STAQPRO-128 — operator-facing alert inputs.
+//
+// Each helper fails closed (returns null on error) so the alert evaluator
+// simply skips that input rather than failing the whole status response.
+
+export interface DraftBacklogAged {
+  aged_count: number;
+  threshold_hours: number;
+}
+
+export async function getDraftBacklogAged(thresholdHours: number): Promise<DraftBacklogAged> {
+  const db = getKysely();
+  const r = await db
+    .selectFrom('drafts')
+    .select((eb) => eb.fn.countAll<string>().as('c'))
+    .where('status', 'in', ['pending', 'awaiting_cloud'])
+    .where(sql<boolean>`created_at < now() - make_interval(hours => ${thresholdHours})`)
+    .executeTakeFirstOrThrow();
+  return { aged_count: Number(r.c), threshold_hours: thresholdHours };
+}
+
+export interface N8nFailures24h {
+  failed_count: number;
+  total_count: number;
+}
+
+// n8n's execution_entity lives in the public schema (outside kysely-codegen
+// scope). Use a raw template query — same pattern as getActiveWorkflowCount.
+//
+// Failure detection: `finished = false AND "stoppedAt" IS NOT NULL` matches
+// errored or canceled runs in both n8n 1.x and 2.x without depending on the
+// 2.x-only `status` enum column.
+export async function getN8nFailures24h(): Promise<N8nFailures24h | null> {
+  const db = getKysely();
+  try {
+    const r = await sql<{ failed: string; total: string }>`
+      SELECT
+        COUNT(*) FILTER (WHERE finished = false AND "stoppedAt" IS NOT NULL)::text AS failed,
+        COUNT(*)::text AS total
+      FROM public.execution_entity
+      WHERE "startedAt" > NOW() - INTERVAL '24 hours'
+    `.execute(db);
+    const row = r.rows[0];
+    if (!row) return { failed_count: 0, total_count: 0 };
+    return {
+      failed_count: Number(row.failed),
+      total_count: Number(row.total),
+    };
+  } catch (error) {
+    console.error('getN8nFailures24h failed:', error);
+    return null;
+  }
+}
+
+export async function getCloudSpendLastHour(): Promise<number | null> {
+  const db = getKysely();
+  try {
+    const r = await db
+      .selectFrom('drafts')
+      .select((eb) => eb.fn.sum<string>('cost_usd').as('total'))
+      .where(sql<boolean>`created_at > now() - interval '1 hour'`)
+      .where('draft_source', 'in', ['cloud', 'cloud_haiku'])
+      .where('cost_usd', 'is not', null)
+      .executeTakeFirstOrThrow();
+    return Number(r.total ?? 0);
+  } catch (error) {
+    console.error('getCloudSpendLastHour failed:', error);
+    return null;
+  }
+}
+
 export async function getDraftCounts24h(): Promise<DraftCounts24h> {
   const db = getKysely();
   const rows = await db
