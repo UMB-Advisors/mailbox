@@ -1,4 +1,8 @@
 ---
+status: SUPERSEDED
+superseded_by: 02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md (authoritative for architectural intent until promoted to a full v2 plan)
+supersession_date: 2026-04-27
+supersession_reason: 2026-04-27 Next.js full-stack ADR retired the Express backend layout (`dashboard/backend/src/routes/{onboarding,queue,tuning}.ts`, `dashboard/backend/src/{auth,live-gate}.ts`) this plan targets in favor of `dashboard/app/api/{onboarding,drafts,tuning}/...` route handlers and `dashboard/lib/{auth,onboarding}/...` modules. See ADR in `.planning/STATE.md` and the v2 STUB for the rescoped architecture.
 plan_number: 02-08
 slug: onboarding-wizard-and-queue-api
 wave: 5

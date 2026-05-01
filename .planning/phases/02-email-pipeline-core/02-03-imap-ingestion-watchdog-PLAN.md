@@ -1,4 +1,8 @@
 ---
+status: SUPERSEDED
+superseded_by: 02-03-imap-ingestion-watchdog-PLAN-v2-2026-04-27-STUB.md (architectural rescope) and 02-03-imap-ingestion-watchdog-SUMMARY.md (what shipped 2026-04-28)
+supersession_date: 2026-04-27
+supersession_reason: 2026-04-27 Next.js full-stack ADR retired the Express backend layout this plan implicitly assumed. Additionally, the IMAP-trigger + watchdog architecture was rendered moot per D-30 — the live workflow uses Gmail node + Schedule Trigger (no trigger-death bug). See ADR in `.planning/STATE.md` and SUMMARY for what actually shipped.
 plan_number: 02-03
 slug: imap-ingestion-watchdog
 wave: 3

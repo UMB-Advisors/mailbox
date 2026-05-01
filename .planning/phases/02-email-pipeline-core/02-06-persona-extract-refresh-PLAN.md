@@ -1,4 +1,8 @@
 ---
+status: SUPERSEDED
+superseded_by: 02-06-persona-extract-refresh-PLAN-v2-2026-04-27-STUB.md (authoritative for architectural intent until promoted to a full v2 plan)
+supersession_date: 2026-04-27
+supersession_reason: 2026-04-27 Next.js full-stack ADR retired the Express backend layout (`dashboard/backend/src/persona/...`, `dashboard/backend/src/routes/persona.ts`) this plan targets in favor of `dashboard/lib/persona/...` modules and `dashboard/app/api/persona/...` route handlers. See ADR in `.planning/STATE.md` and the v2 STUB for the rescoped architecture.
 plan_number: 02-06
 slug: persona-extract-refresh
 wave: 3

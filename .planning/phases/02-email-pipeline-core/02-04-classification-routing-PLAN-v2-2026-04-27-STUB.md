@@ -3,7 +3,11 @@ plan_number: 02-04
 plan_version: v2-stub
 plan_date: 2026-04-27
 supersedes: 02-04-classification-routing-PLAN.md (v1, 2026-04-13)
-status: STUB — defer full task breakdown until cross-plan decisions resolved
+status: SUPERSEDED — was STUB; split into 02-04a + 02-04b for execution
+superseded_by: 02-04-classification-routing-SUMMARY.md (meta-summary consolidating the split)
+split_into: [02-04a, 02-04b]
+supersession_date: 2026-04-30
+supersession_reason: Lean execution mode shipped 02-04a (MAIL-05 classifier + classify sub-workflow, 2026-04-29) and 02-04b (corpus + scoring + D-50 + MAIL-08 gate PASS, 2026-04-30) directly against this stub's intent. See meta-summary and individual SUMMARY files for what shipped.
 slug: classification-routing
 wave: 3
 depends_on: [02-02, 02-03]

@@ -3,7 +3,10 @@ plan_number: 02-03
 plan_version: v2-stub
 plan_date: 2026-04-27
 supersedes: 02-03-imap-ingestion-watchdog-PLAN.md (v1, 2026-04-13)
-status: STUB — defer full task breakdown until cross-plan decisions resolved
+status: SUPERSEDED — was STUB; partial-shipped against this stub's intent, see SUMMARY for what landed
+superseded_by: 02-03-imap-ingestion-watchdog-SUMMARY.md
+supersession_date: 2026-04-28
+supersession_reason: Lean execution mode shipped the minimal-scope intent (migration 007 + Gmail+Schedule workflow extension) directly against this stub without first promoting it to a full v2 plan. SUMMARY documents what shipped and what was deferred. The IMAP-trigger + watchdog architecture in this stub was rendered moot per D-30.
 slug: imap-ingestion-watchdog
 wave: 3
 depends_on: [02-02]

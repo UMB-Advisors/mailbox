@@ -1,4 +1,9 @@
 ---
+status: SUPERSEDED
+superseded_by: 02-04-classification-routing-SUMMARY.md (meta-summary consolidating the two-part split execution)
+split_into: [02-04a, 02-04b]
+supersession_date: 2026-04-27
+supersession_reason: 2026-04-27 Next.js full-stack ADR retired the Express backend layout (`dashboard/backend/src/classification/...`) this plan targets in favor of `dashboard/lib/classification/...` and `dashboard/app/api/internal/classification-*` route handlers. Plan was subsequently split for execution into 02-04a (MAIL-05 classifier + classify sub-workflow + live-gate stub, shipped 2026-04-29) and 02-04b (corpus + scoring + D-50 + MAIL-08 PASS, shipped 2026-04-30). See ADR in `.planning/STATE.md`.
 plan_number: 02-04
 slug: classification-routing
 wave: 3

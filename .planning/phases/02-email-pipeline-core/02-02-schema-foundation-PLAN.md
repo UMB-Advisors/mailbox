@@ -1,4 +1,8 @@
 ---
+status: SUPERSEDED
+superseded_by: 02-02-schema-foundation-PLAN-v2-2026-04-27.md
+supersession_date: 2026-04-27
+supersession_reason: 2026-04-27 Next.js full-stack ADR retired the Express backend layout (`dashboard/backend/src/...`) this plan targets in favor of `dashboard/app/api/...` route handlers and `dashboard/lib/...` modules. v2 plan shipped 6 forward-only SQL migrations against a new migration runner instead of `drizzle-kit push`. See ADR in `.planning/STATE.md` "Architectural Decision Record: Dashboard Stack Pivot".
 plan_number: 02-02
 slug: schema-foundation
 wave: 2
