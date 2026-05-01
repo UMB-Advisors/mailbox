@@ -99,7 +99,7 @@
   Stage 7: Start Docker Compose Stack
 
   - Copies .env.example to .env if no .env exists (warns you to change passwords)
-  - Runs docker compose up -d
+  - Runs docker compose up -d --remove-orphans
   - Polls every 10s for all 5 services to be healthy, times out at 180s
   - Prints final docker compose ps status
 

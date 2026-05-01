@@ -72,12 +72,12 @@ Collect from the customer **before** the unit ships:
 
 **Goal:** All 8 services healthy with version pins per CLAUDE.md "Service topology" table.
 
-Services (per CLAUDE.md): `postgres`, `qdrant`, `ollama`, `n8n` (1.123.35 pinned per DR-17), `caddy`, `mailbox-dashboard`, `mailbox-migrate`, `ttyd`.
+Services (per CLAUDE.md): `postgres`, `qdrant`, `ollama`, `n8n` (1.123.35 pinned per DR-17), `caddy`, `mailbox-dashboard`, `mailbox-migrate`. Operator shell access is via Tailscale SSH only — `ttyd` was removed 2026-05-01 per STAQPRO-126/182.
 
 - [ ] `git clone https://github.com/UMB-Advisors/mailbox.git ~/mailbox`
 - [ ] Copy `.env.example` → `.env`, fill secrets (see §4–§9 for each)
 - [ ] `docker compose --profile migrate run --rm mailbox-migrate` (run migrations before app boot)
-- [ ] `docker compose up -d`
+- [ ] `docker compose up -d --remove-orphans`
 - [ ] `docker compose ps` — all services Healthy or Up
 - [ ] Pull models inside Ollama container: `qwen3:4b-ctx4k` (custom 4096 ctx Modelfile per DR-18) + `nomic-embed-text:v1.5`
 - [ ] n8n: import workflow JSONs (`n8n/MailBOX*.json`) + activate parent workflow only
