@@ -96,6 +96,8 @@ services:
     - caddy_config:/config
     environment:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      MAILBOX_BASIC_AUTH_USER: ${MAILBOX_BASIC_AUTH_USER}
+      MAILBOX_BASIC_AUTH_HASH: ${MAILBOX_BASIC_AUTH_HASH}
     depends_on:
       n8n:
         condition: service_healthy
