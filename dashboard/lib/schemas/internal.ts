@@ -44,3 +44,22 @@ export const classificationNormalizeBodySchema = z.object({
 });
 
 export type ClassificationNormalizeBody = z.infer<typeof classificationNormalizeBodySchema>;
+
+// POST /api/internal/inbox-messages — STAQPRO-135 ingest endpoint that
+// replaces n8n's `Insert Inbox (skip dupes)` Postgres node. Field shape
+// mirrors what n8n's `Extract Fields` set node already produces; tightening
+// here would break the live workflow.
+export const inboxMessageInsertBodySchema = z.object({
+  message_id: z.string().min(1, 'message_id (Gmail message id) required'),
+  thread_id: z.string().optional().default(''),
+  from_addr: z.string().optional().default(''),
+  to_addr: z.string().optional().default(''),
+  subject: z.string().optional().default(''),
+  received_at: z.string().optional(),
+  snippet: z.string().optional().default(''),
+  body: z.string().optional().default(''),
+  in_reply_to: z.string().optional().default(''),
+  references: z.string().optional().default(''),
+});
+
+export type InboxMessageInsertBody = z.infer<typeof inboxMessageInsertBodySchema>;

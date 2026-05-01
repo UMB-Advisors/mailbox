@@ -62,4 +62,65 @@ dbDescribe('internal route handlers — real Postgres', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('POST /api/internal/inbox-messages', () => {
+    it('inserts a new row and returns {id, message_id, created: true}', async () => {
+      const messageId = `staqpro135-${Date.now()}-new`;
+      try {
+        const { POST } = await import('@/app/api/internal/inbox-messages/route');
+        const res = await POST(
+          fakeRequest({
+            body: {
+              message_id: messageId,
+              thread_id: 't-1',
+              from_addr: 'a@b.com',
+              to_addr: 'c@d.com',
+              subject: 's',
+              snippet: 'sn',
+              body: 'b',
+            },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const json = await res.json();
+        expect(json.message_id).toBe(messageId);
+        expect(json.created).toBe(true);
+        expect(typeof json.id).toBe('number');
+      } finally {
+        const { getPool } = await import('@/lib/db');
+        await getPool().query('DELETE FROM mailbox.inbox_messages WHERE message_id = $1', [
+          messageId,
+        ]);
+      }
+    });
+
+    it('returns existing id with created: false on duplicate message_id', async () => {
+      const messageId = `staqpro135-${Date.now()}-dupe`;
+      try {
+        const { POST } = await import('@/app/api/internal/inbox-messages/route');
+        const first = await POST(fakeRequest({ body: { message_id: messageId } }));
+        const firstJson = await first.json();
+        expect(firstJson.created).toBe(true);
+
+        const second = await POST(fakeRequest({ body: { message_id: messageId } }));
+        const secondJson = await second.json();
+        expect(second.status).toBe(200);
+        expect(secondJson.id).toBe(firstJson.id);
+        expect(secondJson.created).toBe(false);
+      } finally {
+        const { getPool } = await import('@/lib/db');
+        await getPool().query('DELETE FROM mailbox.inbox_messages WHERE message_id = $1', [
+          messageId,
+        ]);
+      }
+    });
+
+    it('rejects missing message_id with 400 (validation)', async () => {
+      const { POST } = await import('@/app/api/internal/inbox-messages/route');
+      const res = await POST(fakeRequest({ body: { from_addr: 'a@b.com' } }));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBe('validation_failed');
+    });
+  });
 });
