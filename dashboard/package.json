@@ -8,12 +8,15 @@
     "start": "next start -p 3001",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx migrations/runner.ts",
+    "db:codegen": "bash scripts/codegen-db.sh",
+    "db:codegen:verify": "bash scripts/codegen-db.sh --verify",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
+    "kysely": "^0.28.16",
     "lucide-react": "^0.469.0",
     "next": "14.2.35",
     "pg": "^8.13.1",
@@ -28,6 +31,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
+    "kysely-codegen": "^0.20.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "tsx": "^4.21.0",
