@@ -1,48 +1,34 @@
-import { getPool } from '@/lib/db';
+import { sql } from 'kysely';
+import { getKysely } from '@/lib/db';
 import type { Onboarding, OnboardingStage } from '@/lib/types';
 
-const GET_ONBOARDING_SQL = `
-  SELECT * FROM mailbox.onboarding WHERE customer_key = $1
-`;
-
-const UPDATE_ONBOARDING_STAGE_SQL = `
-  UPDATE mailbox.onboarding
-     SET stage = $2,
-         lived_at = CASE WHEN $2 = 'live' THEN NOW() ELSE lived_at END
-   WHERE customer_key = $1
-   RETURNING *
-`;
-
-const UPDATE_ADMIN_SQL = `
-  UPDATE mailbox.onboarding
-     SET admin_username = $2,
-         admin_password_hash = $3,
-         stage = 'pending_email'
-   WHERE customer_key = $1
-   RETURNING *
-`;
-
-const UPDATE_EMAIL_SQL = `
-  UPDATE mailbox.onboarding
-     SET email_address = $2,
-         stage = 'ingesting'
-   WHERE customer_key = $1
-   RETURNING *
-`;
-
 export async function getOnboarding(customerKey = 'default'): Promise<Onboarding | null> {
-  const pool = getPool();
-  const r = await pool.query<Onboarding>(GET_ONBOARDING_SQL, [customerKey]);
-  return r.rows[0] ?? null;
+  const db = getKysely();
+  const row = await db
+    .selectFrom('onboarding')
+    .selectAll()
+    .where('customer_key', '=', customerKey)
+    .executeTakeFirst();
+  return (row as Onboarding | undefined) ?? null;
 }
 
 export async function setStage(
   stage: OnboardingStage,
   customerKey = 'default',
 ): Promise<Onboarding | null> {
-  const pool = getPool();
-  const r = await pool.query<Onboarding>(UPDATE_ONBOARDING_STAGE_SQL, [customerKey, stage]);
-  return r.rows[0] ?? null;
+  const db = getKysely();
+  const row = await db
+    .updateTable('onboarding')
+    .set({
+      stage,
+      // Mirror the original CASE: only stamp lived_at when transitioning to 'live'.
+      // ${stage} binds as a parameter; the comparison happens server-side.
+      lived_at: sql<string | null>`CASE WHEN ${stage}::text = 'live' THEN NOW() ELSE lived_at END`,
+    })
+    .where('customer_key', '=', customerKey)
+    .returningAll()
+    .executeTakeFirst();
+  return (row as Onboarding | undefined) ?? null;
 }
 
 export async function setAdmin(
@@ -50,15 +36,32 @@ export async function setAdmin(
   passwordHash: string,
   customerKey = 'default',
 ): Promise<Onboarding | null> {
-  const pool = getPool();
-  const r = await pool.query<Onboarding>(UPDATE_ADMIN_SQL, [customerKey, username, passwordHash]);
-  return r.rows[0] ?? null;
+  const db = getKysely();
+  const row = await db
+    .updateTable('onboarding')
+    .set({
+      admin_username: username,
+      admin_password_hash: passwordHash,
+      stage: 'pending_email',
+    })
+    .where('customer_key', '=', customerKey)
+    .returningAll()
+    .executeTakeFirst();
+  return (row as Onboarding | undefined) ?? null;
 }
 
 export async function setEmail(email: string, customerKey = 'default'): Promise<Onboarding | null> {
-  const pool = getPool();
-  const r = await pool.query<Onboarding>(UPDATE_EMAIL_SQL, [customerKey, email]);
-  return r.rows[0] ?? null;
+  const db = getKysely();
+  const row = await db
+    .updateTable('onboarding')
+    .set({
+      email_address: email,
+      stage: 'ingesting',
+    })
+    .where('customer_key', '=', customerKey)
+    .returningAll()
+    .executeTakeFirst();
+  return (row as Onboarding | undefined) ?? null;
 }
 
 export async function isLive(customerKey = 'default'): Promise<boolean> {
