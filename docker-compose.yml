@@ -57,7 +57,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
   n8n:
-    image: n8nio/n8n:1.123.35
+    image: n8nio/n8n:2.14.2
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
