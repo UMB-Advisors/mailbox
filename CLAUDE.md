@@ -300,9 +300,11 @@ This local clone is the source of truth. Edit here, commit, push, then on the Je
     # Apply on the Jetson (one-liner from this workstation)
     ssh jetson 'cd ~/mailbox && git pull && docker compose up -d --build'
 
-For Caddy-only or config-only changes (no rebuild), use:
+For Caddy-only or config-only changes (no rebuild), restart the container:
 
-    ssh jetson 'cd ~/mailbox && git pull && docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile'
+    ssh jetson 'cd ~/mailbox && git pull && docker compose restart caddy'
+
+Don't use `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile` — STAQPRO-161 deploy hit a case where the admin-API reload reported "config is unchanged" and kept the old config loaded even though the bind-mounted Caddyfile on the host had the new content. Full container restart re-reads the bind mount cleanly. Cost is ~1s of dropped connections vs the silent stale-config trap.
 
 ### Public surface
 
