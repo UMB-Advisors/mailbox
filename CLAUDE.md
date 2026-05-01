@@ -32,7 +32,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 | n8n | **1.123.35** (pinned per **DR-17**) | Workflow runtime | Pinned at 1.x deliberately — 2.x migration deferred. Sub-workflows: `MailBOX` (schedule trigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`. **Ingress = Schedule (5 min) + Gmail Get** per DR-22 KILL of Pub/Sub push. No IMAP. |
 | Postgres | 17-alpine | Operational datastore | Schema `mailbox`. Hosts n8n's `workflow_entity` table on the same DB. |
 | Next.js 14 dashboard | App Router + Kysely | Approval queue UI + internal API routes | **DR-24**: dedicated Next.js service (`mailbox-dashboard`), not an Express+Vite SPA and not a Brain plugin. Internal routes: `/api/internal/{draft-prompt,draft-finalize,classification-prompt,classification-normalize,onboarding/live-gate,inbox-messages}` plus CRUD under `/api/drafts/...`. **Dashboard ORM ADR (2026-05-01)**: Kysely chosen over Prisma/Drizzle on Jetson hardware grounds. |
-| Caddy | 2.x | Public HTTPS + auth gate | Cloudflare DNS-01 cert. `basic_auth` on `/dashboard/*` and `/` (n8n editor) per **STAQPRO-131**. `/webhook/*` deliberately bypasses auth. Bcrypt `$` chars need `$$` escaping in `.env`. |
+| Caddy | 2.x | Public HTTPS + auth gate | Cloudflare DNS-01 cert. `basic_auth` on **all paths** (`/dashboard/*`, `/`, `/webhook/*`) per **STAQPRO-131** + **STAQPRO-161**. The `/webhook/*` bypass that existed for the retired Pub/Sub push (DR-22 KILLED 2026-04-30) was removed; the dashboard's approve→send loop calls n8n via internal docker DNS (`http://n8n:5678/webhook/mailbox-send`) and never traverses Caddy. Bcrypt `$` chars need `$$` escaping in `.env`. |
 | ttyd | latest | Browser terminal | Port 7681, basic auth. |
 ### Models (live)
 | Model | Pull Tag / Provider | Size (VRAM) | Purpose | Notes |
@@ -192,7 +192,7 @@ Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed, Phase 2 RAG — not yet wired) |
 | `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
 | `n8n` | `n8nio/n8n:1.123.35` (DR-17 pin) | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
-| `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on `/dashboard/*` and `/`; `/webhook/*` bypasses |
+| `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
 | `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
 | `ttyd` | tsl0922/ttyd | Browser terminal (port 7681, basic auth) |
@@ -240,7 +240,7 @@ Schedule (5 min)
 
 - `https://mailbox.heronlabsinc.com/dashboard/queue` — approval queue (basic_auth gated per STAQPRO-131)
 - `https://mailbox.heronlabsinc.com/` — n8n editor (basic_auth gated)
-- `https://mailbox.heronlabsinc.com/webhook/*` — n8n webhook ingress (auth bypass; protected by webhook-internal HMAC)
+- `https://mailbox.heronlabsinc.com/webhook/*` — n8n webhook ingress (basic_auth gated per STAQPRO-161; the dashboard's approve→send loop bypasses Caddy via internal docker DNS at `http://n8n:5678/webhook/mailbox-send`)
 
 ### Test coverage
 

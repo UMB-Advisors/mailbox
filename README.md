@@ -162,7 +162,7 @@ The `docker-compose.yml` orchestrates eight services:
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed; Phase 2 RAG, not yet wired) |
 | `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference with GPU passthrough (Qwen3-4B + nomic-embed-text) |
 | `n8n` | `n8nio/n8n:1.123.35` (pinned per DR-17) | Workflow orchestration (Schedule + Gmail Get → classify → draft → queue → Gmail Reply) |
-| `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on `/dashboard/*` and `/`; `/webhook/*` bypasses |
+| `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes |
 | `mailbox-migrate` | Drizzle migrate runner | `docker compose --profile migrate run mailbox-migrate` |
 | `ttyd` | `tsl0922/ttyd` | Browser terminal (port 7681, basic_auth gated) |

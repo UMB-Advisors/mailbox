@@ -6,16 +6,6 @@ mailbox.heronlabsinc.com {
   # Convenience: bare /dashboard → /dashboard/queue
   redir /dashboard /dashboard/queue 308
 
-  # Inbound webhooks bypass basic_auth so external services (n8n
-  # webhooks, future integrations) still resolve. DR-22 (Pub/Sub) was
-  # cancelled, so today this path only carries the dashboard's internal
-  # /webhook/mailbox-send call which lives on the docker network and
-  # never traverses Caddy. Kept here so future webhook integrations
-  # don't need a Caddy edit.
-  handle /webhook/* {
-    reverse_proxy n8n:5678
-  }
-
   # Dashboard approval queue. STAQPRO-131: gated behind basic_auth.
   # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env.
   # Generate a hash with:  docker run --rm caddy:2 caddy hash-password
@@ -29,9 +19,14 @@ mailbox.heronlabsinc.com {
     reverse_proxy mailbox-dashboard:3001
   }
 
-  # n8n editor — same auth gate. The internal n8n webhook the dashboard
-  # calls runs on the docker network (http://n8n:5678/...) and does not
-  # traverse Caddy, so this gate doesn't break the approve→send loop.
+  # n8n editor + any other paths (incl. /webhook/*) — basic_auth gated.
+  # STAQPRO-161 (post-DR-22 KILL): the prior /webhook/* bypass is gone.
+  # The dashboard's only webhook caller (MailBOX-Send approve→send loop)
+  # uses internal docker DNS at http://n8n:5678/webhook/mailbox-send and
+  # never traverses Caddy, so this gate doesn't break that loop. With
+  # Pub/Sub push retired (DR-22), no external party needs to reach the
+  # webhook surface; gating it behind the same basic_auth as the editor
+  # closes the last public attack vector on the appliance.
   handle {
     basic_auth {
       {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
