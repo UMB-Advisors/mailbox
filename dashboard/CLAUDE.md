@@ -15,10 +15,10 @@ This closes Phase 1 deliverable #6 (dashboard approval queue) and ships workflow
 
 Defer to root `../CLAUDE.md` for the appliance-wide stack. Dashboard-specific layers:
 
-- **Next.js 14** (App Router) — internal API routes under `app/api/**/route.ts`; pages under `app/**/page.tsx`
-- **Drizzle ORM** + Postgres (`mailbox` schema). Migrations under `dashboard/drizzle/migrations/`. Per 2026-04-27 ADR, Drizzle stays for MVP; Prisma migration deferred post-customer-#2 (STAQPRO-136)
-- **Tailwind CSS v3** — utility classes; mobile-responsive approval queue
-- **zod** — runtime validation. **STAQPRO-138 (in flight)**: schemas in `dashboard/lib/schemas/`, parsed by shared validate middleware
+- **Next.js 14.2.x** (App Router) — internal API routes under `app/api/**/route.ts`; pages under `app/**/page.tsx`
+- **Raw `pg` (8.x)** + Postgres `mailbox` schema. Pool client in `lib/db.ts`; SQL helpers in `lib/queries*.ts`. Plain `.sql` migrations under `migrations/NNN-*.sql` run via `migrations/runner.ts` (custom tsx script, no drizzle-kit). Per 2026-04-27 ADR: keep raw pg for MVP. ORM migration deferred post-customer-#2 (STAQPRO-136)
+- **Tailwind CSS v3.4.x** — utility classes; mobile-responsive approval queue
+- **zod** (planned, not yet in deps) — runtime validation. **STAQPRO-138 (in flight)**: plain `z.object({...})` schemas in `lib/schemas/`, parsed by shared `lib/middleware/validate.ts`. No ORM-derived schemas (no Drizzle to derive from)
 
 The dashboard runs as the `mailbox-dashboard` service in the appliance Docker Compose stack. It is reachable behind Caddy at `https://mailbox.heronlabsinc.com/dashboard/queue` (basic_auth gated per STAQPRO-131) and over the LAN/Tailnet on port `3001`.
 <!-- GSD:stack-end -->
@@ -29,12 +29,12 @@ The dashboard runs as the `mailbox-dashboard` service in the appliance Docker Co
 > Source of truth lives in root `../CLAUDE.md` Conventions section. This file cross-references the dashboard-relevant subset; do not duplicate.
 
 - **Route handler pattern** — App Router contract: export named `GET`/`POST`/`PATCH`/`DELETE` from `app/api/**/route.ts` accepting `(request: Request, { params })`. Internal routes under `/api/internal/*` are not Caddy basic_auth gated — they are called from n8n inside the docker network. Treat them as trust-boundary inputs anyway (zod-validate per STAQPRO-138).
-- **Status state machine** — `mailbox.drafts.status` lifecycle (live CHECK): `pending` → `awaiting_cloud` (cloud call in flight) → (`approved` | `rejected` | `edited`) → (`sent` | `failed`). Source of truth = the Drizzle table definition in `dashboard/lib/db/schema.ts` mirrored against the Postgres CHECK constraint. Import the enum; do not redeclare string literals (STAQPRO-137 will consolidate).
+- **Status state machine** — `mailbox.drafts.status` lifecycle (live CHECK): `pending` → `awaiting_cloud` (cloud call in flight) → (`approved` | `rejected` | `edited`) → (`sent` | `failed`). Source of truth = the Postgres CHECK constraint in `migrations/003-evolve-drafts-to-queue-shape-v1-2026-04-27.sql`. Planned home for the TS-side enum constant is `lib/types.ts` — STAQPRO-137 will consolidate so route handlers import once instead of redeclaring string literals.
 - **Draft source values** — `drafts.draft_source` = `local` | `cloud` (the route taken). The model used is recorded separately in `drafts.model`. Constraint also permits legacy `local_qwen3` / `cloud_haiku` but the live drafting path writes `local` / `cloud`.
-- **SQL convention** — Drizzle query builder (typed CRUD) **or** `db.execute(sql\`...\`)` (raw, for joins / migration-adjacent reads). Pick one per route file; do not mix in the same handler. Direction: prefer Drizzle query builder.
+- **SQL convention** — Hand-rolled SQL via `pg.Pool` from `lib/db.ts`. Two surface patterns: (a) named query helpers in `lib/queries*.ts` (preferred — keeps SQL out of route handlers) and (b) inline `pool.query(sql, params)` for one-off queries. Promote to `lib/queries*.ts` when 2+ routes need the same query. Always parameterize.
 - **Validation** — request body / query / params validation goes through zod schemas in `dashboard/lib/schemas/` via the shared `dashboard/lib/middleware/validate.ts` middleware. No inline `typeof x !== 'string'` checks in handlers.
 - **Internal route auth** — `/api/internal/*` callers should send the n8n internal HMAC header (when wired). Until then, treat exposure as the threat model and zod-validate aggressively.
-- **Migration comments** — every Drizzle migration opens with a 2-3 line block comment per the migration 007 standard: what, why (link issue or DR), reversal note.
+- **Migration comments** — every `.sql` migration opens with a 2-3 line block comment per the migration 007 standard: what, why (link issue or DR), reversal note. The comment is the only documentation — there's no separate ADR per migration.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
@@ -64,7 +64,13 @@ Internal (n8n-facing, docker network only):
 
 ### Data layer
 
-`dashboard/lib/db/` — Drizzle client + schema. Schema mirrors the `mailbox` Postgres schema. Migrations under `dashboard/drizzle/migrations/`; the runner is the separate `mailbox-migrate` compose service (`docker compose --profile migrate run mailbox-migrate`).
+- `lib/db.ts` — `pg.Pool` client, lazy-initialized from `POSTGRES_URL`
+- `lib/queries.ts` — drafts queue + dashboard CRUD helpers
+- `lib/queries-onboarding.ts` — onboarding state queries
+- `lib/queries-persona.ts` — persona config queries
+- `lib/types.ts` — hand-rolled TS types (incrementally being replaced as zod schemas land per STAQPRO-138)
+
+Migrations live as plain `.sql` files in `migrations/NNN-*.sql`. The runner is `migrations/runner.ts` (custom tsx script that tracks applied versions in `mailbox.migrations`). The separate `mailbox-migrate` compose service runs the same script: `docker compose --profile migrate run mailbox-migrate`.
 
 ### Routing logic
 

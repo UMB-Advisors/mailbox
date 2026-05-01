@@ -44,12 +44,11 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ### Supporting Libraries (Dashboard Service — Next.js 14)
 | Library | Version | Purpose | Notes |
 |---------|---------|---------|-------|
-| `next` | 14.x | Framework + dashboard runtime | App Router. Internal API routes under `app/api/**/route.ts`. |
-| `drizzle-orm` | ^0.31 | Type-safe Postgres ORM | Per 2026-04-27 ADR (Dashboard Stack Pivot): Drizzle stays for MVP. Prisma migration deferred post-customer-#2 (STAQPRO-136 reopened). |
-| `drizzle-kit` | ^0.22 | Migration management | Paired with drizzle-orm. See `dashboard/drizzle/migrations/`. |
-| `@qdrant/js-client-rest` | ^1.11 | Qdrant REST client | Phase 2 RAG only (not yet wired). |
-| `zod` | ^3 | Runtime validation | **STAQPRO-138** (open): consolidate inline `typeof` checks behind a centralized validation middleware, schemas in `dashboard/lib/schemas/`. ORM-agnostic via `drizzle-zod` today, `zod-prisma-types` post-migration. |
-| `tailwindcss` | ^3 | Utility CSS | Mobile-responsive dashboard. (Note: original STACK.md spec was Tailwind v4 + Vite 6 — DR-24 flipped to Next.js 14 which currently runs Tailwind v3.) |
+| `next` | 14.2.x | Framework + dashboard runtime | App Router. Internal API routes under `app/api/**/route.ts`. |
+| `pg` | ^8.13 | Postgres driver | The dashboard uses **raw pg** (not Drizzle). Pool client wrapped in `dashboard/lib/db.ts`; SQL queries hand-rolled in `dashboard/lib/queries*.ts`. Per 2026-04-27 ADR (Dashboard Stack Pivot): keep raw pg for MVP. Future: STAQPRO-136 will choose between Prisma migration and a typed query helper layer post-customer-#2. |
+| Migrations | plain SQL files | Schema versioning | `dashboard/migrations/NNN-*.sql` ordered numerically; runner is `dashboard/migrations/runner.ts` (custom tsx script, no drizzle-kit). Tracking table: `mailbox.migrations`. Compose service: `docker compose --profile migrate run mailbox-migrate`. |
+| `zod` | (to be added by STAQPRO-138) | Runtime validation | **STAQPRO-138** (open): consolidate inline `typeof` checks behind a centralized validation middleware. Schemas as plain `z.object({...})` in `dashboard/lib/schemas/` parsed by `dashboard/lib/middleware/validate.ts`. No ORM-derived schemas (no Drizzle to derive from). |
+| `tailwindcss` | 3.4.x | Utility CSS | Mobile-responsive dashboard. (Note: original STACK.md spec was Tailwind v4 + Vite 6 — DR-24 flipped to Next.js 14 which currently runs Tailwind v3.) |
 ### Development Tools
 | Tool | Purpose | Notes |
 |------|---------|-------|
@@ -77,7 +76,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 | nomic-embed-text v1.5 | nomic-embed-text-v2-moe | v2-moe is 475M params (vs 137M); creates memory pressure alongside Qwen3-4B on 8GB unified RAM. |
 | Ollama Cloud `gpt-oss:120b` | Anthropic Haiku 4.5 | Both wired; same Ollama-shape API. Haiku is config-ready alt-cloud — flip by populating `ANTHROPIC_API_KEY`. Per 2026-04-30 pivot. |
 | Next.js 14 dashboard | Express + Vite SPA | Original STACK.md spec; **flipped to Next.js per DR-24** (single service, App Router internal API routes, easier OAuth-callback patterns). |
-| Drizzle ORM | Prisma | **2026-04-27 ADR**: Drizzle for MVP. Prisma migration deferred post-customer-#2 (STAQPRO-136 reopened). Prisma has 35-60MB binary + background engine; trade-off acceptable post-MVP for tooling/migrations. |
+| Raw `pg` + hand-rolled migrations | Drizzle / Prisma | **2026-04-27 ADR**: keep raw pg for MVP. ORM migration deferred post-customer-#2 under STAQPRO-136. Both Drizzle (lighter, code-first schema) and Prisma (heavier binary + background engine, but better tooling/migrations) are on the table for post-MVP. (Earlier docs claimed Drizzle was already in use — that was an aspirational drift; the actual code is raw pg via `dashboard/lib/db.ts` + `dashboard/lib/queries*.ts`.) |
 ## What NOT to Use
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
@@ -155,7 +154,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ## Conventions
 
 ### Draft status state machine
-`mailbox.drafts.status` lifecycle (live CHECK constraint): `pending` → `awaiting_cloud` (when route is `CLOUD_CATEGORIES` and the cloud call is in flight) → (`approved` | `rejected` | `edited`) → (`sent` | `failed`). Source of truth for the enum is the Drizzle table definition in `dashboard/lib/db/schema.ts` mirrored against the Postgres CHECK; route handlers must import that enum, not redeclare string literals (this is what STAQPRO-137 will consolidate).
+`mailbox.drafts.status` lifecycle (live CHECK constraint): `pending` → `awaiting_cloud` (when route is `CLOUD_CATEGORIES` and the cloud call is in flight) → (`approved` | `rejected` | `edited`) → (`sent` | `failed`). Source of truth for the enum is the Postgres CHECK constraint defined in `dashboard/migrations/003-evolve-drafts-to-queue-shape-v1-2026-04-27.sql` (and later widened by 008). Route handlers must import a single TS constant for the enum (planned home: `dashboard/lib/types.ts`), not redeclare string literals — this is what STAQPRO-137 will consolidate.
 
 `drafts.draft_source` (live CHECK constraint): `local` | `cloud` | `local_qwen3` | `cloud_haiku`. Current code populates `local` or `cloud` (the route, not the model); the actual model used is recorded in `drafts.model` (e.g. `qwen3:4b-ctx4k`, `gpt-oss:120b`, `claude-haiku-4-5-20251001`). The `local_qwen3` / `cloud_haiku` qualified values exist in the constraint as historical-compatibility carry-overs from earlier migrations but are not the values written by the live drafting path.
 
@@ -166,7 +165,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 All API handlers under `dashboard/app/api/**/route.ts` follow the App Router contract: export named handlers (`GET`, `POST`, `PATCH`) that accept `(request: Request, { params })` and return a `Response`. Internal routes (`/api/internal/*`) are not auth-gated by Caddy basic_auth — they're called from n8n inside the docker network. **STAQPRO-138 is in flight**: replace inline `typeof x !== 'string'` checks with zod schemas in `dashboard/lib/schemas/` parsed by a shared validate middleware (`dashboard/lib/middleware/validate.ts`).
 
 ### SQL convention
-Two patterns coexist today: (a) Drizzle query builder for typed CRUD against the schema, and (b) raw SQL via `db.execute(sql\`...\`)` for migration-adjacent or join-heavy queries. **Pick one per route file** — don't mix in the same handler. Long-term direction: prefer Drizzle query builder; raw SQL only when query complexity justifies it.
+Hand-rolled SQL via `pg.Pool` from `dashboard/lib/db.ts`. Two surface patterns: (a) named query helpers in `dashboard/lib/queries*.ts` (preferred — keeps SQL out of route handlers and gives them a typed surface) and (b) inline `pool.query(sql, params)` calls inside a route file when the query is one-off. **Direction**: when the same SQL gets used by 2+ routes, promote it into `lib/queries*.ts`. Always parameterize — never string-concatenate user input into SQL.
 
 ### Comment standard (migration files)
 Per migration 007 (the first migration to land the standard): every migration file opens with a 2-3 line block comment stating (i) what the migration changes, (ii) why (link the Linear issue or DR), and (iii) any reversal/rollback note. Schema-touching SQL only — no DML in migrations unless specifically called out as a backfill.
@@ -193,7 +192,7 @@ Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain
 | `n8n` | `n8nio/n8n:1.123.35` (DR-17 pin) | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on `/dashboard/*` and `/`; `/webhook/*` bypasses |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
-| `mailbox-migrate` | Drizzle migrate runner | `docker compose --profile migrate run mailbox-migrate` |
+| `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
 | `ttyd` | tsl0922/ttyd | Browser terminal (port 7681, basic auth) |
 
 ### Pipeline flow (live as of 2026-05-01)
