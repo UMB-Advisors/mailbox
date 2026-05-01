@@ -189,12 +189,13 @@ Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain
 | Service | Image | Role |
 |---------|-------|------|
 | `postgres` | `postgres:17-alpine` | Operational DB (`mailbox` schema) + n8n's `workflow_entity` table |
-| `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed, Phase 2 RAG — not yet wired) |
+| `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store. Collection `email_messages` (768d / Cosine) holds inbound + outbound message embeddings for RAG retrieval (M3.5 / STAQPRO-188). Payload indexes: `message_id`, `thread_id`, `sender`, `direction`, `sent_at`, `classification_category`. Bootstrap via `docker compose --profile qdrant-bootstrap up mailbox-qdrant-bootstrap` (idempotent). |
 | `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
 | `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
 | `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
+| `mailbox-qdrant-bootstrap` | One-shot tsx bootstrap | `docker compose --profile qdrant-bootstrap run mailbox-qdrant-bootstrap` — runs `dashboard/scripts/qdrant-bootstrap.ts`. Creates the `email_messages` collection (768d / Cosine for nomic-embed-text:v1.5) and ensures payload indexes. Idempotent — safe to re-run on every appliance boot. |
 
 **Operator shell access**: Tailscale SSH only (`tailscale ssh bob@<tailnet-host>`). The previously-deployed `ttyd` browser terminal was removed 2026-05-01 per STAQPRO-126 (NC-27) — basic_auth-per-device didn't scale across N customers. Tailscale is identity-based; revoking a user removes shell access from every appliance instantly.
 

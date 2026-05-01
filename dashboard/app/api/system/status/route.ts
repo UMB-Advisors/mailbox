@@ -16,6 +16,7 @@ import {
   getLastInferenceLatency,
   getN8nFailures24h,
   getOllamaLoadedModels,
+  getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
 
@@ -53,6 +54,7 @@ export async function GET() {
     draftBacklogAged,
     n8nFailures24h,
     cloudSpendLastHour,
+    qdrantCollection,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -66,6 +68,7 @@ export async function GET() {
     getDraftBacklogAged(DRAFT_BACKLOG_THRESHOLD_HOURS).catch(() => null),
     getN8nFailures24h(),
     getCloudSpendLastHour(),
+    getQdrantCollectionHealth(),
   ]);
 
   const alerts = evaluateAlerts({
@@ -95,6 +98,7 @@ export async function GET() {
     ollama_models_loaded: ollamaModels,
     drafts_24h: draftCounts24h,
     cloud_spend_24h: cloudSpend24h,
+    qdrant_collection: qdrantCollection,
     alerts,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,

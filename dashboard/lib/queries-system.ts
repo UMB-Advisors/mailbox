@@ -115,6 +115,50 @@ export async function getOllamaLoadedModels(): Promise<OllamaModel[] | null> {
   }
 }
 
+// STAQPRO-188 — Qdrant collection health for the status page. The
+// `email_messages` collection is the RAG corpus surface (M3.5). Points-count
+// surfaces "is the corpus populated yet" without operators having to open the
+// Qdrant dashboard.
+//
+// Returns null when Qdrant is unreachable; returns `{ exists: false }` when
+// reachable but the collection is missing (bootstrap hasn't run, or ran and
+// failed). Status page should treat null as red and exists:false as orange.
+export interface QdrantCollectionHealth {
+  exists: boolean;
+  points_count: number | null;
+  vectors_count: number | null;
+}
+
+interface QdrantCollectionInfo {
+  result?: {
+    points_count?: number;
+    vectors_count?: number;
+  };
+}
+
+export async function getQdrantCollectionHealth(
+  collection = 'email_messages',
+): Promise<QdrantCollectionHealth | null> {
+  const baseUrl = process.env.QDRANT_URL ?? 'http://qdrant:6333';
+  try {
+    const res = await fetch(`${baseUrl}/collections/${collection}`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (res.status === 404) {
+      return { exists: false, points_count: null, vectors_count: null };
+    }
+    if (!res.ok) return null;
+    const data = (await res.json()) as QdrantCollectionInfo;
+    return {
+      exists: true,
+      points_count: data.result?.points_count ?? null,
+      vectors_count: data.result?.vectors_count ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface CloudSpend24h {
   total_usd: number;
   call_count: number;
