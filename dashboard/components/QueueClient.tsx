@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiUrl } from '@/lib/api';
 import type { DraftWithMessage } from '@/lib/types';
 import type { ActionKind } from './ActionButtons';
 import { DraftCard } from './DraftCard';
@@ -39,8 +40,8 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
   const fetchData = useCallback(async (silent: boolean) => {
     try {
       const [actRes, failRes] = await Promise.all([
-        fetch('/api/drafts?status=pending,edited&limit=50', { cache: 'no-store' }),
-        fetch('/api/drafts?status=failed&limit=50', { cache: 'no-store' }),
+        fetch(apiUrl('/api/drafts?status=pending,edited&limit=50'), { cache: 'no-store' }),
+        fetch(apiUrl('/api/drafts?status=failed&limit=50'), { cache: 'no-store' }),
       ]);
       if (!actRes.ok || !failRes.ok) return;
       const actJson = await actRes.json();
@@ -76,7 +77,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
   async function fireAction(kind: 'approve' | 'reject', draft: DraftWithMessage) {
     setBusy({ draftId: draft.id, kind });
     try {
-      const res = await fetch(`/api/drafts/${draft.id}/${kind}`, {
+      const res = await fetch(apiUrl(`/api/drafts/${draft.id}/${kind}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -106,7 +107,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
   async function fireRetry(draft: DraftWithMessage) {
     setBusy({ draftId: draft.id, kind: 'retry' });
     try {
-      const res = await fetch(`/api/drafts/${draft.id}/retry`, {
+      const res = await fetch(apiUrl(`/api/drafts/${draft.id}/retry`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -129,7 +130,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
     if (!editing) return;
     setBusy({ draftId: editing.id, kind: 'edit' });
     try {
-      const res = await fetch(`/api/drafts/${editing.id}/edit`, {
+      const res = await fetch(apiUrl(`/api/drafts/${editing.id}/edit`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ draft_body: body, draft_subject: subject }),

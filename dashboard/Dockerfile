@@ -15,7 +15,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Bake the production base path into the build (Next.js reads basePath at build).
+# NEXT_PUBLIC_* envs are inlined into the client bundle so client-side fetch
+# calls in QueueClient.tsx etc. include the /dashboard prefix and don't fall
+# through Caddy's catch-all to n8n (→ 404 on approve/reject/edit/retry).
 ENV BASE_PATH=/dashboard
+ENV NEXT_PUBLIC_BASE_PATH=/dashboard
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
