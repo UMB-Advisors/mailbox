@@ -1,80 +1,84 @@
-import { getPool, normalizeDraftBody } from '@/lib/db';
+import { jsonBuildObject } from 'kysely/helpers/postgres';
+import { getKysely, normalizeDraftBody } from '@/lib/db';
 import type { DraftStatus, DraftWithMessage } from '@/lib/types';
-
-const LIST_DRAFTS_SQL = `
-  SELECT
-    d.*,
-    json_build_object(
-      'id', m.id,
-      'message_id', m.message_id,
-      'thread_id', m.thread_id,
-      'from_addr', m.from_addr,
-      'to_addr', m.to_addr,
-      'subject', m.subject,
-      'received_at', m.received_at,
-      'snippet', m.snippet,
-      'body', m.body,
-      'classification', m.classification,
-      'confidence', m.confidence,
-      'classified_at', m.classified_at,
-      'model', m.model,
-      'created_at', m.created_at,
-      'draft_id', m.draft_id
-    ) AS message
-  FROM mailbox.drafts d
-  JOIN mailbox.inbox_messages m ON d.inbox_message_id = m.id
-  WHERE d.status = ANY($1::text[])
-  ORDER BY d.created_at DESC
-  LIMIT $2
-`;
-
-const GET_DRAFT_SQL = `
-  SELECT
-    d.*,
-    json_build_object(
-      'id', m.id,
-      'message_id', m.message_id,
-      'thread_id', m.thread_id,
-      'from_addr', m.from_addr,
-      'to_addr', m.to_addr,
-      'subject', m.subject,
-      'received_at', m.received_at,
-      'snippet', m.snippet,
-      'body', m.body,
-      'classification', m.classification,
-      'confidence', m.confidence,
-      'classified_at', m.classified_at,
-      'model', m.model,
-      'created_at', m.created_at,
-      'draft_id', m.draft_id
-    ) AS message
-  FROM mailbox.drafts d
-  JOIN mailbox.inbox_messages m ON d.inbox_message_id = m.id
-  WHERE d.id = $1
-`;
 
 // Re-exported for callers that previously imported VALID_STATUSES from here.
 // STAQPRO-137 moved the canonical const to lib/types.ts so all consumers
 // (queries, schemas, future migrations) read from one place.
 export { DRAFT_STATUSES as VALID_STATUSES } from '@/lib/types';
 
+// Both helpers select all draft columns plus an inline {message: InboxMessage}
+// JSON object built from the joined inbox_messages row. kysely's
+// jsonBuildObject helper compiles to the same Postgres json_build_object()
+// call the original SQL used.
+
 export async function listDrafts(
   statuses: DraftStatus[] = ['pending'],
   limit = 50,
 ): Promise<DraftWithMessage[]> {
-  const pool = getPool();
+  const db = getKysely();
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
-  const result = await pool.query<DraftWithMessage>(LIST_DRAFTS_SQL, [statuses, safeLimit]);
-  return result.rows.map((row) => ({
-    ...row,
-    draft_body: normalizeDraftBody(row.draft_body),
-  }));
+  const rows = await db
+    .selectFrom('drafts as d')
+    .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
+    .where('d.status', 'in', statuses)
+    .selectAll('d')
+    .select((eb) =>
+      jsonBuildObject({
+        id: eb.ref('m.id'),
+        message_id: eb.ref('m.message_id'),
+        thread_id: eb.ref('m.thread_id'),
+        from_addr: eb.ref('m.from_addr'),
+        to_addr: eb.ref('m.to_addr'),
+        subject: eb.ref('m.subject'),
+        received_at: eb.ref('m.received_at'),
+        snippet: eb.ref('m.snippet'),
+        body: eb.ref('m.body'),
+        classification: eb.ref('m.classification'),
+        confidence: eb.ref('m.confidence'),
+        classified_at: eb.ref('m.classified_at'),
+        model: eb.ref('m.model'),
+        created_at: eb.ref('m.created_at'),
+        draft_id: eb.ref('m.draft_id'),
+      }).as('message'),
+    )
+    .orderBy('d.created_at', 'desc')
+    .limit(safeLimit)
+    .execute();
+  return rows.map((row) => {
+    const r = row as unknown as DraftWithMessage;
+    return { ...r, draft_body: normalizeDraftBody(r.draft_body) };
+  });
 }
 
 export async function getDraft(id: number): Promise<DraftWithMessage | null> {
-  const pool = getPool();
-  const result = await pool.query<DraftWithMessage>(GET_DRAFT_SQL, [id]);
-  if (result.rows.length === 0) return null;
-  const row = result.rows[0];
-  return { ...row, draft_body: normalizeDraftBody(row.draft_body) };
+  const db = getKysely();
+  const row = await db
+    .selectFrom('drafts as d')
+    .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
+    .where('d.id', '=', id)
+    .selectAll('d')
+    .select((eb) =>
+      jsonBuildObject({
+        id: eb.ref('m.id'),
+        message_id: eb.ref('m.message_id'),
+        thread_id: eb.ref('m.thread_id'),
+        from_addr: eb.ref('m.from_addr'),
+        to_addr: eb.ref('m.to_addr'),
+        subject: eb.ref('m.subject'),
+        received_at: eb.ref('m.received_at'),
+        snippet: eb.ref('m.snippet'),
+        body: eb.ref('m.body'),
+        classification: eb.ref('m.classification'),
+        confidence: eb.ref('m.confidence'),
+        classified_at: eb.ref('m.classified_at'),
+        model: eb.ref('m.model'),
+        created_at: eb.ref('m.created_at'),
+        draft_id: eb.ref('m.draft_id'),
+      }).as('message'),
+    )
+    .executeTakeFirst();
+  if (!row) return null;
+  const r = row as unknown as DraftWithMessage;
+  return { ...r, draft_body: normalizeDraftBody(r.draft_body) };
 }
