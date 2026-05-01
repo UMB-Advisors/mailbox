@@ -1,3 +1,4 @@
+import { AppNav } from '@/components/AppNav';
 import {
   type Alert,
   COST_SPIKE_MIN_TRIGGER_USD,
@@ -82,11 +83,7 @@ export default async function StatusPage() {
               Auto-refreshes every 30s. Last rendered {new Date().toISOString()}.
             </p>
           </div>
-          <nav className="flex items-center gap-3 text-sm">
-            <a className="text-ink-muted hover:text-ink" href="/queue">
-              ← Queue
-            </a>
-          </nav>
+          <AppNav active="status" />
         </header>
 
         {alerts.length > 0 && (
