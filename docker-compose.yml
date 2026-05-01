@@ -137,32 +137,6 @@ services:
     networks:
       - default
     command: sh -c "npm install --no-audit --no-fund && npm run migrate"
-  ttyd:
-    image: tsl0922/ttyd:latest
-    container_name: mailbox-ttyd
-    restart: unless-stopped
-    ports:
-    - 7681:7681
-    extra_hosts:
-    - jetson-host:host-gateway
-    environment:
-    - TTYD_USER=${TTYD_USER}
-    - TTYD_PASS=${TTYD_PASS}
-    volumes:
-    - ./scripts/ttyd-entrypoint-v0.2.0.sh:/entrypoint.sh:ro
-    entrypoint:
-    - /bin/sh
-    - /entrypoint.sh
-    healthcheck:
-      test:
-      - CMD
-      - wget
-      - -q
-      - --spider
-      - http://localhost:7681
-      interval: 30s
-      timeout: 5s
-      retries: 3
 volumes:
   postgres_data: null
   qdrant_data: null

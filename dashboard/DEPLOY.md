@@ -4,8 +4,9 @@ This runbook walks through deploying the dashboard as a 7th container in the
 existing Jetson compose stack at `/home/bob/mailbox/`. Reachable at
 `https://mailbox.heronlabsinc.com/dashboard` when done.
 
-> **Pre-reqs:** All steps run on the Jetson. Use the ttyd web shell at
-> <http://192.168.1.45:7681/> or any LAN-connected SSH session as `bob`.
+> **Pre-reqs:** All steps run on the Jetson. Use Tailscale SSH
+> (`tailscale ssh bob@mailbox-jetson-01.tail377a9a.ts.net`) or any
+> LAN-connected SSH session as `bob`.
 
 ---
 

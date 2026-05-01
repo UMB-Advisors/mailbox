@@ -2,7 +2,7 @@
 
 How to run the MailBOX appliance locally on a laptop without the Jetson hardware (STAQPRO-155).
 
-The dev stack is a slimmed-down docker-compose that runs Postgres + n8n + Ollama (CPU-only) + Qdrant in containers. The Next.js dashboard runs from your host via `npm run dev` for hot-reload + better stack traces. Caddy / TLS / ttyd are skipped — they're prod-only surface.
+The dev stack is a slimmed-down docker-compose that runs Postgres + n8n + Ollama (CPU-only) + Qdrant in containers. The Next.js dashboard runs from your host via `npm run dev` for hot-reload + better stack traces. Caddy / TLS are skipped — they're prod-only surface.
 
 ## One-time setup
 
@@ -74,7 +74,7 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev down -v         # s
 | Ollama image | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` (Jetson GPU) | `ollama/ollama:latest` (CPU) |
 | Postgres port | LAN-only (5432 via tailnet) | `localhost:5432` |
 | n8n protocol | https via Caddy + Cloudflare DNS-01 | http on `localhost:5678` |
-| Caddy / ttyd / mailbox-dashboard | Yes | **No** — run dashboard from host |
+| Caddy / mailbox-dashboard | Yes | **No** — run dashboard from host |
 | Encryption key | strict env requirement | dev fallback constant (insecure) |
 
 Two separate compose stacks (different `name:` in each file) means dev and prod can coexist on the same machine without volume collisions, though you wouldn't usually run both.
