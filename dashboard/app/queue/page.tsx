@@ -7,12 +7,17 @@ export const dynamic = 'force-dynamic';
 export default async function QueuePage() {
   let initialActive: DraftWithMessage[] = [];
   let initialFailed: DraftWithMessage[] = [];
+  let initialSent: DraftWithMessage[] = [];
   let error: string | null = null;
 
   try {
-    [initialActive, initialFailed] = await Promise.all([
+    [initialActive, initialFailed, initialSent] = await Promise.all([
       listDrafts(['pending', 'edited'], 50),
       listDrafts(['failed'], 50),
+      // "Sent" view aggregates approved + sent + rejected so operators can see
+      // what they shipped (and what they killed). Approved is in-flight; sent
+      // hit Gmail Reply; rejected was killed in the queue.
+      listDrafts(['approved', 'sent', 'rejected'], 50),
     ]);
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to load drafts';
@@ -32,5 +37,11 @@ export default async function QueuePage() {
     );
   }
 
-  return <QueueClient initialActive={initialActive} initialFailed={initialFailed} />;
+  return (
+    <QueueClient
+      initialActive={initialActive}
+      initialFailed={initialFailed}
+      initialSent={initialSent}
+    />
+  );
 }

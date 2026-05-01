@@ -16,15 +16,19 @@ const POLL_INTERVAL_MS = 30_000;
 
 type Busy = { draftId: number; kind: ActionKind | 'retry' } | null;
 type ToastMsg = { kind: 'success' | 'error'; text: string } | null;
+type View = 'pending' | 'sent';
 
 interface Props {
   initialActive: DraftWithMessage[];
   initialFailed: DraftWithMessage[];
+  initialSent: DraftWithMessage[];
 }
 
-export function QueueClient({ initialActive, initialFailed }: Props) {
+export function QueueClient({ initialActive, initialFailed, initialSent }: Props) {
   const [active, setActive] = useState(initialActive);
   const [failed, setFailed] = useState(initialFailed);
+  const [sent, setSent] = useState(initialSent);
+  const [view, setView] = useState<View>('pending');
   const [removed, setRemoved] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<Busy>(null);
   const [editing, setEditing] = useState<DraftWithMessage | null>(null);
@@ -39,15 +43,20 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
 
   const fetchData = useCallback(async (silent: boolean) => {
     try {
-      const [actRes, failRes] = await Promise.all([
+      const [actRes, failRes, sentRes] = await Promise.all([
         fetch(apiUrl('/api/drafts?status=pending,edited&limit=50'), { cache: 'no-store' }),
         fetch(apiUrl('/api/drafts?status=failed&limit=50'), { cache: 'no-store' }),
+        fetch(apiUrl('/api/drafts?status=approved,sent,rejected&limit=50'), {
+          cache: 'no-store',
+        }),
       ]);
-      if (!actRes.ok || !failRes.ok) return;
+      if (!actRes.ok || !failRes.ok || !sentRes.ok) return;
       const actJson = await actRes.json();
       const failJson = await failRes.json();
+      const sentJson = await sentRes.json();
       const nextActive: DraftWithMessage[] = actJson.drafts ?? [];
       const nextFailed: DraftWithMessage[] = failJson.drafts ?? [];
+      const nextSent: DraftWithMessage[] = sentJson.drafts ?? [];
 
       if (silent) {
         for (const d of nextActive) knownIds.current.add(d.id);
@@ -61,6 +70,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
 
       setActive(nextActive);
       setFailed(nextFailed);
+      setSent(nextSent);
     } catch {
       // Background poll — swallow transient errors.
     }
@@ -149,10 +159,18 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
   }
 
   const visibleActive = active.filter((d) => !removed.has(d.id));
-  const selected = visibleActive.find((d) => d.id === selectedId) ?? visibleActive[0] ?? null;
+  const list = view === 'pending' ? visibleActive : sent;
+  const selected = list.find((d) => d.id === selectedId) ?? list[0] ?? null;
   const busyKindFor = (id: number): ActionKind | null =>
     busy?.draftId === id && busy.kind !== 'retry' ? (busy.kind as ActionKind) : null;
   const busyRetryId = busy?.kind === 'retry' ? busy.draftId : null;
+
+  function switchView(next: View) {
+    if (next === view) return;
+    setView(next);
+    const nextList = next === 'pending' ? visibleActive : sent;
+    setSelectedId(nextList[0]?.id ?? null);
+  }
 
   return (
     <main className="flex h-screen flex-col bg-bg-deep text-ink">
@@ -179,22 +197,45 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
             mobileDetailOpen ? 'hidden md:flex' : 'flex'
           }`}
         >
-          {(failed.length > 0 || newCount > 0) && (
+          {/* Folder switcher (Outlook-style) */}
+          <nav className="flex shrink-0 border-b border-border-subtle">
+            <FolderTab
+              label="Inbox"
+              count={visibleActive.length}
+              active={view === 'pending'}
+              onClick={() => switchView('pending')}
+            />
+            <FolderTab
+              label="Sent"
+              count={sent.length}
+              active={view === 'sent'}
+              onClick={() => switchView('sent')}
+            />
+          </nav>
+
+          {view === 'pending' && (failed.length > 0 || newCount > 0) && (
             <div className="space-y-2 border-b border-border-subtle p-2">
               <FailedSends drafts={failed} busyId={busyRetryId} onRetry={fireRetry} />
               <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {visibleActive.length === 0 ? (
-              <EmptyState />
+            {list.length === 0 ? (
+              view === 'pending' ? (
+                <EmptyState />
+              ) : (
+                <div className="flex h-40 items-center justify-center text-sm text-ink-dim">
+                  No sent or rejected drafts yet
+                </div>
+              )
             ) : (
               <ul className="divide-y divide-border-subtle">
-                {visibleActive.map((draft) => (
+                {list.map((draft) => (
                   <li key={draft.id}>
                     <DraftCard
                       draft={draft}
                       isSelected={draft.id === selected?.id}
+                      mode={view}
                       onSelect={() => {
                         setSelectedId(draft.id);
                         setMobileDetailOpen(true);
@@ -229,6 +270,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
                 <DraftDetail
                   draft={selected}
                   busy={busyKindFor(selected.id)}
+                  readOnly={view === 'sent'}
                   onApprove={() => fireAction('approve', selected)}
                   onEdit={() => setEditing(selected)}
                   onReject={() => fireAction('reject', selected)}
@@ -248,5 +290,34 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
       )}
       {toast && <Toast {...toast} onDismiss={dismissToast} />}
     </main>
+  );
+}
+
+function FolderTab({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-1 items-center justify-center gap-2 px-3 py-2 font-sans text-xs font-medium transition-colors ${
+        active
+          ? 'border-b-2 border-b-accent-orange text-ink'
+          : 'border-b-2 border-b-transparent text-ink-muted hover:text-ink'
+      }`}
+    >
+      <span>{label}</span>
+      <span className="rounded-full bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-dim">
+        {count}
+      </span>
+    </button>
   );
 }
