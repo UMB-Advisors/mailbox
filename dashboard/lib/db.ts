@@ -22,8 +22,16 @@ export function getPool(): Pool {
   return pool;
 }
 
-// Llama 3.3-70B occasionally emits literal `\n` instead of newlines (BL-21).
+// Body cleanup applied before drafts.draft_body is persisted.
+//   - BL-21: some early models emitted literal `\n` instead of newlines.
+//   - Qwen3 emits <think>...</think> blocks in /api/chat output unless
+//     `/no_think` is in the prompt; strip closed blocks defensively, plus
+//     trim a stray unclosed-<think> prefix (happens when num_predict caps
+//     mid-thinking).
 export function normalizeDraftBody(body: string | null | undefined): string {
   if (!body) return '';
-  return body.replace(/\\n/g, '\n');
+  let out = body.replace(/\\n/g, '\n');
+  out = out.replace(/<think>[\s\S]*?<\/think>\s*/gi, '');
+  out = out.replace(/^<think>[\s\S]*$/i, '');
+  return out.trim();
 }

@@ -105,6 +105,11 @@ function ragBlock(input: DraftPromptInput): string {
 export function buildUserPrompt(input: DraftPromptInput): string {
   const safeBody = (input.body_text ?? '').slice(0, MAX_BODY_CHARS);
   return [
+    // /no_think — Qwen3 directive that suppresses <think>...</think> blocks
+    // in the response. Cloud models (gpt-oss, etc.) don't recognize it and
+    // will ignore the leading line. normalizeDraftBody() strips any residual
+    // blocks defensively.
+    '/no_think',
     categoryHint(input.category, input.confidence),
     '',
     'Draft a reply to this email. Match the operator\'s voice from the system prompt.',
