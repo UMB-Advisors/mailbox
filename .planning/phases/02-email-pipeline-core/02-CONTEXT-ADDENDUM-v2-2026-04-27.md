@@ -632,3 +632,38 @@ pattern).
 Rejected: per-plan independent gate checks (drift over time);
 Next.js middleware on `/api/internal/draft-*` URLs (URL-coupled,
 doesn't help the n8n side).
+
+---
+
+## Post-2026-04-27 decisions (appended later)
+
+### D-51 — Pub/Sub watch-renewal reverted; Schedule + Gmail node is the canonical ingestion path
+
+**Plan:** 02-03 (IMAP/Gmail ingestion); affects every workflow that consumes `mailbox.inbox_messages`.
+
+**Date logged:** 2026-05-01 (decision made 2026-04-30 evening).
+
+DR-22 in the Phase 2 v1 context originally specified Gmail Pub/Sub push as the ingestion path, with a corresponding watch-renewal cron job tracked as **STAQPRO-115**. That ticket was **Cancelled 2026-04-30** ("DR-22 reverted per post-audit reviewer consensus"). Pub/Sub push is no longer the ingestion mechanism; the live workflow uses the n8n Gmail node + Schedule trigger (5-minute interval, per 02-04a's `minutesInterval: 5` fix), which has no trigger-death bug and no watch-renewal requirement.
+
+**Decision:**
+
+- **Ingestion path:** n8n Gmail node + Schedule trigger (every 5 minutes) → `Insert (skipOnConflict)` into `mailbox.inbox_messages` → `Execute Workflow` invoking the MailBOX-Classify sub-workflow with the new row id. Canonical workflow JSON: `n8n/workflows/01-email-pipeline-main.json`.
+- **No Pub/Sub watch-renewal job.** STAQPRO-115 stays Cancelled. No `/webhook/mailbox-send` Pub/Sub-push handler is required for the ingestion path (the legacy Gmail Pub/Sub ingress endpoint and STAQPRO-108 are kept as a re-opened option for a future push-based reintroduction, but they are not the M2 path).
+- **Webhook auth (STAQPRO-116)** is still required for any externally reachable `/webhook/*` endpoints. D-51 does not eliminate that requirement; it just means the ingestion path no longer creates one.
+
+**Rationale:**
+
+- Pub/Sub push adds operational complexity (watch-renewal cron, OIDC verification on every request, IP allowlisting, Pub/Sub project setup at the customer's GCP boundary) that isn't justified for the v1 polling latency budget (90s ingestion SLA per MAIL-01 — Schedule trigger at 5-min interval gives p95 ~5 min, which exceeds the SLA but is acceptable for v1; tighter polling is a Phase 3 concern).
+- The reviewer consensus specifically noted that the legacy Gmail Pub/Sub ingress workflow (committed pre-rebase) was a one-off whose maintenance cost outweighed the latency win.
+- Schedule + Gmail node is the path the operator (Dustin) has already debugged in production and is the path the corpus + scoring work in 02-04b validated against.
+
+**Rejected alternatives:**
+
+- Reduce poll interval to 1 minute (would meet the 90s SLA but multiplies Gmail API calls 5×, risks rate-limit territory on long onboarding ingest).
+- Hybrid: Pub/Sub push for net-new email + Schedule trigger for catch-up (added complexity for marginal latency gain).
+
+**Carry-forward:**
+
+- 02-03 SUMMARY needs an addendum paragraph noting this revert (handled in same commit as this D-51 capture, per STAQPRO-158 AC-9).
+- CLAUDE.md "Public surface" section still references the polling/scheduling shape consistent with this decision; no CLAUDE.md edit required for D-51 specifically.
+- If push-based ingress is ever revisited, STAQPRO-108 is the re-opened tracker; it would also re-introduce the STAQPRO-115 watch-renewal requirement.

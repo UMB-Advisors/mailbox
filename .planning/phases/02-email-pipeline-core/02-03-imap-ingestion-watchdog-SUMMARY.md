@@ -102,3 +102,16 @@ without committing. Cosmetic only.
 ## Next: 02-04 (classification + routing)
 
 Resume at `.planning/phases/02-email-pipeline-core/02-04-classification-routing-PLAN-v2-2026-04-27-STUB.md`. Carries the deferred items above plus the architectural work the stub already specifies (canonical prompt API, MAIL-05 taxonomy migration, classification_log writes, routing decision, live-gate boundary).
+
+---
+
+## Addendum 2026-05-01 — Pub/Sub revert (D-51)
+
+This SUMMARY described the live ingestion path as Gmail node + Schedule trigger, which is correct, but did not acknowledge that there was an interim Pub/Sub-push direction (DR-22) that also briefly shipped before being reverted. For session continuity:
+
+- **DR-22** (Phase 2 v1 context) originally specified Gmail Pub/Sub push as the ingestion path. **STAQPRO-115** tracked the corresponding watch-renewal cron job and was **Cancelled 2026-04-30** ("DR-22 reverted per post-audit reviewer consensus").
+- **STAQPRO-110** ("n8n classify + draft pipeline") originally shipped against the Pub/Sub-push variant; **STAQPRO-108** (Gmail Pub/Sub ingress) was re-opened during the revert.
+- **Current canonical path (also what this SUMMARY documents):** n8n Gmail node + Schedule trigger every 5 minutes → `mailbox.inbox_messages` → `Execute Workflow` → MailBOX-Classify sub-workflow.
+- **Captured as D-51** in `02-CONTEXT-ADDENDUM-v2-2026-04-27.md` with rationale, rejected alternatives, and carry-forward notes.
+
+The 02-04a/02-04b classification work and the 02-07 drafting work both validated against the Schedule + Gmail node path, so no plan rework is required from D-51 — it is a decision capture, not a course-correction.
