@@ -122,8 +122,18 @@ const PRICING = {
   'kimi-k2:1t': { in: 2.0, out: 6.0 },
   'claude-haiku-4-5-20251001': { in: 1.0, out: 5.0 },
 };
+// Map model labels (as printed in the markdown) to PRICING keys. The naive
+// includes() check missed Anthropic because the label says "Anthropic Haiku
+// 4.5" but the PRICING key is the full model id.
+const LABEL_PRICING_ALIAS = [
+  { match: /Anthropic Haiku/i, key: 'claude-haiku-4-5-20251001' },
+];
 function cost(modelLabel, input_tokens, output_tokens) {
-  const key = Object.keys(PRICING).find((k) => modelLabel.includes(k));
+  let key = Object.keys(PRICING).find((k) => modelLabel.includes(k));
+  if (!key) {
+    const alias = LABEL_PRICING_ALIAS.find((a) => a.match.test(modelLabel));
+    if (alias) key = alias.key;
+  }
   if (!key) return 0;
   const p = PRICING[key];
   return (input_tokens / 1e6) * p.in + (output_tokens / 1e6) * p.out;
