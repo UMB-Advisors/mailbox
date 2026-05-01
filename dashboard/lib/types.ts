@@ -1,4 +1,28 @@
-export type DraftStatus = 'pending' | 'approved' | 'rejected' | 'edited' | 'sent' | 'failed';
+// Canonical TS source of truth for the drafts.status enum (STAQPRO-137).
+// Mirrored against the Postgres CHECK constraint in
+// migrations/003-evolve-drafts-to-queue-shape-v1-2026-04-27.sql; the
+// schema-invariants test asserts they stay in sync.
+export const DRAFT_STATUSES = [
+  'pending',
+  'awaiting_cloud',
+  'approved',
+  'rejected',
+  'edited',
+  'sent',
+  'failed',
+] as const;
+
+export type DraftStatus = (typeof DRAFT_STATUSES)[number];
+
+// Persisted draft_source enum (the values that can appear in
+// drafts.draft_source / sent_history.draft_source). The live drafting path
+// writes 'local' | 'cloud' (the route taken — see lib/drafting/router.ts);
+// the broader set here covers the legacy 'local_qwen3' | 'cloud_haiku' values
+// that earlier migrations left in the CHECK constraint and that may still
+// appear in older sent_history rows.
+export const DRAFT_SOURCES = ['local', 'cloud', 'local_qwen3', 'cloud_haiku'] as const;
+
+export type DraftSource = (typeof DRAFT_SOURCES)[number];
 
 export interface Draft {
   id: number;
@@ -48,10 +72,6 @@ export type ClassificationCategory =
   | 'spam_marketing'
   | 'escalate'
   | 'unknown';
-
-export type DraftSource = 'local_qwen3' | 'cloud_haiku';
-
-export type DraftStatusV2 = DraftStatus | 'awaiting_cloud';
 
 export interface ClassificationLog {
   id: number;

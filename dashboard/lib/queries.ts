@@ -53,14 +53,10 @@ const GET_DRAFT_SQL = `
   WHERE d.id = $1
 `;
 
-export const VALID_STATUSES: ReadonlyArray<DraftStatus> = [
-  'pending',
-  'approved',
-  'rejected',
-  'edited',
-  'sent',
-  'failed',
-];
+// Re-exported for callers that previously imported VALID_STATUSES from here.
+// STAQPRO-137 moved the canonical const to lib/types.ts so all consumers
+// (queries, schemas, future migrations) read from one place.
+export { DRAFT_STATUSES as VALID_STATUSES } from '@/lib/types';
 
 export async function listDrafts(
   statuses: DraftStatus[] = ['pending'],

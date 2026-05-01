@@ -1,11 +1,9 @@
 import { z } from 'zod';
-import { VALID_STATUSES } from '@/lib/queries';
-import type { DraftStatus } from '@/lib/types';
+import { DRAFT_STATUSES, type DraftStatus } from '@/lib/types';
 
-// drafts.status is a TS union; turn it into a zod enum at runtime by anchoring
-// to the same VALID_STATUSES tuple the queries layer uses.
-const STATUSES = VALID_STATUSES as ReadonlyArray<DraftStatus>;
-const statusEnum = z.enum(STATUSES as readonly [DraftStatus, ...DraftStatus[]]);
+// Anchor the zod enum to the canonical DRAFT_STATUSES tuple so the schema
+// can never drift from the rest of the codebase (STAQPRO-137).
+const statusEnum = z.enum(DRAFT_STATUSES as readonly [DraftStatus, ...DraftStatus[]]);
 
 // GET /api/drafts — query string `status=csv,of,statuses&limit=N`.
 // Match existing behavior: no statuses given → default to `['pending']`.
