@@ -12,16 +12,15 @@ Inbound operational email for small CPG brands gets triaged, drafted, and (with 
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Jetson Orin Nano Super flashed with JetPack 6.2 and all dependencies — Phase 1 (`01-VERIFICATION.md`, smoke test 6/6 pass 2026-04-26)
+- [x] Docker Compose stack running 5 services: Ollama, Qdrant, n8n, Dashboard (Node.js/React), Postgres — Phase 1 (live deploy at https://mailbox.heronlabsinc.com/ verified 2026-04-26; Postgres NVMe-encrypted, MAXN power mode at boot)
+- [x] Email classification into 8 categories (inquiry, reorder, scheduling, follow-up, internal, spam/marketing, escalate, unknown) via local Qwen3-4B model — Phase 2 plan 02-04a/b (MAIL-05 taxonomy live, MAIL-08 gate PASS 2026-04-30 at route accuracy 73.2%, F1 local 0.83 / drop 0.58 / cloud 0.68; see `02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md`)
 
 ### Active
 
-- [ ] Jetson Orin Nano Super flashed with JetPack 6.2 and all dependencies
-- [ ] Docker Compose stack running 5 services: Ollama, Qdrant, n8n, Dashboard (Node.js/React), Postgres
 - [ ] IMAP/SMTP email connectivity via OAuth2 (Gmail, Outlook) or manual credentials
 - [ ] Email polling at configurable interval (default 60s)
-- [ ] Email classification into 8 categories (inquiry, reorder, scheduling, follow-up, internal, spam/marketing, escalate, unknown) via local Qwen3-4B model
-- [ ] Classification accuracy > 80% on Heron Labs email corpus
+- [ ] Classification accuracy > 80% on Heron Labs email corpus (route-accuracy gate currently passes at 73.2% per redefined MAIL-08 — full 80% category accuracy still pending)
 - [ ] Response generation via RAG: local model for simple drafts, cloud Claude Haiku for complex drafts
 - [ ] RAG pipeline: email history ingestion, document upload, Qdrant vector search with nomic-embed-text
 - [ ] Approval workflow: all drafts enter queue, customer can approve/edit/reject/escalate
@@ -115,4 +114,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-02 after initialization*
+*Last updated: 2026-05-01 — Phase 1 success criteria moved to Validated; classification (Phase 2 plan 02-04) moved to Validated after MAIL-08 gate PASS. Per STAQPRO-158 AC-3.*

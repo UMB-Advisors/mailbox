@@ -4,6 +4,19 @@
 
 Four phases, each delivering a coherent capability. Phase 1 establishes the verified hardware and service foundation that everything else depends on — GPU passthrough confirmed, all five containers healthy. Phase 2 builds the complete email processing loop end-to-end: IMAP in, Qwen3 classification, RAG-augmented draft, approval queue, SMTP out — with persona tuning and history ingestion at first boot. Phase 3 hands control to the operator: graduated auto-send, classification correction, OTA updates, and email notifications. Phase 4 completes the dashboard UI as a polished, mobile-responsive appliance interface. Granularity: coarse.
 
+## Milestone ↔ Phase Crosswalk
+
+GSD planning runs on a Phase axis (Phase 1 → Phase 2 → Phase 3 → Phase 4). Linear runs on an M-axis aligned to ship/customer events (M1 → M2 → M3 → M4). Both axes describe the same scope; this crosswalk lets a reader translate between them.
+
+| M-axis (Linear) | Phase-axis (GSD) | Status |
+|---|---|---|
+| **M1 — Reference build** | Phase 1 (all of) + Phase 2 plans 02-02, 02-03, 02-04, first-pass 02-07 | DELIVERED |
+| **M2 — 2nd-appliance readiness** *(current focus)* | Phase 2 plan 02-07 finish + parallel security track (STAQPRO-130 ✓ delivered, STAQPRO-131 in progress, STAQPRO-116 todo) + STAQPRO-118 reproduce-baseline-on-2nd-appliance | IN PROGRESS |
+| **M3 — Customer #2 onboarded** | Phase 2 plan 02-08 (onboarding wizard) + remaining Phase 4 dashboard polish (STAQPRO-146/147) | NOT STARTED |
+| **M4 — Phase 2 RAG + edit-to-skill** | Phase 2 plans 02-05 (RAG) + 02-06 (persona) + Phase 3 ops surface (auto-send, notifications, OTA) | NOT STARTED |
+
+The Phase axis describes *what gets built*; the M axis describes *what gets shipped to whom and when*. A phase plan can land before its M-milestone if it's a dependency (e.g. 02-07 PLAN landed in M2 territory but covers M2+M3 capability). When in doubt, treat Phase as the build artifact and M as the customer-facing checkpoint.
+
 ## Phases
 
 **Phase Numbering:**
@@ -12,8 +25,8 @@ Four phases, each delivering a coherent capability. Phase 1 establishes the veri
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Infrastructure Foundation** - Verified Docker Compose stack with GPU inference confirmed, all five services healthy on Jetson Orin Nano Super
-- [ ] **Phase 2: Email Pipeline Core** - Complete end-to-end email loop: IMAP ingestion, classification, RAG-augmented drafting, approval queue, SMTP send, persona tuning at first boot
+- [x] **Phase 1: Infrastructure Foundation** - Verified Docker Compose stack with GPU inference confirmed, all five services healthy on Jetson Orin Nano Super (smoke test 6/6 PASS, 2026-04-26)
+- [ ] **Phase 2: Email Pipeline Core** - Complete end-to-end email loop: IMAP ingestion, classification, RAG-augmented drafting, approval queue, SMTP send, persona tuning at first boot (in progress: 02-02/03/04a/04b done; 02-07 PLAN promoted with local path shipped; 02-05/06/08 v2 stubs await promotion)
 - [ ] **Phase 3: Operator Trust and Reliability** - Graduated auto-send, classification correction, OTA updates, email notifications, graceful degradation
 - [ ] **Phase 4: Dashboard and Hardening** - Full dashboard UI with approval queue, history logs, knowledge base management, system status, mobile-responsive, auth
 
@@ -29,11 +42,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Qwen3-4B generates a test completion in under 5 seconds; nomic-embed-text returns embeddings on request
   4. Qdrant starts without jemalloc ARM64 errors; Postgres persists data across a container restart
   5. Power mode set to MAXN (25W) at boot via systemd; NVMe encrypted with LUKS
-**Plans**: 3 plans
+**Plans**: 3 plans (all complete)
 Plans:
 - [x] 01-01-PLAN.md — Docker Compose stack, env template, Postgres schema init, dashboard placeholder
 - [x] 01-02-PLAN.md — First-boot checkpoint script (JetPack validation through compose start)
-- [x] 01-03-PLAN.md — Smoke test script (all success criteria + boot time verification)
+- [x] 01-03-PLAN.md — Smoke test script (all success criteria + boot time verification — 6/6 passing 2026-04-26)
 
 ### Phase 2: Email Pipeline Core
 **Goal**: A real inbound email flows from IMAP through classification and RAG-augmented drafting into an approval queue, and the approved draft sends via SMTP from the customer's address — with persona extracted from sent history at first boot
@@ -45,7 +58,19 @@ Plans:
   3. Each draft shows its source label (Local / Qwen3 or Cloud / Claude Haiku), top-3 RAG context references, and the draft reflects the operator's voice extracted from sent history
   4. Approving a draft in the queue sends it from the customer's SMTP address; rejecting a draft discards it; complex emails queue with "awaiting cloud" status when the API is unreachable
   5. First-boot wizard connects email, ingests 6 months of sent history with a progress indicator, and surfaces a persona tuning session with 20 sample drafts before live email begins
-**Plans**: TBD
+**Plans**: 8 plans (5 complete, 1 partial, 1 plan-promoted with local path shipped, 2 v2 stubs pending plan-promotion)
+Plans:
+- [x] 02-01-dashboard-backend-bootstrap-PLAN.md — **SUPERSEDED 2026-04-27** by Next.js full-stack ADR (architectural pivot — Express backend retired in favor of Next.js API routes); never executed.
+- [x] 02-02-schema-foundation-PLAN-v2-2026-04-27.md — 6 forward-only SQL migrations applied to live Postgres + types/queries shipped 2026-04-27. v1 marked SUPERSEDED.
+- [~] 02-03-imap-ingestion-watchdog — **PARTIAL** (2026-04-28). Schema migration 007 + Gmail+Schedule workflow extension shipped against the v2 STUB intent; IMAP-trigger + watchdog architecture rendered moot per D-30. See SUMMARY. v1 + v2 STUB marked SUPERSEDED.
+- [x] 02-04-classification-routing — **SPLIT into 02-04a + 02-04b**. Both complete; meta-SUMMARY at `02-04-classification-routing-SUMMARY.md`. v1 + v2 STUB marked SUPERSEDED.
+  - [x] 02-04a (MAIL-05 classifier + classify sub-workflow + live-gate stub, 2026-04-29)
+  - [x] 02-04b (corpus + scoring + D-50 + MAIL-08 gate PASS, 2026-04-30)
+- [ ] 02-05-rag-ingest-retrieval — v2 STUB authoritative; awaits stub-promotion to full executable PLAN. v1 marked SUPERSEDED.
+- [ ] 02-06-persona-extract-refresh — v2 STUB authoritative; awaits stub-promotion to full executable PLAN. v1 marked SUPERSEDED.
+- [~] 02-07-draft-generation-local-cloud-smtp-PLAN.md — **PLAN PROMOTED 2026-04-30**. Local path shipped end-to-end (commits 001a6bd → d448972, smoke 3.57s p95). Cloud path scaffolded; awaits `OLLAMA_CLOUD_API_KEY` and STAQPRO-156 cloud-vendor decision (Anthropic Haiku 4.5 vs Ollama Cloud / gpt-oss:120b — D-52 pending).
+- [ ] 02-08-onboarding-wizard-and-queue-api — v2 STUB authoritative; awaits stub-promotion to full executable PLAN. Gated on M2 security track (STAQPRO-131, STAQPRO-116). v1 marked SUPERSEDED.
+
 **UI hint**: yes
 
 ### Phase 3: Operator Trust and Reliability
@@ -79,7 +104,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Foundation | 2/3 | In Progress|  |
-| 2. Email Pipeline Core | 0/TBD | Not started | - |
-| 3. Operator Trust and Reliability | 0/TBD | Not started | - |
-| 4. Dashboard and Hardening | 0/TBD | Not started | - |
+| 1. Infrastructure Foundation | 3/3 | ✓ Complete | 2026-04-26 |
+| 2. Email Pipeline Core | 5/8* | In Progress (M1 portion delivered; M2+M4 in flight) | - |
+| 3. Operator Trust and Reliability | 0/TBD | Not started (M3+M4) | - |
+| 4. Dashboard and Hardening | 0/TBD | Not started (M3) | - |
+
+*Phase 2 detail: 02-01 SUPERSEDED (counted as resolved, not done), 02-02 done, 02-03 partial, 02-04 done (split a/b), 02-07 plan-promoted with local path shipped (full plan still in progress through cloud path), 02-05/06/08 v2 stubs pending plan-promotion. Counts the 5 fully-shipped plan units (02-02, 02-03, 02-04a, 02-04b, 02-07-local) against the 8 plan slots.

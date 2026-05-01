@@ -1,10 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Phase 2 in lean execution; 02-04 (a/b) complete with MAIL-08 PASS; 02-05..08 v2 stubs await plan promotion
-stopped_at: "02-04b complete — D-50 operator-identity preclass shipped, sales-inbox exception, temperature=0 pinned. MAIL-08 gate PASS at route accuracy 73.2%, local F1 0.83, latency p95 3434ms. Last commit at session pause: e745bb8 (02-04b SUMMARY v2)."
-last_updated: "2026-04-30T20:30:00.000Z"
+milestone: M2
+milestone_name: 2nd-appliance readiness
+milestone_axis_note: "Linear-aligned M-axis. M1 reference build (Phase 1 + first-pass 02-02/03/04/07) — DELIVERED. M2 2nd-appliance readiness (current focus). M3 customer #2 onboarded. M4 Phase 2 RAG + edit-to-skill. See ROADMAP.md crosswalk for M ↔ Phase mapping."
+status: Phase 2 in lean execution; 02-04 (a/b) complete with MAIL-08 PASS; 02-07 PLAN promoted with local path shipped; 02-05/06/08 v2 stubs await plan promotion. M2 security track (STAQPRO-130/131/116) is parallel-critical-path.
+stopped_at: "STAQPRO-158 AC-1..AC-10 doc rectification in flight; STAQPRO-130 (Ollama/Qdrant port lockdown) shipped 2026-05-01 (commit da2249b); STAQPRO-156 NIM workflow archive landed on origin (bf288b0). Last session ground-truth commit: da2249b."
+last_updated: "2026-05-01T06:00:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
@@ -107,11 +108,12 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 
 ### Known issues / parked
 - 02-04a: end-to-end classify chain awaits first inbound email (no new emails since deploy; verify by checking `mailbox.classification_log` after schedule fires)
-- 02-04a: existing legacy `MailBOX-Drafts` workflow (NIM-based) still active — may double-draft once 02-07 lands; needs deactivation guard
+- 02-04a: legacy `MailBOX-Drafts` workflow (NIM-based) — RESOLVED 2026-04-30/05-01 via STAQPRO-156. Workflow exported to `n8n/workflows/legacy/MailBOX-Drafts-NIM.json` (commit bf288b0 on origin) and deactivated in n8n. New MailBOX-Draft chain from 02-07 is now the active drafting path.
 - 02-03 carry-forward: schedule trigger 1-min bug — RESOLVED in 02-04a (`minutesInterval: 5`)
 - 02-03 carry-forward: legacy taxonomy — RESOLVED in 02-04a (MAIL-05 8-cat in canonical prompt)
 - 02-03 carry-forward: filter-dupes-before-classify — RESOLVED in 02-04a (`Insert (skipOnConflict) → Run Classify Sub`)
 - ID jump from 26 → 909 in inbox_messages.id sequence — cosmetic only
+- Pub/Sub watch-renewal (DR-22, originally tracked as STAQPRO-115) — REVERTED 2026-04-30 per post-audit reviewer consensus. Captured as **D-51** in `02-CONTEXT-ADDENDUM-v2-2026-04-27.md`. Live ingestion path is Gmail node + Schedule trigger (per 02-03 SUMMARY); no Pub/Sub watch-renewal job is required.
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
@@ -135,19 +137,33 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 
 ## Next Action
 
-**02-07 (drafting + SMTP send) is next.** The classifier gate is green and the v2 stub is the architectural source of truth — but the stub explicitly defers task breakdown to execution time, so it must be promoted to a full plan before execution.
+**Two parallel tracks for M2 close:**
 
-Recommended sequence:
-1. `/gsd-plan-phase 02-07` — promote `02-07-...-PLAN-v2-2026-04-27-STUB.md` to a full executable PLAN. The stub already carries decisions D-41..D-45 and the Next.js + n8n architecture.
-2. `/gsd-execute-phase 02-07` (or just route through `/gsd-next`) — once the plan is full, execute it.
-3. After 02-07 ships, the same promote-then-execute pattern applies to 02-05 (RAG), 02-06 (persona), 02-08 (onboarding) in dependency order.
+### Track A — 02-07 finish + RAG/persona/onboarding plan promotions
 
-Note: the v1 originals for 02-05..08 are architecturally stale (Express layout). Treat the v2 stubs as canonical when promoting.
+**02-07 (drafting + SMTP send) PLAN was promoted on 2026-04-30** (commit 2eed824). Local path shipped end-to-end (commits 001a6bd → d448972). Cloud path scaffolded but awaits `OLLAMA_CLOUD_API_KEY` and a quality-eval pass against the Anthropic Haiku 4.5 baseline (D-41..D-45 currently lock Anthropic; STAQPRO-156 comment thread proposes a pivot to Ollama Cloud / `gpt-oss:120b`. **Decision pending — see STAQPRO-156.** D-52 will capture the resolution once made.).
 
-Resume file: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md`
+Subsequent sequence:
+1. Resolve STAQPRO-156 cloud-path decision; if Ollama Cloud wins, revise 02-07 D-41..D-45 (will need a v3 PLAN or a context-addendum entry); if Anthropic Haiku stays, no plan revision.
+2. Promote 02-05 v2 STUB → full PLAN (RAG ingest + retrieval).
+3. Promote 02-06 v2 STUB → full PLAN (persona extract + refresh).
+4. Promote 02-08 v2 STUB → full PLAN (onboarding wizard + queue API).
+
+The v1 originals for 02-05/06/08 are architecturally stale (Express layout) and now carry SUPERSEDED frontmatter. Treat the v2 stubs as canonical when promoting.
+
+### Track B — M2 security blockers (parallel critical path)
+
+These three Urgent Linear issues gate any externally-reachable 02-08 onboarding flow and must close before customer #2 ship:
+
+- **STAQPRO-130** — Lock down Ollama/Qdrant Docker port exposure. **DELIVERED 2026-05-01** (commit da2249b — ports removed from `docker-compose.yml`, internal-only access verified).
+- **STAQPRO-131** — Dashboard authentication + public-exposure policy. **In Progress (Eric)**. Caddyfile rewritten 2026-04-30 (commit d1bea23) with `basic_auth` gating `/dashboard/*` and the n8n editor; activation pending env-var hash + caddy rebuild.
+- **STAQPRO-116** — Webhook authentication (OIDC verify + Caddy allowlist). **Todo, decision needed** — OIDC only, or OIDC + IP allowlist? Tracks SM-67. Must land before 2nd-customer onboarding.
+
+Resume file: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md` for the classifier gate context; `02-07-...-PLAN.md` (now executable) for drafting work.
 
 ## Session Continuity
 
-Last session: 2026-04-30T20:30:00.000Z
-Stopped at: 02-04b complete — D-50 shipped, MAIL-08 gate PASS. Plan-2 tracking normalized so phase-plan-index recognizes 02-01..02-04 as done. Last commit at session pause: e745bb8 (02-04b SUMMARY v2).
+Last session: 2026-05-01T06:00:00.000Z
+Stopped at: STAQPRO-158 doc rectification in flight (AC-1..AC-10). STAQPRO-130 shipped (Ollama/Qdrant port lockdown). STAQPRO-156 orphan commit (legacy NIM archive) landed on origin as bf288b0. 02-07 PLAN promoted earlier 2026-04-30; local drafting path is end-to-end.
+Last commits: da2249b (STAQPRO-130 fix), bf288b0 (STAQPRO-156 NIM archive), 2eed824 (02-07 plan promotion).
 Resume file: .planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md
