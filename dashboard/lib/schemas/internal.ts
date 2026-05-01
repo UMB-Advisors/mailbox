@@ -55,7 +55,13 @@ export const inboxMessageInsertBodySchema = z.object({
   from_addr: z.string().optional().default(''),
   to_addr: z.string().optional().default(''),
   subject: z.string().optional().default(''),
-  received_at: z.string().optional(),
+  // n8n always sends received_at as a string, defaulting to '' when Gmail
+  // omits the date. '' would crash the TIMESTAMPTZ insert; coerce to
+  // undefined so the route can omit the column from the values clause.
+  received_at: z
+    .string()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
   snippet: z.string().optional().default(''),
   body: z.string().optional().default(''),
   in_reply_to: z.string().optional().default(''),
