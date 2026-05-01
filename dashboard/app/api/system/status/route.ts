@@ -11,6 +11,7 @@ import {
   getDiskFree,
   getDraftBacklogAged,
   getDraftCounts24h,
+  getEditRate7d,
   getLastEmailReceivedAt,
   getLastError,
   getLastInferenceLatency,
@@ -18,6 +19,7 @@ import {
   getOllamaLoadedModels,
   getQueueDepth,
 } from '@/lib/queries-system';
+import { buildRagEvalSnapshot } from '@/lib/rag/eval-baseline';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +55,7 @@ export async function GET() {
     draftBacklogAged,
     n8nFailures24h,
     cloudSpendLastHour,
+    editRate7d,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -66,7 +69,14 @@ export async function GET() {
     getDraftBacklogAged(DRAFT_BACKLOG_THRESHOLD_HOURS).catch(() => null),
     getN8nFailures24h(),
     getCloudSpendLastHour(),
+    getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
   ]);
+
+  // STAQPRO-192 — wrap the live edit-rate alongside the frozen pre-RAG
+  // baseline so the /status page (and any future evaluation tooling) can
+  // render a delta directly. The baseline lives as a code constant — see
+  // lib/rag/eval-baseline.ts header for the capture protocol.
+  const ragEval = buildRagEvalSnapshot(editRate7d.edit_rate, editRate7d.sample_size);
 
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
@@ -95,6 +105,7 @@ export async function GET() {
     ollama_models_loaded: ollamaModels,
     drafts_24h: draftCounts24h,
     cloud_spend_24h: cloudSpend24h,
+    rag_eval: ragEval,
     alerts,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,

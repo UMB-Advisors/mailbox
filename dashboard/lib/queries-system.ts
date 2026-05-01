@@ -238,6 +238,39 @@ export async function getCloudSpendLastHour(): Promise<number | null> {
   }
 }
 
+// STAQPRO-192 — rolling 7-day edit-rate. The denominator is "drafts the
+// operator actually disposed of" (approved + edited + sent), not raw
+// draft count, so a backlog of pending drafts doesn't suppress the rate.
+//
+// Returned shape:
+//   - edit_rate is null when sample_size = 0 (avoid 0/0 in the response)
+//   - sample_size is always defined so callers know how stable the rate is
+//
+// Decision criteria for RAG help / hurt live in lib/rag/eval-baseline.ts.
+export interface EditRate7d {
+  edit_rate: number | null;
+  sample_size: number;
+}
+
+export async function getEditRate7d(): Promise<EditRate7d> {
+  const db = getKysely();
+  const r = await sql<{ edited: string; disposed: string }>`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'edited')::text AS edited,
+      COUNT(*) FILTER (WHERE status IN ('approved','edited','sent'))::text AS disposed
+    FROM mailbox.drafts
+    WHERE updated_at > NOW() - INTERVAL '7 days'
+  `.execute(db);
+  const row = r.rows[0];
+  if (!row) return { edit_rate: null, sample_size: 0 };
+  const edited = Number(row.edited);
+  const disposed = Number(row.disposed);
+  return {
+    edit_rate: disposed > 0 ? edited / disposed : null,
+    sample_size: disposed,
+  };
+}
+
 export async function getDraftCounts24h(): Promise<DraftCounts24h> {
   const db = getKysely();
   const rows = await db
