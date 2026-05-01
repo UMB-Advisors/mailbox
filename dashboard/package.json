@@ -8,6 +8,7 @@
     "start": "next start -p 3001",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx migrations/runner.ts",
+    "rag:backfill": "tsx scripts/rag-backfill.ts",
     "db:codegen": "bash scripts/codegen-db.sh",
     "db:codegen:verify": "bash scripts/codegen-db.sh --verify",
     "test": "vitest run",
