@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import type { z, ZodIssue, ZodType } from 'zod';
+import { type NextRequest, NextResponse } from 'next/server';
+import type { ZodIssue, ZodType, z } from 'zod';
 
 // Generic input-validation helpers (STAQPRO-138). Replaces the inline
 // `typeof x !== 'string'` boilerplate that used to live at the top of every
@@ -18,9 +18,7 @@ type ParseResult<T> =
   | { ok: true; data: T }
   | { ok: false; response: NextResponse<ValidationError> };
 
-function buildErrorResponse(
-  issues: ReadonlyArray<ZodIssue>,
-): NextResponse<ValidationError> {
+function buildErrorResponse(issues: ReadonlyArray<ZodIssue>): NextResponse<ValidationError> {
   return NextResponse.json<ValidationError>(
     {
       error: 'validation_failed',

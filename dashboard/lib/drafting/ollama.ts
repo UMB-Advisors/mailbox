@@ -84,9 +84,7 @@ export async function chat(params: OllamaCallParams): Promise<OllamaChatResult> 
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(
-      `Ollama ${url} returned ${res.status}: ${text.slice(0, 500)}`,
-    );
+    throw new Error(`Ollama ${url} returned ${res.status}: ${text.slice(0, 500)}`);
   }
 
   const json = (await res.json()) as OllamaChatResponse;
@@ -94,8 +92,6 @@ export async function chat(params: OllamaCallParams): Promise<OllamaChatResult> 
     body: json.message?.content ?? '',
     input_tokens: json.prompt_eval_count ?? 0,
     output_tokens: json.eval_count ?? 0,
-    eval_duration_ms: json.eval_duration
-      ? Math.round(json.eval_duration / 1_000_000)
-      : null,
+    eval_duration_ms: json.eval_duration ? Math.round(json.eval_duration / 1_000_000) : null,
   };
 }

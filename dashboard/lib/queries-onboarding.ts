@@ -30,9 +30,7 @@ const UPDATE_EMAIL_SQL = `
    RETURNING *
 `;
 
-export async function getOnboarding(
-  customerKey = 'default',
-): Promise<Onboarding | null> {
+export async function getOnboarding(customerKey = 'default'): Promise<Onboarding | null> {
   const pool = getPool();
   const r = await pool.query<Onboarding>(GET_ONBOARDING_SQL, [customerKey]);
   return r.rows[0] ?? null;
@@ -43,10 +41,7 @@ export async function setStage(
   customerKey = 'default',
 ): Promise<Onboarding | null> {
   const pool = getPool();
-  const r = await pool.query<Onboarding>(UPDATE_ONBOARDING_STAGE_SQL, [
-    customerKey,
-    stage,
-  ]);
+  const r = await pool.query<Onboarding>(UPDATE_ONBOARDING_STAGE_SQL, [customerKey, stage]);
   return r.rows[0] ?? null;
 }
 
@@ -56,23 +51,13 @@ export async function setAdmin(
   customerKey = 'default',
 ): Promise<Onboarding | null> {
   const pool = getPool();
-  const r = await pool.query<Onboarding>(UPDATE_ADMIN_SQL, [
-    customerKey,
-    username,
-    passwordHash,
-  ]);
+  const r = await pool.query<Onboarding>(UPDATE_ADMIN_SQL, [customerKey, username, passwordHash]);
   return r.rows[0] ?? null;
 }
 
-export async function setEmail(
-  email: string,
-  customerKey = 'default',
-): Promise<Onboarding | null> {
+export async function setEmail(email: string, customerKey = 'default'): Promise<Onboarding | null> {
   const pool = getPool();
-  const r = await pool.query<Onboarding>(UPDATE_EMAIL_SQL, [
-    customerKey,
-    email,
-  ]);
+  const r = await pool.query<Onboarding>(UPDATE_EMAIL_SQL, [customerKey, email]);
   return r.rows[0] ?? null;
 }
 

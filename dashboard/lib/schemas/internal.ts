@@ -33,9 +33,7 @@ export const classificationPromptBodySchema = z.object({
   body: z.string().optional().default(''),
 });
 
-export type ClassificationPromptBody = z.infer<
-  typeof classificationPromptBodySchema
->;
+export type ClassificationPromptBody = z.infer<typeof classificationPromptBodySchema>;
 
 // POST /api/internal/classification-normalize — { raw?, from?, to? }.
 // `from` / `to` feed the deterministic operator-domain preclass (DR-50).
@@ -45,6 +43,4 @@ export const classificationNormalizeBodySchema = z.object({
   to: z.string().optional(),
 });
 
-export type ClassificationNormalizeBody = z.infer<
-  typeof classificationNormalizeBodySchema
->;
+export type ClassificationNormalizeBody = z.infer<typeof classificationNormalizeBodySchema>;

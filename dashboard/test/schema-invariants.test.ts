@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
 
 // Highest-leverage test for STAQPRO-133. Asserts that the live Postgres
@@ -39,9 +39,7 @@ async function getCheckValues(
     [table, constraintName],
   );
   if (rows.length === 0) {
-    throw new Error(
-      `CHECK constraint not found: mailbox.${table} / ${constraintName}`,
-    );
+    throw new Error(`CHECK constraint not found: mailbox.${table} / ${constraintName}`);
   }
   // pg_get_constraintdef returns:
   //   CHECK ((status = ANY (ARRAY['pending'::text, 'awaiting_cloud'::text, ...])))
@@ -89,11 +87,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   it.skipIf(!DB_URL)(
     'drafts.draft_source CHECK accepts every route currently written by the live drafting path',
     async () => {
-      const allowed = await getCheckValues(
-        pool!,
-        'drafts',
-        'drafts_draft_source_check',
-      );
+      const allowed = await getCheckValues(pool!, 'drafts', 'drafts_draft_source_check');
       // Live writes today: 'local' | 'cloud'. Constraint also keeps the legacy
       // 'local_qwen3' | 'cloud_haiku' values from migration 002→003 era for
       // backward compatibility. All four must be accepted; if a migration
@@ -107,11 +101,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   it.skipIf(!DB_URL)(
     'drafts.classification_category CHECK matches CATEGORIES from lib/classification/prompt.ts',
     async () => {
-      const allowed = await getCheckValues(
-        pool!,
-        'drafts',
-        'drafts_classification_category_check',
-      );
+      const allowed = await getCheckValues(pool!, 'drafts', 'drafts_classification_category_check');
       const expected = [...CATEGORIES];
       expect([...allowed].sort()).toEqual([...expected].sort());
     },
@@ -125,9 +115,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
 
   // Pure code-level invariant — confidence floor is in (0, 1) range.
   it('LOCAL_CONFIDENCE_FLOOR is a sane probability', async () => {
-    const { LOCAL_CONFIDENCE_FLOOR } = await import(
-      '../lib/classification/prompt'
-    );
+    const { LOCAL_CONFIDENCE_FLOOR } = await import('../lib/classification/prompt');
     expect(LOCAL_CONFIDENCE_FLOOR).toBeGreaterThan(0);
     expect(LOCAL_CONFIDENCE_FLOOR).toBeLessThan(1);
   });

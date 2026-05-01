@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { listDrafts } from '@/lib/queries';
+import { type NextRequest, NextResponse } from 'next/server';
 import { parseQuery } from '@/lib/middleware/validate';
+import { listDrafts } from '@/lib/queries';
 import { listDraftsQuerySchema } from '@/lib/schemas/drafts';
 
 export const dynamic = 'force-dynamic';

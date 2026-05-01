@@ -1,27 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { parseJson, parseParams, parseQuery } from './validate';
 import { idParamSchema } from '@/lib/schemas/common';
-import {
-  listDraftsQuerySchema,
-  rejectBodySchema,
-  editBodySchema,
-} from '@/lib/schemas/drafts';
-import {
-  draftFinalizeBodySchema,
-  draftPromptBodySchema,
-} from '@/lib/schemas/internal';
+import { editBodySchema, listDraftsQuerySchema, rejectBodySchema } from '@/lib/schemas/drafts';
+import { draftFinalizeBodySchema, draftPromptBodySchema } from '@/lib/schemas/internal';
+import { parseJson, parseParams, parseQuery } from './validate';
 
 // Minimal NextRequest stand-in: parseJson only touches `.json()` and `.url`,
 // so we can hand it a plain object that satisfies the same shape without
 // pulling in a Next.js test harness.
-function fakeReq({
-  body,
-  url = 'http://test.local/api/x',
-}: {
-  body?: unknown;
-  url?: string;
-}) {
+function fakeReq({ body, url = 'http://test.local/api/x' }: { body?: unknown; url?: string }) {
   return {
     url,
     json: async () => {
@@ -101,19 +88,13 @@ describe('parseJson — drafts schemas', () => {
   });
 
   it('rejectBody trims and accepts reason', async () => {
-    const r = await parseJson(
-      fakeReq({ body: { reason: '  not on brand  ' } }),
-      rejectBodySchema,
-    );
+    const r = await parseJson(fakeReq({ body: { reason: '  not on brand  ' } }), rejectBodySchema);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data.reason).toBe('not on brand');
   });
 
   it('editBody requires non-empty draft_body', async () => {
-    const r = await parseJson(
-      fakeReq({ body: { draft_body: '   ' } }),
-      editBodySchema,
-    );
+    const r = await parseJson(fakeReq({ body: { draft_body: '   ' } }), editBodySchema);
     expect(r.ok).toBe(false);
   });
 
@@ -140,17 +121,11 @@ describe('parseJson — drafts schemas', () => {
 
 describe('parseJson — internal schemas', () => {
   it('draftPromptBody requires positive draft_id', async () => {
-    expect(
-      (await parseJson(fakeReq({ body: {} }), draftPromptBodySchema)).ok,
-    ).toBe(false);
-    expect(
-      (await parseJson(fakeReq({ body: { draft_id: 0 } }), draftPromptBodySchema))
-        .ok,
-    ).toBe(false);
-    const r = await parseJson(
-      fakeReq({ body: { draft_id: 17 } }),
-      draftPromptBodySchema,
+    expect((await parseJson(fakeReq({ body: {} }), draftPromptBodySchema)).ok).toBe(false);
+    expect((await parseJson(fakeReq({ body: { draft_id: 0 } }), draftPromptBodySchema)).ok).toBe(
+      false,
     );
+    const r = await parseJson(fakeReq({ body: { draft_id: 17 } }), draftPromptBodySchema);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data.draft_id).toBe(17);
   });

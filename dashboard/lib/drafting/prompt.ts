@@ -133,7 +133,7 @@ export function buildUserPrompt(input: DraftPromptInput): string {
     '/no_think',
     categoryHint(input.category, input.confidence),
     '',
-    'Draft a reply to this email. Match the operator\'s voice from the system prompt.',
+    "Draft a reply to this email. Match the operator's voice from the system prompt.",
     '',
     '## Inbound email',
     `From: ${input.from_addr}`,

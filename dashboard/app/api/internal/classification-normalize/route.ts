@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { normalizeClassifierOutput } from '@/lib/classification/normalize';
 import { parseJson } from '@/lib/middleware/validate';
 import { classificationNormalizeBodySchema } from '@/lib/schemas/internal';

@@ -22,20 +22,15 @@ export const MODEL_VERSION = 'qwen3:4b-ctx4k';
 export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
   inquiry:
     'First-touch question from a prospect or customer (pricing, samples, product info, partnership intro).',
-  reorder:
-    'Existing customer placing or asking about a repeat order, restock, PO, or invoice.',
-  scheduling:
-    'Meeting, call, visit, sample drop, or calendar logistics.',
-  follow_up:
-    'Continuation of a prior thread the recipient was already engaged in.',
-  internal:
-    'From a team member, contractor, or known internal stakeholder of the operator.',
+  reorder: 'Existing customer placing or asking about a repeat order, restock, PO, or invoice.',
+  scheduling: 'Meeting, call, visit, sample drop, or calendar logistics.',
+  follow_up: 'Continuation of a prior thread the recipient was already engaged in.',
+  internal: 'From a team member, contractor, or known internal stakeholder of the operator.',
   spam_marketing:
     'Cold solicitation, marketing newsletter, sales pitch, lead-gen blast, recruiter spam.',
   escalate:
     'Complaint, legal threat, regulatory notice, recall risk, or anything requiring human judgment.',
-  unknown:
-    'Cannot be confidently placed in any other category.',
+  unknown: 'Cannot be confidently placed in any other category.',
 };
 
 export interface ClassifierInput {
@@ -47,9 +42,7 @@ export interface ClassifierInput {
 // /no_think directive per D-05 — keeps classification under p95 5s (MAIL-06).
 // Fallback to `unknown` on parse failure is enforced in normalize.ts (D-06).
 export function buildPrompt(input: ClassifierInput): string {
-  const catLines = CATEGORIES.map(
-    (c) => `  - ${c}: ${CATEGORY_DESCRIPTIONS[c]}`,
-  ).join('\n');
+  const catLines = CATEGORIES.map((c) => `  - ${c}: ${CATEGORY_DESCRIPTIONS[c]}`).join('\n');
 
   const safeBody = (input.body ?? '').slice(0, 4000);
 
@@ -95,10 +88,7 @@ export const LOCAL_CATEGORIES: ReadonlyArray<Category> = [
   'internal',
   'inquiry',
 ];
-export const CLOUD_CATEGORIES: ReadonlyArray<Category> = [
-  'escalate',
-  'unknown',
-];
+export const CLOUD_CATEGORIES: ReadonlyArray<Category> = ['escalate', 'unknown'];
 
 export type Route = 'local' | 'cloud' | 'drop';
 

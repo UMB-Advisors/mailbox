@@ -1,5 +1,5 @@
 import { getPool, normalizeDraftBody } from '@/lib/db';
-import type { DraftWithMessage, DraftStatus } from '@/lib/types';
+import type { DraftStatus, DraftWithMessage } from '@/lib/types';
 
 const LIST_DRAFTS_SQL = `
   SELECT
@@ -68,10 +68,7 @@ export async function listDrafts(
 ): Promise<DraftWithMessage[]> {
   const pool = getPool();
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
-  const result = await pool.query<DraftWithMessage>(LIST_DRAFTS_SQL, [
-    statuses,
-    safeLimit,
-  ]);
+  const result = await pool.query<DraftWithMessage>(LIST_DRAFTS_SQL, [statuses, safeLimit]);
   return result.rows.map((row) => ({
     ...row,
     draft_body: normalizeDraftBody(row.draft_body),

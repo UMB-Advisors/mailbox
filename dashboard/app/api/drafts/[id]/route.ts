@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDraft } from '@/lib/queries';
+import { type NextRequest, NextResponse } from 'next/server';
 import { parseParams } from '@/lib/middleware/validate';
+import { getDraft } from '@/lib/queries';
 import { idParamSchema } from '@/lib/schemas/common';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const p = parseParams(params, idParamSchema);
   if (!p.ok) return p.response;
   const { id } = p.data;

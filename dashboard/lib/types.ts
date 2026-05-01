@@ -1,10 +1,4 @@
-export type DraftStatus =
-  | 'pending'
-  | 'approved'
-  | 'rejected'
-  | 'edited'
-  | 'sent'
-  | 'failed';
+export type DraftStatus = 'pending' | 'approved' | 'rejected' | 'edited' | 'sent' | 'failed';
 
 export interface Draft {
   id: number;

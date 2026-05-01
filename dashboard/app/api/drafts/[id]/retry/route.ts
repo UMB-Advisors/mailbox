@@ -1,15 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
-import { triggerSendWebhook } from '@/lib/n8n';
 import { parseParams } from '@/lib/middleware/validate';
+import { triggerSendWebhook } from '@/lib/n8n';
 import { idParamSchema } from '@/lib/schemas/common';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const p = parseParams(params, idParamSchema);
   if (!p.ok) return p.response;
   const { id } = p.data;
@@ -28,10 +25,7 @@ export async function POST(
       [id],
     );
     if (result.rowCount === 0) {
-      return NextResponse.json(
-        { error: 'Draft not in failed state' },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: 'Draft not in failed state' }, { status: 409 });
     }
   } catch (error) {
     console.error(`POST /api/drafts/${id}/retry (status update) failed:`, error);
@@ -45,10 +39,7 @@ export async function POST(
   // retry can re-fire without state surgery.
   const webhookResult = await triggerSendWebhook(id);
   if (!webhookResult.success) {
-    console.error(
-      `POST /api/drafts/${id}/retry (webhook) failed:`,
-      webhookResult.error,
-    );
+    console.error(`POST /api/drafts/${id}/retry (webhook) failed:`, webhookResult.error);
     return NextResponse.json(
       { success: false, draft_id: id, error: webhookResult.error },
       { status: 502 },

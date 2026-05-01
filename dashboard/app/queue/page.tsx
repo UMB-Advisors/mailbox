@@ -1,6 +1,6 @@
+import { QueueClient } from '@/components/QueueClient';
 import { listDrafts } from '@/lib/queries';
 import type { DraftWithMessage } from '@/lib/types';
-import { QueueClient } from '@/components/QueueClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +23,7 @@ export default async function QueuePage() {
       {error ? (
         <>
           <header className="mb-6 flex items-center justify-between">
-            <h1 className="font-sans text-xl font-semibold tracking-tight">
-              MailBox One
-            </h1>
+            <h1 className="font-sans text-xl font-semibold tracking-tight">MailBox One</h1>
           </header>
           <div className="rounded border border-accent-red/40 bg-accent-red/10 p-4 text-sm text-accent-red">
             <p className="mb-1 font-medium">Failed to load drafts</p>
@@ -33,10 +31,7 @@ export default async function QueuePage() {
           </div>
         </>
       ) : (
-        <QueueClient
-          initialActive={initialActive}
-          initialFailed={initialFailed}
-        />
+        <QueueClient initialActive={initialActive} initialFailed={initialFailed} />
       )}
     </main>
   );

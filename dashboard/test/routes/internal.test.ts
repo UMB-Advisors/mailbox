@@ -1,11 +1,5 @@
-import { describe, it, expect, afterAll } from 'vitest';
-import {
-  HAS_DB,
-  closeTestPool,
-  deleteSeededDraft,
-  fakeRequest,
-  seedDraft,
-} from '../helpers/db';
+import { afterAll, describe, expect, it } from 'vitest';
+import { closeTestPool, deleteSeededDraft, fakeRequest, HAS_DB, seedDraft } from '../helpers/db';
 
 const dbDescribe = HAS_DB ? describe : describe.skip;
 
@@ -16,9 +10,7 @@ dbDescribe('internal route handlers — real Postgres', () => {
 
   describe('POST /api/internal/draft-finalize', () => {
     it('returns 404 for nonexistent draft_id', async () => {
-      const { POST } = await import(
-        '@/app/api/internal/draft-finalize/route'
-      );
+      const { POST } = await import('@/app/api/internal/draft-finalize/route');
       const res = await POST(
         fakeRequest({
           body: {
@@ -35,9 +27,7 @@ dbDescribe('internal route handlers — real Postgres', () => {
     });
 
     it('rejects unknown source with 400 (validation)', async () => {
-      const { POST } = await import(
-        '@/app/api/internal/draft-finalize/route'
-      );
+      const { POST } = await import('@/app/api/internal/draft-finalize/route');
       const res = await POST(
         fakeRequest({
           body: {
@@ -59,9 +49,7 @@ dbDescribe('internal route handlers — real Postgres', () => {
       const seed = await seedDraft({ withClassification: false });
       try {
         const { POST } = await import('@/app/api/internal/draft-prompt/route');
-        const res = await POST(
-          fakeRequest({ body: { draft_id: seed.draftId } }),
-        );
+        const res = await POST(fakeRequest({ body: { draft_id: seed.draftId } }));
         expect(res.status).toBe(422);
       } finally {
         await deleteSeededDraft(seed);
@@ -70,9 +58,7 @@ dbDescribe('internal route handlers — real Postgres', () => {
 
     it('returns 404 for nonexistent draft_id', async () => {
       const { POST } = await import('@/app/api/internal/draft-prompt/route');
-      const res = await POST(
-        fakeRequest({ body: { draft_id: 999_999_999 } }),
-      );
+      const res = await POST(fakeRequest({ body: { draft_id: 999_999_999 } }));
       expect(res.status).toBe(404);
     });
   });

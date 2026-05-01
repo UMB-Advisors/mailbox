@@ -6,8 +6,8 @@
 // operator, override the LLM verdict to `internal`. The original LLM
 // output is preserved in raw_output for forensics.
 
+import { type PreclassContext, precheck } from './preclass';
 import { CATEGORIES, type Category } from './prompt';
-import { precheck, type PreclassContext } from './preclass';
 
 export interface ClassificationResult {
   category: Category;
@@ -64,9 +64,7 @@ export function normalizeClassifierOutput(
   const rawCategory = typeof obj.category === 'string' ? obj.category : '';
   const rawConfidence = obj.confidence;
 
-  const category: Category = CATEGORY_SET.has(rawCategory)
-    ? (rawCategory as Category)
-    : 'unknown';
+  const category: Category = CATEGORY_SET.has(rawCategory) ? (rawCategory as Category) : 'unknown';
 
   let confidence =
     typeof rawConfidence === 'number'
@@ -104,10 +102,7 @@ function fallback(raw: string, think_stripped: boolean): ClassificationResult {
   };
 }
 
-function applyPreclass(
-  result: ClassificationResult,
-  ctx: PreclassContext,
-): ClassificationResult {
+function applyPreclass(result: ClassificationResult, ctx: PreclassContext): ClassificationResult {
   const hit = precheck(ctx);
   if (!hit) return result;
   return {

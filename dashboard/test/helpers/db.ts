@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
-import type { DraftStatus } from '@/lib/types';
 import type { Category } from '@/lib/classification/prompt';
+import type { DraftStatus } from '@/lib/types';
 
 // Test helpers for route tests that need a real Postgres. The route handlers
 // call `getPool()` from `lib/db.ts`, which reads `POSTGRES_URL`. To make sure
@@ -84,9 +84,7 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
 export async function deleteSeededDraft(s: SeededDraft): Promise<void> {
   const pool = getTestPool();
   await pool.query('DELETE FROM mailbox.drafts WHERE id = $1', [s.draftId]);
-  await pool.query('DELETE FROM mailbox.inbox_messages WHERE id = $1', [
-    s.inboxMessageId,
-  ]);
+  await pool.query('DELETE FROM mailbox.inbox_messages WHERE id = $1', [s.inboxMessageId]);
 }
 
 export async function getDraftStatus(id: number): Promise<DraftStatus | null> {
@@ -114,10 +112,9 @@ export async function getDraftRow(id: number): Promise<{
 
 // Build a minimal NextRequest stand-in that satisfies the call sites in our
 // route handlers (they only touch .url and .json()).
-export function fakeRequest(opts: {
-  url?: string;
-  body?: unknown;
-} = {}): import('next/server').NextRequest {
+export function fakeRequest(
+  opts: { url?: string; body?: unknown } = {},
+): import('next/server').NextRequest {
   const url = opts.url ?? 'http://test.local/api';
   return {
     url,

@@ -4,9 +4,7 @@ export interface WebhookResult {
   error?: string;
 }
 
-export async function triggerSendWebhook(
-  draftId: number,
-): Promise<WebhookResult> {
+export async function triggerSendWebhook(draftId: number): Promise<WebhookResult> {
   const url = process.env.N8N_WEBHOOK_URL;
   if (!url) {
     return { success: false, error: 'N8N_WEBHOOK_URL not configured' };

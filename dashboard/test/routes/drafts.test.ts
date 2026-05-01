@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
-  HAS_DB,
   closeTestPool,
   deleteSeededDraft,
   fakeRequest,
   getDraftRow,
+  HAS_DB,
   seedDraft,
 } from '../helpers/db';
 
@@ -24,11 +24,11 @@ dbDescribe('drafts route handlers — real Postgres', () => {
     // second webhook caller.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockImplementation(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
         ),
-      ),
     );
     // Webhook URL must be set or triggerSendWebhook short-circuits to 502.
     process.env.N8N_WEBHOOK_URL = 'http://stub.test/webhook';
@@ -94,10 +94,9 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       const seed = await seedDraft({ status: 'pending' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/reject/route');
-        const res = await POST(
-          fakeRequest({ body: { reason: '  not on brand  ' } }),
-          { params: { id: String(seed.draftId) } },
-        );
+        const res = await POST(fakeRequest({ body: { reason: '  not on brand  ' } }), {
+          params: { id: String(seed.draftId) },
+        });
         expect(res.status).toBe(200);
         const row = await getDraftRow(seed.draftId);
         expect(row?.status).toBe('rejected');
@@ -149,10 +148,9 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       const seed = await seedDraft({ status: 'pending' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/edit/route');
-        const res = await POST(
-          fakeRequest({ body: { draft_body: '   ' } }),
-          { params: { id: String(seed.draftId) } },
-        );
+        const res = await POST(fakeRequest({ body: { draft_body: '   ' } }), {
+          params: { id: String(seed.draftId) },
+        });
         expect(res.status).toBe(400);
       } finally {
         await deleteSeededDraft(seed);
@@ -163,10 +161,9 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       const seed = await seedDraft({ status: 'failed' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/edit/route');
-        const res = await POST(
-          fakeRequest({ body: { draft_body: 'any body' } }),
-          { params: { id: String(seed.draftId) } },
-        );
+        const res = await POST(fakeRequest({ body: { draft_body: 'any body' } }), {
+          params: { id: String(seed.draftId) },
+        });
         expect(res.status).toBe(409);
       } finally {
         await deleteSeededDraft(seed);
@@ -227,9 +224,7 @@ dbDescribe('drafts route handlers — real Postgres', () => {
 
     it('rejects unknown status with 400', async () => {
       const { GET } = await import('@/app/api/drafts/route');
-      const res = await GET(
-        fakeRequest({ url: 'http://test/api/drafts?status=bogus' }),
-      );
+      const res = await GET(fakeRequest({ url: 'http://test/api/drafts?status=bogus' }));
       expect(res.status).toBe(400);
     });
   });

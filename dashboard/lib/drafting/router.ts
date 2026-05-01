@@ -11,10 +11,7 @@
 
 import type { Category } from '@/lib/classification/prompt';
 import { routeFor } from '@/lib/classification/prompt';
-import {
-  DRAFT_CLOUD_MODEL_DEFAULT,
-  DRAFT_LOCAL_MODEL,
-} from './prompt';
+import { DRAFT_CLOUD_MODEL_DEFAULT, DRAFT_LOCAL_MODEL } from './prompt';
 
 export type DraftSource = 'local' | 'cloud';
 
@@ -31,16 +28,11 @@ export interface DraftEndpoint {
 }
 
 const LOCAL_OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? 'http://ollama:11434';
-const OLLAMA_CLOUD_BASE =
-  process.env.OLLAMA_CLOUD_BASE_URL ?? 'https://ollama.com';
-const OLLAMA_CLOUD_MODEL =
-  process.env.OLLAMA_CLOUD_MODEL ?? DRAFT_CLOUD_MODEL_DEFAULT;
+const OLLAMA_CLOUD_BASE = process.env.OLLAMA_CLOUD_BASE_URL ?? 'https://ollama.com';
+const OLLAMA_CLOUD_MODEL = process.env.OLLAMA_CLOUD_MODEL ?? DRAFT_CLOUD_MODEL_DEFAULT;
 const OLLAMA_CLOUD_KEY = process.env.OLLAMA_CLOUD_API_KEY ?? '';
 
-export function pickEndpoint(
-  category: Category,
-  confidence: number,
-): DraftEndpoint {
+export function pickEndpoint(category: Category, confidence: number): DraftEndpoint {
   const route = routeFor(category, confidence);
   // 'drop' shouldn't reach drafting, but be defensive: fall through to local.
   if (route === 'cloud') {

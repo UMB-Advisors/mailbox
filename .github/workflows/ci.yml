@@ -65,6 +65,9 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f test/fixtures/schema.sql
 
+      - name: Lint + format (Biome)
+        run: npm run lint
+
       - name: TypeScript typecheck
         run: npm run typecheck
 

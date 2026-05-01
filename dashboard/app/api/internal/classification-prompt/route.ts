@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { buildPrompt, MODEL_VERSION } from '@/lib/classification/prompt';
 import { parseJson } from '@/lib/middleware/validate';
 import { classificationPromptBodySchema } from '@/lib/schemas/internal';

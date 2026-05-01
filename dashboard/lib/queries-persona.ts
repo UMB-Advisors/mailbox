@@ -19,9 +19,7 @@ const UPSERT_PERSONA_SQL = `
   RETURNING *
 `;
 
-export async function getPersona(
-  customerKey = 'default',
-): Promise<Persona | null> {
+export async function getPersona(customerKey = 'default'): Promise<Persona | null> {
   const pool = getPool();
   const r = await pool.query<Persona>(GET_PERSONA_SQL, [customerKey]);
   return r.rows[0] ?? null;

@@ -10,11 +10,7 @@ export const metadata: Metadata = {
   description: 'Approval queue for LLM-generated email drafts',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>{children}</body>

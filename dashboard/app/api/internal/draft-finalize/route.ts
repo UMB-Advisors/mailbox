@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { getPool, normalizeDraftBody } from '@/lib/db';
 import { computeCost } from '@/lib/drafting/cost';
 import { parseJson } from '@/lib/middleware/validate';
@@ -48,10 +48,7 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (r.rowCount === 0) {
-      return NextResponse.json(
-        { error: `draft ${draft_id} not found` },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: `draft ${draft_id} not found` }, { status: 404 });
     }
 
     return NextResponse.json({

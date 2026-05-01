@@ -34,9 +34,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
   );
 
   // Track IDs we've already shown so a poll doesn't double-count "new".
-  const knownIds = useRef<Set<number>>(
-    new Set(initialActive.map((d) => d.id)),
-  );
+  const knownIds = useRef<Set<number>>(new Set(initialActive.map((d) => d.id)));
 
   const fetchData = useCallback(async (silent: boolean) => {
     try {
@@ -53,14 +51,12 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
       const nextFailed: DraftWithMessage[] = failJson.drafts ?? [];
 
       if (silent) {
-        nextActive.forEach((d) => knownIds.current.add(d.id));
+        for (const d of nextActive) knownIds.current.add(d.id);
       } else {
-        const fresh = nextActive
-          .map((d) => d.id)
-          .filter((id) => !knownIds.current.has(id));
+        const fresh = nextActive.map((d) => d.id).filter((id) => !knownIds.current.has(id));
         if (fresh.length > 0) {
           setNewCount((c) => c + fresh.length);
-          fresh.forEach((id) => knownIds.current.add(id));
+          for (const id of fresh) knownIds.current.add(id);
         }
       }
 
@@ -80,10 +76,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
   const dismissToast = () => setToast(null);
   const dismissNewDrafts = () => setNewCount(0);
 
-  async function fireAction(
-    kind: 'approve' | 'reject',
-    draft: DraftWithMessage,
-  ) {
+  async function fireAction(kind: 'approve' | 'reject', draft: DraftWithMessage) {
     setBusy({ draftId: draft.id, kind });
     try {
       const res = await fetch(`/api/drafts/${draft.id}/${kind}`, {
@@ -165,18 +158,13 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
 
   const visibleActive = active.filter((d) => !removed.has(d.id));
   const busyKindFor = (id: number): ActionKind | null =>
-    busy?.draftId === id && busy.kind !== 'retry'
-      ? (busy.kind as ActionKind)
-      : null;
-  const busyRetryId =
-    busy?.kind === 'retry' ? busy.draftId : null;
+    busy?.draftId === id && busy.kind !== 'retry' ? (busy.kind as ActionKind) : null;
+  const busyRetryId = busy?.kind === 'retry' ? busy.draftId : null;
 
   return (
     <>
       <header className="mb-6 flex items-center justify-between">
-        <h1 className="font-sans text-xl font-semibold tracking-tight">
-          MailBox One
-        </h1>
+        <h1 className="font-sans text-xl font-semibold tracking-tight">MailBox One</h1>
         <span className="rounded-full border border-border bg-bg-panel px-3 py-1 font-mono text-xs text-ink-muted">
           {visibleActive.length} pending
         </span>
@@ -184,11 +172,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
 
       <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
 
-      <FailedSends
-        drafts={failed}
-        busyId={busyRetryId}
-        onRetry={fireRetry}
-      />
+      <FailedSends drafts={failed} busyId={busyRetryId} onRetry={fireRetry} />
 
       {visibleActive.length === 0 ? (
         <EmptyState />
@@ -205,11 +189,7 @@ export function QueueClient({ initialActive, initialFailed }: Props) {
       )}
 
       {editing && (
-        <EditModal
-          draft={editing}
-          onSave={onEditSave}
-          onClose={() => setEditing(null)}
-        />
+        <EditModal draft={editing} onSave={onEditSave} onClose={() => setEditing(null)} />
       )}
       {toast && <Toast {...toast} onDismiss={dismissToast} />}
     </>
@@ -245,11 +225,7 @@ function Body({
               <DraftCard
                 draft={draft}
                 isSelected={isSelected}
-                onToggle={() =>
-                  setSelectedId((id) =>
-                    id === draft.id ? null : draft.id,
-                  )
-                }
+                onToggle={() => setSelectedId((id) => (id === draft.id ? null : draft.id))}
               />
               {isSelected && (
                 <div className="mt-3 lg:hidden">

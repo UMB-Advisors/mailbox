@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { parseJson, parseParams } from '@/lib/middleware/validate';
 import { idParamSchema } from '@/lib/schemas/common';
@@ -6,10 +6,7 @@ import { rejectBodySchema } from '@/lib/schemas/drafts';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const p = parseParams(params, idParamSchema);
   if (!p.ok) return p.response;
   const { id } = p.data;
@@ -33,10 +30,7 @@ export async function POST(
       [id, reason],
     );
     if (result.rowCount === 0) {
-      return NextResponse.json(
-        { error: 'Draft not in pending or edited state' },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: 'Draft not in pending or edited state' }, { status: 409 });
     }
     return NextResponse.json({ success: true, draft: result.rows[0] });
   } catch (error) {

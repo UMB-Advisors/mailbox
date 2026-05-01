@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
+import type { Category } from '@/lib/classification/prompt';
 import { getPool } from '@/lib/db';
+import { getPersonaContext } from '@/lib/drafting/persona-stub';
 import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
-import { getPersonaContext } from '@/lib/drafting/persona-stub';
-import type { Category } from '@/lib/classification/prompt';
 import { parseJson } from '@/lib/middleware/validate';
 import { draftPromptBodySchema } from '@/lib/schemas/internal';
 
@@ -54,10 +54,7 @@ export async function POST(req: NextRequest) {
     const r = await pool.query<DraftRow>(LOAD_DRAFT_SQL, [draft_id]);
     const row = r.rows[0];
     if (!row) {
-      return NextResponse.json(
-        { error: `draft ${draft_id} not found` },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: `draft ${draft_id} not found` }, { status: 404 });
     }
 
     if (!row.classification_category) {

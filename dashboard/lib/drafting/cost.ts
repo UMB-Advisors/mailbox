@@ -37,11 +37,7 @@ export const PRICING: Readonly<Record<string, ModelPrice>> = {
   },
 };
 
-export function computeCost(
-  model: string,
-  input_tokens: number,
-  output_tokens: number,
-): number {
+export function computeCost(model: string, input_tokens: number, output_tokens: number): number {
   const p = PRICING[model];
   if (!p) {
     // Unknown model — return 0 rather than block the write. Cost meter will
@@ -49,8 +45,7 @@ export function computeCost(
     return 0;
   }
   const cost =
-    (input_tokens / 1_000_000) * p.input_per_mtok +
-    (output_tokens / 1_000_000) * p.output_per_mtok;
+    (input_tokens / 1_000_000) * p.input_per_mtok + (output_tokens / 1_000_000) * p.output_per_mtok;
   // 6 decimal places matches the NUMERIC(10,6) column. Cap negative or NaN.
   if (!Number.isFinite(cost) || cost < 0) return 0;
   return Math.round(cost * 1_000_000) / 1_000_000;
