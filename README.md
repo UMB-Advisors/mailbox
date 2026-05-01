@@ -129,8 +129,7 @@ docker compose exec ollama ollama pull qwen3:4b
 docker compose exec ollama ollama pull nomic-embed-text:v1.5
 ```
 
-The dashboard is available at `http://<APPLIANCE_IP>:3000` once all services are healthy.
-<!-- TODO: Replace port 3000 with actual dashboard port once finalized -->
+The dashboard is available at `http://<APPLIANCE_IP>:3001/dashboard/queue` once all services are healthy. In the canonical deployment it sits behind Caddy at `https://mailbox.heronlabsinc.com/dashboard/queue` (TLS via Cloudflare DNS-01).
 
 ## Configuration
 
