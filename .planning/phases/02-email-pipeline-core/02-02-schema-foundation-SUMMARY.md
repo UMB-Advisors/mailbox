@@ -3,7 +3,8 @@ phase: 02-email-pipeline-core
 plan: 02
 plan_version: v2
 subsystem: database
-tags: [postgres, migrations, schema, drizzle-replacement, raw-sql, pg-driver, typescript]
+tags: [postgres, migrations, schema, drizzle-replacement, raw-sql, pg-driver, kysely, typescript]
+forward_pointer: "Hand-rolled pg.Pool query helpers described below were superseded 2026-05-01 by Kysely (typed query builder) per the Dashboard ORM ADR in `.planning/STATE.md`. Migrations runner and the .sql files unchanged. STAQPRO-136 has the migration commits."
 
 requires:
   - phase: 01-infrastructure-foundation
