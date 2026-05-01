@@ -10,8 +10,9 @@ progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 5
-  percent: 45
+  completed_plans: 8
+  percent: 73
+  count_note: "Phase 1 = 3/3 done. Phase 2 = 5 of 8 plan slots done where 02-04 is counted as 02-04a + 02-04b (split execution); slots: 02-01 SUPERSEDED, 02-02 done, 02-03 partial, 02-04a done, 02-04b done, 02-07 plan-promoted with local path shipped, 02-05/06/08 stubs pending. Phase 3 and Phase 4 plan counts are TBD until those phases plan out."
 ---
 
 # Project State
