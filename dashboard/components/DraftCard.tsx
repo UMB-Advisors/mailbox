@@ -1,48 +1,65 @@
 'use client';
 
-import { ChevronRight } from 'lucide-react';
 import type { DraftWithMessage } from '@/lib/types';
-import { ClassificationChip } from './ClassificationChip';
 import { TimeAgo } from './TimeAgo';
 
+// Outlook-style compact list row. Fixed h-14 so 30+ drafts fit in the
+// left pane without overflow surprises. Detail pane shows the full body.
 export function DraftCard({
   draft,
   isSelected,
-  onToggle,
+  onSelect,
 }: {
   draft: DraftWithMessage;
   isSelected: boolean;
-  onToggle: () => void;
+  onSelect: () => void;
 }) {
   const m = draft.message;
-  const previewLine = draft.draft_body.split('\n').find((l) => l.trim().length > 0) ?? '';
+  const conf = m.confidence != null ? parseFloat(m.confidence) : null;
+  const dotColor =
+    conf == null
+      ? 'bg-ink-dim'
+      : conf >= 0.85
+        ? 'bg-accent-green'
+        : conf >= 0.6
+          ? 'bg-accent-orange'
+          : 'bg-accent-red';
+
+  const classLabel = m.classification ?? '—';
+  const fromName =
+    m.from_addr?.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim() || m.from_addr?.split('@')[0] || 'unknown';
 
   return (
     <button
       type="button"
-      onClick={onToggle}
-      aria-expanded={isSelected}
-      className={`block w-full rounded border bg-bg-panel p-4 text-left transition-colors ${
+      onClick={onSelect}
+      aria-current={isSelected}
+      className={`group flex h-14 w-full items-center gap-2 border-l-2 px-3 text-left transition-colors duration-100 ${
         isSelected
-          ? 'border-accent-orange/60 bg-accent-orange/[0.06]'
-          : 'border-border hover:border-ink-dim'
+          ? 'border-l-accent-orange bg-bg-panel'
+          : 'border-l-transparent hover:bg-bg-panel/60'
       }`}
     >
-      <div className="mb-1 flex items-baseline justify-between gap-3">
-        <p className="truncate font-mono text-xs text-ink-muted">
-          {m.from_addr ?? 'unknown sender'}
-        </p>
-        <div className="flex shrink-0 items-center gap-2 font-mono text-xs text-ink-dim">
-          <TimeAgo iso={m.received_at} />
-          <ChevronRight
-            size={14}
-            className={`transition-transform ${isSelected ? 'rotate-90' : ''}`}
-          />
+      <span
+        className={`shrink-0 h-2 w-2 rounded-full ${dotColor}`}
+        title={`${classLabel}${conf != null ? ` ${Math.round(conf * 100)}%` : ''}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-ink">{fromName}</span>
+          <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-ink-dim">
+            <TimeAgo iso={m.received_at} />
+          </span>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          <span className="min-w-0 truncate text-xs text-ink-muted">
+            {m.subject || '(no subject)'}
+          </span>
+          <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-wide text-ink-dim">
+            {classLabel}
+          </span>
         </div>
       </div>
-      <p className="mb-2 truncate font-sans text-base font-medium">{m.subject ?? '(no subject)'}</p>
-      <p className="mb-2 line-clamp-2 text-sm text-ink-muted">{previewLine}</p>
-      <ClassificationChip classification={m.classification} confidence={m.confidence} />
     </button>
   );
 }

@@ -19,7 +19,7 @@ export function FailedSends({
   if (drafts.length === 0) return null;
 
   return (
-    <section className="mb-4 rounded border border-accent-red/40 bg-accent-red/5">
+    <section className="rounded border border-accent-red/40 bg-accent-red/5">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

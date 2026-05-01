@@ -6,7 +6,7 @@ export function NewDraftsBanner({ count, onDismiss }: { count: number; onDismiss
   if (count === 0) return null;
 
   return (
-    <div className="mb-3 flex items-center gap-2 rounded border border-accent-green/40 bg-accent-green/10 px-3 py-2 font-sans text-sm text-accent-green">
+    <div className="flex items-center gap-2 rounded border border-accent-green/40 bg-accent-green/10 px-3 py-2 font-sans text-sm text-accent-green">
       <Sparkles size={16} />
       <span>
         {count} new draft{count === 1 ? '' : 's'} arrived
