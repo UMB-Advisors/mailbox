@@ -1,0 +1,398 @@
+{
+  "active": true,
+  "connections": {
+    "Gmail Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Mark Sent",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Mark Failed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "If draft loaded": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gmail Reply",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Respond Not Found",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Load Draft": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "If draft loaded",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Mark Failed": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Respond Failure",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Mark Sent": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Respond Success",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Webhook (mailbox-send)": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Load Draft",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "description": null,
+  "id": "mailbox-send",
+  "isArchived": false,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "name": "MailBOX-Send",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-1111-4111-8111-mailbox-send01",
+      "name": "Webhook (mailbox-send)",
+      "parameters": {
+        "httpMethod": "POST",
+        "options": {},
+        "path": "mailbox-send",
+        "responseMode": "responseNode"
+      },
+      "position": [
+        208,
+        320
+      ],
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "mailbox-send-webhook"
+    },
+    {
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "JFX4tvrffvKnTouV",
+          "name": "MailBox Postgres"
+        }
+      },
+      "id": "a1b2c3d4-2222-4222-8222-mailbox-send02",
+      "name": "Load Draft",
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "SELECT\n  d.id            AS draft_id,\n  d.draft_subject AS draft_subject,\n  d.draft_body    AS draft_body,\n  d.status        AS status,\n  d.inbox_message_id,\n  m.message_id,\n  m.thread_id,\n  m.from_addr,\n  m.to_addr,\n  m.subject       AS original_subject\nFROM mailbox.drafts d\nJOIN mailbox.inbox_messages m ON d.inbox_message_id = m.id\nWHERE d.id = {{ Number($json.body.draft_id) }}\n  AND d.status IN ('approved', 'edited');"
+      },
+      "position": [
+        432,
+        320
+      ],
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5
+    },
+    {
+      "id": "a1b2c3d4-3333-4333-8333-mailbox-send03",
+      "name": "If draft loaded",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "draft-id-exists",
+              "leftValue": "={{ $json.draft_id }}",
+              "operator": {
+                "operation": "exists",
+                "singleValue": true,
+                "type": "number"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "position": [
+        640,
+        320
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vEz5mz0uaAtlK8yz",
+          "name": "Gmail account"
+        }
+      },
+      "id": "a1b2c3d4-4444-4444-8444-mailbox-send04",
+      "name": "Gmail Reply",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "emailType": "text",
+        "message": "={{ $json.draft_body }}",
+        "messageId": "={{ $json.message_id }}",
+        "operation": "reply",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        880,
+        240
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "webhookId": "2acab70a-7cd0-4510-a4c4-6dfd33683e10"
+    },
+    {
+      "credentials": {
+        "postgres": {
+          "id": "JFX4tvrffvKnTouV",
+          "name": "MailBox Postgres"
+        }
+      },
+      "id": "a1b2c3d4-5555-4555-8555-mailbox-send05",
+      "name": "Mark Sent",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": true,
+              "display": true,
+              "displayName": "id",
+              "id": "id",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "status",
+              "id": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "updated_at",
+              "id": "updated_at",
+              "required": false,
+              "type": "dateTime"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "error_message",
+              "id": "error_message",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "error_message": null,
+            "id": "={{ $('Load Draft').item.json.draft_id }}",
+            "status": "sent",
+            "updated_at": "={{ $now.toISO() }}"
+          }
+        },
+        "operation": "update",
+        "options": {},
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "mailbox"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "drafts"
+        }
+      },
+      "position": [
+        1120,
+        208
+      ],
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5
+    },
+    {
+      "credentials": {
+        "postgres": {
+          "id": "JFX4tvrffvKnTouV",
+          "name": "MailBox Postgres"
+        }
+      },
+      "id": "a1b2c3d4-6666-4666-8666-mailbox-send06",
+      "name": "Mark Failed",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": true,
+              "display": true,
+              "displayName": "id",
+              "id": "id",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "status",
+              "id": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "updated_at",
+              "id": "updated_at",
+              "required": false,
+              "type": "dateTime"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "error_message",
+              "id": "error_message",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "error_message": "={{ $json.error?.message ?? $json.message ?? 'Gmail send failed' }}",
+            "id": "={{ $('Load Draft').item.json.draft_id }}",
+            "status": "failed",
+            "updated_at": "={{ $now.toISO() }}"
+          }
+        },
+        "operation": "update",
+        "options": {},
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "mailbox"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "drafts"
+        }
+      },
+      "position": [
+        1120,
+        368
+      ],
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5
+    },
+    {
+      "id": "a1b2c3d4-7777-4777-8777-mailbox-send07",
+      "name": "Respond Success",
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, draft_id: $('Load Draft').item.json.draft_id, sent_at: $now.toISO() } }}"
+      },
+      "position": [
+        1360,
+        208
+      ],
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1
+    },
+    {
+      "id": "a1b2c3d4-8888-4888-8888-mailbox-send08",
+      "name": "Respond Failure",
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ { success: false, draft_id: $('Load Draft').item.json.draft_id, error: $json.error_message ?? 'Gmail send failed' } }}"
+      },
+      "position": [
+        1360,
+        368
+      ],
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1
+    },
+    {
+      "id": "a1b2c3d4-9999-4999-8999-mailbox-send09",
+      "name": "Respond Not Found",
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ { success: false, error: 'Draft not found, or not in approved/edited status', draft_id: $('Webhook (mailbox-send)').item.json.body.draft_id } }}"
+      },
+      "position": [
+        880,
+        480
+      ],
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

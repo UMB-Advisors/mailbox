@@ -27,23 +27,34 @@ Verify on the Jetson:
 
 ```bash
 ls /home/bob/mailbox/dashboard/Dockerfile
-ls /home/bob/mailbox/dashboard/n8n-workflows/MailBOX-Send.json
+ls /home/bob/mailbox/n8n/workflows/MailBOX-Send.json
 ```
 
 Both should exist.
 
 ---
 
-## 2. Import the n8n workflow
+## 2. Import the n8n workflows
 
-See `n8n-workflows/README.md`. TL;DR:
+See `n8n/workflows/README.md` for the full procedure (STAQPRO-139). TL;DR:
 
-1. n8n UI → **Workflows** → **Import from File** → `MailBOX-Send.json`.
-2. Link the existing **MailBox Postgres** credential on Load Draft / Mark Sent /
-   Mark Failed.
-3. Link the existing **Gmail OAuth2** credential on Gmail Reply.
-4. Save → **Activate**.
-5. Smoke-test:
+```bash
+# From a workstation with ssh access to the target appliance:
+SSH_HOST=jetson-dustin ./scripts/n8n-import-workflows.sh
+```
+
+This imports all 4 workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`,
+`MailBOX-Send`.
+
+Then on the target appliance:
+
+1. Re-link credentials in the n8n UI for each imported workflow (credential
+   IDs differ across appliances): Postgres on Load Draft / Mark Sent /
+   Mark Failed; Gmail OAuth2 on Gmail Reply / Get many messages.
+2. Activate `MailBOX` (schedule) and `MailBOX-Send` (webhook). Sub-workflows
+   (`MailBOX-Classify`, `MailBOX-Draft`) **stay inactive**.
+3. Restart n8n: `docker compose restart n8n`.
+4. Smoke-test the send webhook:
    ```bash
    sudo docker exec -it mailbox-n8n-1 wget -qO- \
      --post-data='{"draft_id":999999}' \
