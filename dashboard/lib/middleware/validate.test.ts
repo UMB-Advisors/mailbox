@@ -230,7 +230,7 @@ describe('parseJson error response shape', () => {
     }
   });
 
-  it('returns 400 when JSON body is missing entirely', async () => {
+  it('treats missing/invalid JSON body as {} — schema with required fields fails', async () => {
     const fake = {
       url: 'http://t/x',
       json: async () => {
@@ -241,5 +241,17 @@ describe('parseJson error response shape', () => {
     const r = await parseJson(fake, schema);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.response.status).toBe(400);
+  });
+
+  it('treats missing JSON body as {} — schema with all-optional fields passes', async () => {
+    const fake = {
+      url: 'http://t/x',
+      json: async () => {
+        throw new Error('not JSON');
+      },
+    } as unknown as Parameters<typeof parseJson>[0];
+    const r = await parseJson(fake, rejectBodySchema);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.reason).toBeNull();
   });
 });

@@ -4,6 +4,8 @@ import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
 import { getPersonaContext } from '@/lib/drafting/persona-stub';
 import type { Category } from '@/lib/classification/prompt';
+import { parseJson } from '@/lib/middleware/validate';
+import { draftPromptBodySchema } from '@/lib/schemas/internal';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,24 +45,17 @@ interface DraftRow {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = (await req.json().catch(() => null)) as {
-      draft_id?: number;
-    } | null;
-    const draftId = body?.draft_id;
-    if (typeof draftId !== 'number' || !Number.isFinite(draftId)) {
-      return NextResponse.json(
-        { error: 'draft_id (number) required' },
-        { status: 400 },
-      );
-    }
+  const b = await parseJson(req, draftPromptBodySchema);
+  if (!b.ok) return b.response;
+  const { draft_id } = b.data;
 
+  try {
     const pool = getPool();
-    const r = await pool.query<DraftRow>(LOAD_DRAFT_SQL, [draftId]);
+    const r = await pool.query<DraftRow>(LOAD_DRAFT_SQL, [draft_id]);
     const row = r.rows[0];
     if (!row) {
       return NextResponse.json(
-        { error: `draft ${draftId} not found` },
+        { error: `draft ${draft_id} not found` },
         { status: 404 },
       );
     }
@@ -70,7 +65,7 @@ export async function POST(req: NextRequest) {
       // category populated. If we got here, the upstream pipeline broke.
       return NextResponse.json(
         {
-          error: `draft ${draftId} has no classification_category — upstream classify did not complete`,
+          error: `draft ${draft_id} has no classification_category — upstream classify did not complete`,
         },
         { status: 422 },
       );
@@ -92,7 +87,7 @@ export async function POST(req: NextRequest) {
     const endpoint = pickEndpoint(row.classification_category, confidence);
 
     return NextResponse.json({
-      draft_id: draftId,
+      draft_id,
       // Endpoint config for n8n's HTTP Request node.
       baseUrl: endpoint.baseUrl,
       apiKey: endpoint.apiKey,

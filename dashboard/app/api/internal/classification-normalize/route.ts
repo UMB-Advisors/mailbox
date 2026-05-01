@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeClassifierOutput } from '@/lib/classification/normalize';
+import { parseJson } from '@/lib/middleware/validate';
+import { classificationNormalizeBodySchema } from '@/lib/schemas/internal';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,13 +12,12 @@ export const dynamic = 'force-dynamic';
 // D-50 — accept optional `from` / `to` so the deterministic operator-identity
 // preclass in lib/classification/preclass.ts can override the LLM verdict.
 export async function POST(req: NextRequest) {
+  const b = await parseJson(req, classificationNormalizeBodySchema);
+  if (!b.ok) return b.response;
+  const { raw, from, to } = b.data;
+
   try {
-    const { raw, from, to } = (await req.json()) as {
-      raw?: string;
-      from?: string;
-      to?: string;
-    };
-    const result = normalizeClassifierOutput(raw ?? '', { from, to });
+    const result = normalizeClassifierOutput(raw, { from, to });
     return NextResponse.json(result);
   } catch (error) {
     console.error('POST /api/internal/classification-normalize failed:', error);

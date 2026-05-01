@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDraft } from '@/lib/queries';
+import { parseParams } from '@/lib/middleware/validate';
+import { idParamSchema } from '@/lib/schemas/common';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,10 +9,10 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const id = parseInt(params.id, 10);
-  if (Number.isNaN(id)) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  }
+  const p = parseParams(params, idParamSchema);
+  if (!p.ok) return p.response;
+  const { id } = p.data;
+
   try {
     const draft = await getDraft(id);
     if (!draft) {

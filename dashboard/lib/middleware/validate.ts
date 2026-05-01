@@ -34,29 +34,14 @@ function buildErrorResponse(
   );
 }
 
+// Missing or invalid JSON body is normalized to `{}` so schemas decide what's
+// required. A schema with required fields rejects {} naturally; a schema with
+// only optional fields accepts it.
 export async function parseJson<S extends ZodType>(
   req: NextRequest,
   schema: S,
 ): Promise<ParseResult<z.infer<S>>> {
-  const raw = await req.json().catch(() => undefined);
-  if (raw === undefined) {
-    return {
-      ok: false,
-      response: NextResponse.json<ValidationError>(
-        {
-          error: 'validation_failed',
-          issues: [
-            {
-              path: '',
-              message: 'invalid or missing JSON body',
-              code: 'invalid_type',
-            },
-          ],
-        },
-        { status: 400 },
-      ),
-    };
-  }
+  const raw = await req.json().catch(() => ({}));
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, response: buildErrorResponse(parsed.error.issues) };

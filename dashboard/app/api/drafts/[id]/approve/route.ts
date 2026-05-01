@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { triggerSendWebhook } from '@/lib/n8n';
+import { parseParams } from '@/lib/middleware/validate';
+import { idParamSchema } from '@/lib/schemas/common';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,10 +10,9 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const id = parseInt(params.id, 10);
-  if (Number.isNaN(id)) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  }
+  const p = parseParams(params, idParamSchema);
+  if (!p.ok) return p.response;
+  const { id } = p.data;
 
   // Step 1: flip status to 'approved' (only from pending/edited/failed).
   try {

@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listDrafts, VALID_STATUSES } from '@/lib/queries';
-import type { DraftStatus } from '@/lib/types';
+import { listDrafts } from '@/lib/queries';
+import { parseQuery } from '@/lib/middleware/validate';
+import { listDraftsQuerySchema } from '@/lib/schemas/drafts';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const statusParam = searchParams.get('status') ?? 'pending';
-  const limitParam = searchParams.get('limit') ?? '50';
-
-  const requested = statusParam
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const validStatuses = requested.filter((s): s is DraftStatus =>
-    VALID_STATUSES.includes(s as DraftStatus),
-  );
-  const statuses: DraftStatus[] =
-    validStatuses.length > 0 ? validStatuses : ['pending'];
-  const limit = parseInt(limitParam, 10) || 50;
+  const q = parseQuery(req, listDraftsQuerySchema);
+  if (!q.ok) return q.response;
 
   try {
-    const drafts = await listDrafts(statuses, limit);
+    const drafts = await listDrafts(q.data.status, q.data.limit);
     return NextResponse.json({ drafts, total: drafts.length });
   } catch (error) {
     console.error('GET /api/drafts failed:', error);

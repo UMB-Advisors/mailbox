@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
+import { parseJson, parseParams } from '@/lib/middleware/validate';
+import { idParamSchema } from '@/lib/schemas/common';
+import { rejectBodySchema } from '@/lib/schemas/drafts';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,16 +10,15 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const id = parseInt(params.id, 10);
-  if (Number.isNaN(id)) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  }
+  const p = parseParams(params, idParamSchema);
+  if (!p.ok) return p.response;
+  const { id } = p.data;
 
-  let reason: string | null = null;
-  const body = await req.json().catch(() => null);
-  if (body && typeof body.reason === 'string' && body.reason.trim()) {
-    reason = body.reason.trim();
-  }
+  // rejectBodySchema treats `reason` as optional, so missing body parses to
+  // { reason: null }.
+  const b = await parseJson(req, rejectBodySchema);
+  if (!b.ok) return b.response;
+  const { reason } = b.data;
 
   try {
     const pool = getPool();

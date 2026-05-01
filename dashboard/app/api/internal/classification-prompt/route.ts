@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildPrompt, MODEL_VERSION } from '@/lib/classification/prompt';
+import { parseJson } from '@/lib/middleware/validate';
+import { classificationPromptBodySchema } from '@/lib/schemas/internal';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,19 +12,11 @@ export const dynamic = 'force-dynamic';
 // POST (not GET, per D-29 letter) because email bodies are too large for a
 // query string. Behavior is still pure & read-only.
 export async function POST(req: NextRequest) {
+  const b = await parseJson(req, classificationPromptBodySchema);
+  if (!b.ok) return b.response;
+
   try {
-    const body = (await req.json()) as {
-      from?: string;
-      subject?: string;
-      body?: string;
-    };
-
-    const prompt = buildPrompt({
-      from: body.from ?? '',
-      subject: body.subject ?? '',
-      body: body.body ?? '',
-    });
-
+    const prompt = buildPrompt(b.data);
     return NextResponse.json({ prompt, model: MODEL_VERSION });
   } catch (error) {
     console.error('POST /api/internal/classification-prompt failed:', error);
