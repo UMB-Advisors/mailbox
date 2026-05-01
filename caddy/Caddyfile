@@ -3,34 +3,43 @@ mailbox.heronlabsinc.com {
     dns cloudflare {env.CLOUDFLARE_API_TOKEN}
   }
 
+  # Single auth gate covers all paths. Hoisted to the site scope so both
+  # /dashboard/* and / (n8n editor) share one auth realm — without this,
+  # browsers re-prompt every time a request crosses between the two
+  # handle blocks (split-realm trap surfaced 2026-05-01).
+  #
+  # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env, AND
+  # ensure both vars are passed through to the caddy container in
+  # docker-compose.yml's caddy.environment block (not just the .env file).
+  # Generate a hash with:  docker run --rm caddy:2 caddy hash-password
+  # The hash contains literal `$` chars — escape every `$` to `$$` in
+  # the .env file or docker-compose silently truncates the value.
+  #
+  # FAIL-CLOSED: Caddy refuses to start if either env var is empty
+  # ("account 0: username and password are required" → crash loop).
+  # This is intentional — an appliance with deployed customer data must
+  # not silently fall through to unauthenticated proxying. If you're
+  # provisioning a fresh appliance, set the env vars BEFORE first boot.
+  basic_auth {
+    {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
+  }
+
   # Convenience: bare /dashboard → /dashboard/queue
   redir /dashboard /dashboard/queue 308
 
-  # Dashboard approval queue. STAQPRO-131: gated behind basic_auth.
-  # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env.
-  # Generate a hash with:  docker run --rm caddy:2 caddy hash-password
-  # If the env vars are unset, this block keeps proxying unauthenticated
-  # so the appliance doesn't go dark mid-deploy — flip auth on by
-  # filling in the env vars and reloading caddy.
+  # Dashboard approval queue. STAQPRO-131: behind the basic_auth above.
   handle /dashboard/* {
-    basic_auth {
-      {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
-    }
     reverse_proxy mailbox-dashboard:3001
   }
 
-  # n8n editor + any other paths (incl. /webhook/*) — basic_auth gated.
+  # n8n editor + any other paths (incl. /webhook/*) — same auth gate.
   # STAQPRO-161 (post-DR-22 KILL): the prior /webhook/* bypass is gone.
   # The dashboard's only webhook caller (MailBOX-Send approve→send loop)
   # uses internal docker DNS at http://n8n:5678/webhook/mailbox-send and
   # never traverses Caddy, so this gate doesn't break that loop. With
   # Pub/Sub push retired (DR-22), no external party needs to reach the
-  # webhook surface; gating it behind the same basic_auth as the editor
-  # closes the last public attack vector on the appliance.
+  # webhook surface; gating it closes the last public attack vector.
   handle {
-    basic_auth {
-      {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
-    }
     reverse_proxy n8n:5678
   }
 }
