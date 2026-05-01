@@ -29,7 +29,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 |------------|---------|---------|-------|
 | Ollama | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference server | JetPack 6 ARM64 CUDA image via `jetson-containers`. GPU passthrough via NVIDIA runtime. |
 | Qdrant | 1.17.1 | Vector database for RAG | Deployed but not yet wired — Phase 2 RAG. `MALLOC_CONF=narenas:1` set per ARM64 jemalloc workaround (issue #4298). |
-| n8n | **1.123.35** (pinned per **DR-17**) | Workflow runtime | Pinned at 1.x deliberately — 2.x migration deferred. Sub-workflows: `MailBOX` (schedule trigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`. **Ingress = Schedule (5 min) + Gmail Get** per DR-22 KILL of Pub/Sub push. No IMAP. |
+| n8n | **2.14.2** | Workflow runtime | Upgraded from `1.123.35` → `2.14.2` on 2026-05-01 (STAQPRO-181, supersedes DR-17). All 4 workflow JSONs (`MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`) re-import + activate cleanly in 2.x; validated against dev compose before prod cutover. **Ingress = Schedule (5 min) + Gmail Get** per DR-22 KILL of Pub/Sub push. No IMAP. |
 | Postgres | 17-alpine | Operational datastore | Schema `mailbox`. Hosts n8n's `workflow_entity` table on the same DB. |
 | Next.js 14 dashboard | App Router + Kysely | Approval queue UI + internal API routes | **DR-24**: dedicated Next.js service (`mailbox-dashboard`), not an Express+Vite SPA and not a Brain plugin. Internal routes: `/api/internal/{draft-prompt,draft-finalize,classification-prompt,classification-normalize,onboarding/live-gate,inbox-messages}` plus CRUD under `/api/drafts/...`. **Dashboard ORM ADR (2026-05-01)**: Kysely chosen over Prisma/Drizzle on Jetson hardware grounds. |
 | Caddy | 2.x | Public HTTPS + auth gate | Cloudflare DNS-01 cert. `basic_auth` on **all paths** (`/dashboard/*`, `/`, `/webhook/*`) per **STAQPRO-131** + **STAQPRO-161**. The `/webhook/*` bypass that existed for the retired Pub/Sub push (DR-22 KILLED 2026-04-30) was removed; the dashboard's approve→send loop calls n8n via internal docker DNS (`http://n8n:5678/webhook/mailbox-send`) and never traverses Caddy. Bcrypt `$` chars need `$$` escaping in `.env`. |
@@ -72,7 +72,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 |-------------|-------------|------------------------------|
 | Ollama 0.18.x | llama.cpp direct | Only if needing GGUF features not yet in Ollama; Ollama adds ~50ms overhead but saves massive integration work |
 | Qdrant | pgvector | Single-DB simplicity at < 100K vectors; pgvector is 3-4x slower on ANN. Phase 2 RAG decision. |
-| n8n 1.123.35 | Custom Python orchestrator | Only if workflow logic becomes too complex for visual editing or n8n licensing becomes an issue. |
+| n8n 2.14.2 | Custom Python orchestrator | Only if workflow logic becomes too complex for visual editing or n8n licensing becomes an issue. |
 | Qwen3-4B (Q4_K_M, 4k ctx) | Llama-3.2-3B | Llama-3.2-3B is better for fine-tuning per distil labs; Qwen3-4B wins out-of-the-box classification. We re-tested 2026-04-30; Qwen3 stays. |
 | nomic-embed-text v1.5 | nomic-embed-text-v2-moe | v2-moe is 475M params (vs 137M); creates memory pressure alongside Qwen3-4B on 8GB unified RAM. |
 | Ollama Cloud `gpt-oss:120b` | Anthropic Haiku 4.5 | Both wired; same Ollama-shape API. Haiku is config-ready alt-cloud — flip by populating `ANTHROPIC_API_KEY`. Per 2026-04-30 pivot. |
@@ -83,7 +83,6 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 |-------|-----|-------------|
 | `docker-ce` (Docker Inc. repo) | Breaks NVIDIA runtime configuration paths on JetPack — GPU passthrough stops working | JetsonHacks `install_nvidia_docker.sh` |
 | Mistral-7B or any 7B+ local model | 7B Q4_K_M needs ~4.5GB VRAM; leaves < 3.5GB for embeddings + system on 8GB unified RAM | Qwen3-4B (Q4_K_M, ~2.7GB, 4k ctx) |
-| n8n 2.x **on this appliance** | DR-17 deliberately pins 1.123.35. The 2.x stack would invalidate the current workflow JSON + exec-trigger sub-workflow contracts that customer #1 runs against. (The original STACK.md said avoid 1.x; that recommendation was inverted by DR-17 once we found 2.x migration cost > value for MVP.) | n8n 1.123.35 — pinned via `docker-compose.yml` |
 | IMAP polling / SMTP send | The DR-22 KILL settled on n8n's Gmail Get + Gmail Reply nodes via OAuth (refresh token in n8n's encrypted credential store). No `imapflow` or `nodemailer` dependency. | Gmail Get + Gmail Reply (n8n nodes, OAuth via the appliance) |
 | Pub/Sub push ingress | **DR-22 KILLED 2026-04-30** by Linus/Liotta/Neo consensus. Eliminates GCP project, watch renewal cron, and public webhook attack surface. | Schedule trigger (5 min) + Gmail Get polling |
 | `docker-compose` v1 (standalone binary) | Deprecated upstream | Docker Compose v2 plugin (`docker compose`) |
@@ -190,7 +189,7 @@ Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain
 | `postgres` | `postgres:17-alpine` | Operational DB (`mailbox` schema) + n8n's `workflow_entity` table |
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed, Phase 2 RAG — not yet wired) |
 | `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
-| `n8n` | `n8nio/n8n:1.123.35` (DR-17 pin) | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
+| `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
 | `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
@@ -227,7 +226,7 @@ Schedule (5 min)
 
 | DR | Decision | Status |
 |----|----------|--------|
-| DR-17 | Pin n8n to `1.123.35` (avoid 2.x migration for MVP) | Active |
+| DR-17 | Pin n8n to `1.123.35` (avoid 2.x migration for MVP) | **Superseded 2026-05-01 (STAQPRO-181)** — upgraded to `2.14.2` after dev-compose validation confirmed all 4 workflow JSONs re-import + activate cleanly |
 | DR-18 | `qwen3:4b-ctx4k` @ 4096 ctx as T2 default | Active |
 | DR-22 | Pub/Sub push as Phase 1 ingress | **KILLED 2026-04-30** — stay polling |
 | DR-23 | Anthropic Haiku 4.5 as primary cloud draft model | **SUPERSEDED 2026-04-30** — Ollama Cloud `gpt-oss:120b` is default; Haiku is config-ready alt |

@@ -72,7 +72,7 @@ Collect from the customer **before** the unit ships:
 
 **Goal:** All 8 services healthy with version pins per CLAUDE.md "Service topology" table.
 
-Services (per CLAUDE.md): `postgres`, `qdrant`, `ollama`, `n8n` (1.123.35 pinned per DR-17), `caddy`, `mailbox-dashboard`, `mailbox-migrate`. Operator shell access is via Tailscale SSH only — `ttyd` was removed 2026-05-01 per STAQPRO-126/182.
+Services (per CLAUDE.md): `postgres`, `qdrant`, `ollama`, `n8n` (2.14.2 — upgraded 2026-05-01 per STAQPRO-181, supersedes DR-17), `caddy`, `mailbox-dashboard`, `mailbox-migrate`. Operator shell access is via Tailscale SSH only — `ttyd` was removed 2026-05-01 per STAQPRO-126/182.
 
 - [ ] `git clone https://github.com/UMB-Advisors/mailbox.git ~/mailbox`
 - [ ] Copy `.env.example` → `.env`, fill secrets (see §4–§9 for each)
@@ -233,7 +233,7 @@ Per STAQPRO-163 acceptance criteria, this is a baseline metric to record on firs
 - `.env.example` — secret inventory
 - `docker-compose.yml` — service definitions
 - PRD §3.5 — power, latency, boot-time budgets
-- DR-17 (n8n pin), DR-18 (Qwen3-4B 4k ctx), DR-22 (Pub/Sub KILLED), DR-24 (Next.js dashboard) — see CLAUDE.md "Active decision records"
+- DR-17 (n8n pin) — **superseded 2026-05-01 by STAQPRO-181 upgrade to 2.14.2**; DR-18 (Qwen3-4B 4k ctx), DR-22 (Pub/Sub KILLED), DR-24 (Next.js dashboard) — see CLAUDE.md "Active decision records"
 
 ### C. Known gotchas (CLAUDE.md "Conventions" lift-and-shift)
 

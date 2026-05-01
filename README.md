@@ -160,7 +160,7 @@ The `docker-compose.yml` orchestrates eight services:
 | `postgres` | `postgres:17-alpine` | Operational datastore (`mailbox` schema) + n8n's `workflow_entity` table |
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store (deployed; Phase 2 RAG, not yet wired) |
 | `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference with GPU passthrough (Qwen3-4B + nomic-embed-text) |
-| `n8n` | `n8nio/n8n:1.123.35` (pinned per DR-17) | Workflow orchestration (Schedule + Gmail Get → classify → draft → queue → Gmail Reply) |
+| `n8n` | `n8nio/n8n:2.14.2` | Workflow orchestration (Schedule + Gmail Get → classify → draft → queue → Gmail Reply) |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes |
 | `mailbox-migrate` | Drizzle migrate runner | `docker compose --profile migrate run mailbox-migrate` |
@@ -190,7 +190,7 @@ The `docker-compose.yml` orchestrates eight services:
 | Embeddings | nomic-embed-text v1.5 | Phase 2 RAG embedding (deployed, not yet wired) |
 | Escalation | Ollama Cloud `gpt-oss:120b` (default); Anthropic Haiku 4.5 (alt-cloud, config-ready) | Cloud-route drafting via the same `/api/chat` schema |
 | Vector DB | Qdrant 1.17.1 | Phase 2 semantic search over email corpus and brand context |
-| Orchestration | n8n 1.123.35 (pinned per DR-17) | Visual workflow engine; sub-workflows for classify / draft / send |
+| Orchestration | n8n 2.14.2 | Visual workflow engine; sub-workflows for classify / draft / send |
 | Ingress | n8n Schedule trigger (5 min) + Gmail Get (OAuth) | DR-22 KILLED Pub/Sub push 2026-04-30; polling is the live path |
 | Datastore | PostgreSQL 17-alpine | Approval queue, drafts, classification results, n8n state |
 | Dashboard | Next.js 14 (App Router) + Drizzle ORM | Approval queue UI + internal API routes (`mailbox-dashboard` service, per DR-24) |
