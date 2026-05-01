@@ -136,6 +136,37 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - 02-02 (schema foundation): RE-SCOPED as v2 plan and EXECUTED on 2026-04-27 (6 SQL migrations applied to live Postgres + types/queries shipped).
 - 02-03..08: RE-SCOPED as v2 stubs on 2026-04-27. Stubs are authoritative for architectural decisions; ready for either stub-promotion-to-full-plan or lean-execution.
 
+**STATUS: Partially superseded 2026-05-01.** The "raw pg + ORM-deferred (Drizzle as MVP target)" half is replaced by the Dashboard ORM ADR below. The Next.js single-service architecture half stands.
+
+## Architectural Decision Record: Dashboard ORM — Kysely
+
+**Date:** 2026-05-01
+**Decision:** Adopt Kysely (TypeScript SQL query builder) as the dashboard's typed query surface. Supersedes the "Drizzle as MVP target" half of the 2026-04-27 Dashboard Stack Pivot ADR. Rejects both Drizzle and Prisma.
+
+**Context:**
+- 2026-04-27 ADR named Drizzle as the eventual ORM but kept raw `pg` for MVP. Drizzle was never adopted; production code is `pg.Pool` + hand-rolled SQL in `dashboard/lib/queries*.ts` + plain `.sql` migrations under `dashboard/migrations/NNN-*.sql`.
+- 2026-04-30 Isa code audit recommended Prisma. STAQPRO-136 was reopened 2026-05-01 with a substance reassessment that initially leaned Prisma (portfolio consistency with formul8-platform).
+- 2026-05-01 pre-flight review by Liotta + Linus (Neo skill unreachable in this session) flipped the decision. Both reviewers — independently — argued against Prisma on this appliance.
+
+**Decision rationale:**
+- **Migration tooling fight (Linus blocker)**: Prisma's `migrate resolve --applied` over the existing 8 hand-authored `.sql` migrations creates a hybrid state that breaks the moment anyone runs `migrate dev` (checksum mismatch on Prisma-not-authored files). Kysely doesn't own migrations; the custom tsx runner stays.
+- **Type cascade (Linus blocker)**: `dashboard/lib/db.ts` overrides pg type parsers 1184/1114 to return TIMESTAMPTZ/TIMESTAMP as strings. Prisma's generated client emits `Date`. That contradicts 14 zod schemas already shipped under STAQPRO-138. Kysely codegen (with `--type-mapping '{"timestamp":"string","timestamptz":"string","date":"string"}'`) preserves the string convention; existing zod schemas continue to compose correctly.
+- **Schema introspection scope (Linus blocker)**: The same Postgres also hosts n8n's `workflow_entity` / `execution_entity` / `execution_data` (in the `public` schema). Kysely's `--include-pattern 'mailbox.*'` is one flag; Prisma requires `previewFeatures = ["multiSchema"]` plus `schemas = ["mailbox"]` plus careful `--schema` flagging on every operation forever.
+- **Hardware footprint (Liotta argument)**: Prisma ships a separate Rust query-engine binary process per Node process (~80-150MB resident on ARM64 Jetson). Kysely is pure TypeScript, ~50KB, ships in the bundle, no separate process. Memory measurement on Bob 2026-05-01 showed mailbox-dashboard at 51MB idle and ~3GB headroom on 7.4GB unified RAM — Prisma was not catastrophic — but the binary OTA cadence at customer #5+ (engine binaries ship monthly, ~30-50MB each) compounds.
+- **Drift discovery (validating the schema-in-3-places concern)**: Kysely codegen surfaced that `dashboard/lib/types.ts` Draft interface declared 11 columns; the live `mailbox.drafts` table has 28. STAQPRO-137 only consolidated enums; 17 columns of view drift went undetected. Continuing on raw pg without typed introspection would have left this drift indefinitely.
+- **Portfolio consistency (rejected as a decision driver)**: Initial reasoning leaned Prisma because formul8-platform runs Prisma. Eric's read 2026-05-01: portfolio consistency does not outweigh hardware-fit on a constrained appliance. Different problems, different tools.
+
+**Consequence:**
+- `dashboard/lib/db.ts` exposes `getKysely()` returning `Kysely<DB>` alongside `getPool()`. Both share the same `pg.Pool`.
+- `dashboard/lib/db/schema.ts` is the kysely-codegen output — full DB row shapes for the `mailbox` schema. Re-exported as `DraftRow`, `InboxMessageRow`, etc. from `lib/types.ts`.
+- `dashboard/lib/types.ts` retains the *semantic* SoT (DRAFT_STATUSES/DRAFT_SOURCES const tuples, ClassificationCategory/OnboardingStage unions) and *curated views* (Draft, InboxMessage, etc — narrower than full row, the dashboard's consumer surface).
+- Migrations stay as plain `.sql` files run by `dashboard/migrations/runner.ts` (custom tsx). No drizzle-kit, no prisma-migrate.
+- `npm run db:codegen` regenerates `lib/db/schema.ts` from `dashboard/test/fixtures/schema.sql` via a throwaway postgres:17-alpine container. `npm run db:codegen:verify` is wired for CI drift checks.
+- `getPool()` stays for the migration runner, the `sql.raw` escape hatch, and test setup/teardown helpers.
+- The 2026-04-27 ADR's Drizzle reference is retired. The Next.js single-service architecture from that ADR stands.
+
+**STAQPRO-136**: closed by this ADR + the 8 implementation commits referenced in the issue.
+
 ## Next Action
 
 **Two parallel tracks for M2 close:**
