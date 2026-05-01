@@ -19,13 +19,16 @@ const dbDescribe = HAS_DB ? describe : describe.skip;
 dbDescribe('drafts route handlers — real Postgres', () => {
   beforeAll(() => {
     // Stub fetch so approve/retry don't actually hit the n8n webhook.
+    // Use mockImplementation so each call gets a *fresh* Response — Response
+    // bodies are single-use, so a shared mockResolvedValue would 502 on the
+    // second webhook caller.
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
           new Response(JSON.stringify({ ok: true }), { status: 200 }),
         ),
+      ),
     );
     // Webhook URL must be set or triggerSendWebhook short-circuits to 502.
     process.env.N8N_WEBHOOK_URL = 'http://stub.test/webhook';
