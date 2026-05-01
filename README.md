@@ -148,7 +148,6 @@ The dashboard is available at `http://<APPLIANCE_IP>:3001/dashboard/queue` once 
 | `MAILBOX_BASIC_AUTH_HASH` | Yes | Bcrypt hash. Generate: `docker run --rm caddy:2 caddy hash-password`. **Escape every `$` to `$$` in `.env`** — Docker Compose otherwise truncates the value |
 | `OLLAMA_CLOUD_API_KEY` | Yes (for cloud-escalation drafts) | Ollama Cloud API key from `ollama.com/cloud`. Empty key disables the cloud path |
 | `OLLAMA_CLOUD_MODEL` | No | Defaults to `gpt-oss:120b`; override per-deploy |
-| `TTYD_PASS` | Yes | Browser-terminal basic_auth password (port 7681) |
 | `ANTHROPIC_API_KEY` | No | Alt-cloud fallback for drafting (Haiku 4.5). Config-ready but not the live default |
 
 <details>
@@ -165,7 +164,6 @@ The `docker-compose.yml` orchestrates eight services:
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes |
 | `mailbox-migrate` | Drizzle migrate runner | `docker compose --profile migrate run mailbox-migrate` |
-| `ttyd` | `tsl0922/ttyd` | Browser terminal (port 7681, basic_auth gated) |
 
 </details>
 

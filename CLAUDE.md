@@ -33,7 +33,6 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 | Postgres | 17-alpine | Operational datastore | Schema `mailbox`. Hosts n8n's `workflow_entity` table on the same DB. |
 | Next.js 14 dashboard | App Router + Kysely | Approval queue UI + internal API routes | **DR-24**: dedicated Next.js service (`mailbox-dashboard`), not an Express+Vite SPA and not a Brain plugin. Internal routes: `/api/internal/{draft-prompt,draft-finalize,classification-prompt,classification-normalize,onboarding/live-gate,inbox-messages}` plus CRUD under `/api/drafts/...`. **Dashboard ORM ADR (2026-05-01)**: Kysely chosen over Prisma/Drizzle on Jetson hardware grounds. |
 | Caddy | 2.x | Public HTTPS + auth gate | Cloudflare DNS-01 cert. `basic_auth` on **all paths** (`/dashboard/*`, `/`, `/webhook/*`) per **STAQPRO-131** + **STAQPRO-161**. The `/webhook/*` bypass that existed for the retired Pub/Sub push (DR-22 KILLED 2026-04-30) was removed; the dashboard's approve→send loop calls n8n via internal docker DNS (`http://n8n:5678/webhook/mailbox-send`) and never traverses Caddy. Bcrypt `$` chars need `$$` escaping in `.env`. |
-| ttyd | latest | Browser terminal | Port 7681, basic auth. |
 ### Models (live)
 | Model | Pull Tag / Provider | Size (VRAM) | Purpose | Notes |
 |-------|----------|------------|---------|-------|
@@ -195,7 +194,8 @@ Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
 | `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
-| `ttyd` | tsl0922/ttyd | Browser terminal (port 7681, basic auth) |
+
+**Operator shell access**: Tailscale SSH only (`tailscale ssh bob@<tailnet-host>`). The previously-deployed `ttyd` browser terminal was removed 2026-05-01 per STAQPRO-126 (NC-27) — basic_auth-per-device didn't scale across N customers. Tailscale is identity-based; revoking a user removes shell access from every appliance instantly.
 
 ### Pipeline flow (live as of 2026-05-01)
 
