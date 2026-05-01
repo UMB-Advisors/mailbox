@@ -79,15 +79,23 @@ ${safeBody}
 // Routing rule per D-01 / D-02. Pure function; n8n IF node mirrors this logic
 // (D-30). Exposed here so scripts/scoring/dashboard diagnostics can evaluate
 // the same routing without re-implementing it.
+//
+// 2026-05-01 retune: 'inquiry' moved local — Eric's "do as much as we can
+// with a local model" call. The 3-way eval (Qwen3 vs gpt-oss:120b vs Haiku)
+// showed Qwen3's "vague defer" on inquiry is actually preferred over
+// gpt-oss's hallucinated pricing template. The strengthened persona prompt
+// (with explicit [confirm with operator] examples) closes the gap further.
+// Confidence floor still kicks low-confidence drafts to cloud as the safety
+// net.
 export const LOCAL_CONFIDENCE_FLOOR = 0.75;
 export const LOCAL_CATEGORIES: ReadonlyArray<Category> = [
   'reorder',
   'scheduling',
   'follow_up',
   'internal',
+  'inquiry',
 ];
 export const CLOUD_CATEGORIES: ReadonlyArray<Category> = [
-  'inquiry',
   'escalate',
   'unknown',
 ];
