@@ -109,8 +109,7 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
       // draft's position, then pick the next entry in the post-removal
       // list. Falls back to the previous entry when actioning the last
       // draft, or null when the queue empties.
-      const oldVisible =
-        view === 'pending' ? active.filter((d) => !removed.has(d.id)) : sent;
+      const oldVisible = view === 'pending' ? active.filter((d) => !removed.has(d.id)) : sent;
       const idx = oldVisible.findIndex((d) => d.id === draft.id);
       const newVisible = oldVisible.filter((_, i) => i !== idx);
       const next = newVisible[idx] ?? newVisible[idx - 1] ?? null;
