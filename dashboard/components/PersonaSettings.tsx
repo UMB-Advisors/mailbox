@@ -15,8 +15,30 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
   const [statError, setStatError] = useState<string | null>(null);
   const [exemError, setExemError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<ToastMsg>(null);
   const [persona, setPersona] = useState(initial);
+
+  async function onRefreshFromHistory() {
+    setRefreshing(true);
+    try {
+      const res = await fetch(apiUrl('/api/persona/refresh'), { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `Refresh failed (${res.status})`);
+      const next = data.persona as Persona;
+      setPersona(next);
+      setStatistical(formatJson(next.statistical_markers ?? {}));
+      setExemplars(formatJson(next.category_exemplars ?? {}));
+      setToast({
+        kind: 'success',
+        text: `Extracted persona from ${data.source_email_count} sent rows`,
+      });
+    } catch (err) {
+      setToast({ kind: 'error', text: err instanceof Error ? err.message : 'Refresh failed' });
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function onSave() {
     setStatError(null);
@@ -115,17 +137,26 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
             error={exemError}
           />
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={onSave}
-              disabled={busy}
+              disabled={busy || refreshing}
               className="inline-flex items-center gap-1.5 rounded bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? 'Saving…' : 'Save persona'}
             </button>
+            <button
+              type="button"
+              onClick={onRefreshFromHistory}
+              disabled={busy || refreshing}
+              className="inline-flex items-center gap-1.5 rounded border border-accent-blue/60 bg-accent-blue/10 px-3 py-2 font-sans text-sm text-accent-blue transition-colors hover:bg-accent-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {refreshing ? 'Extracting…' : 'Refresh from sent history'}
+            </button>
             <p className="font-mono text-[11px] text-ink-dim">
-              Edits are upserted into <code>mailbox.persona</code>; the next draft consumes them.
+              Save = manual override. Refresh = re-extract from <code>sent_history</code>{' '}
+              (on-appliance, no cloud).
             </p>
           </div>
         </div>
