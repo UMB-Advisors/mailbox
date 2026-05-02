@@ -1,0 +1,211 @@
+{
+  "active": false,
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Set Operator Email",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Set Operator Email": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gmail Get Last 6mo",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gmail Get Last 6mo": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Build Row",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Build Row": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Aggregate Rows",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Aggregate Rows": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "POST Backfill",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "description": "STAQPRO-194: one-shot backfill of the Qdrant `email_messages` collection from the operator's last 6 months of Gmail history. Manual trigger only — DO NOT activate. Run via the n8n editor's 'Execute Workflow' button after appliance provisioning, or whenever the corpus needs reseeding (idempotent — re-running upserts the same point IDs). Direction inference happens server-side; the operator email is hardcoded in 'Set Operator Email' — update if the operator account changes. The dashboard route caps the batch at 5000 rows; for higher-volume accounts, narrow the Gmail query (e.g. newer_than:90d) and run twice with the date window shifted.",
+  "id": "MlbxRAGBackfill01",
+  "isArchived": false,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "name": "MailBOX-RAG-Backfill",
+  "nodes": [
+    {
+      "id": "ragbf-0001-trigger-manual000",
+      "name": "Manual Trigger",
+      "parameters": {},
+      "position": [0, 0],
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1
+    },
+    {
+      "id": "ragbf-0002-set-operator-em",
+      "name": "Set Operator Email",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ragbf-op-email-assign-001",
+              "name": "operator_email",
+              "type": "string",
+              "value": "dustin@heronlabsinc.com"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [220, 0],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vEz5mz0uaAtlK8yz",
+          "name": "Gmail account"
+        }
+      },
+      "id": "ragbf-0003-gmail-get-6mo00",
+      "name": "Gmail Get Last 6mo",
+      "parameters": {
+        "filters": {
+          "q": "newer_than:180d -in:spam -in:trash"
+        },
+        "operation": "getAll",
+        "options": {},
+        "returnAll": true,
+        "simple": false
+      },
+      "position": [440, 0],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2
+    },
+    {
+      "id": "ragbf-0004-build-row000000",
+      "name": "Build Row",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ragbf-row-mid",
+              "name": "message_id",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "ragbf-row-tid",
+              "name": "thread_id",
+              "type": "string",
+              "value": "={{ $json.threadId || null }}"
+            },
+            {
+              "id": "ragbf-row-from",
+              "name": "from_addr",
+              "type": "string",
+              "value": "={{ $json.from && $json.from.value && $json.from.value[0] ? ($json.from.value[0].name ? ($json.from.value[0].name + ' <' + $json.from.value[0].address + '>') : $json.from.value[0].address) : '' }}"
+            },
+            {
+              "id": "ragbf-row-to",
+              "name": "to_addr",
+              "type": "string",
+              "value": "={{ $json.to && $json.to.value && $json.to.value[0] ? $json.to.value[0].address : '' }}"
+            },
+            {
+              "id": "ragbf-row-subject",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.subject || null }}"
+            },
+            {
+              "id": "ragbf-row-body",
+              "name": "body",
+              "type": "string",
+              "value": "={{ $json.text || '' }}"
+            },
+            {
+              "id": "ragbf-row-sent",
+              "name": "sent_at",
+              "type": "string",
+              "value": "={{ $json.date }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [660, 0],
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4
+    },
+    {
+      "id": "ragbf-0005-aggregate-rows0",
+      "name": "Aggregate Rows",
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "rows",
+        "include": "allFields",
+        "options": {}
+      },
+      "position": [880, 0],
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1
+    },
+    {
+      "id": "ragbf-0006-post-backfill00",
+      "name": "POST Backfill",
+      "parameters": {
+        "method": "POST",
+        "url": "http://mailbox-dashboard:3001/dashboard/api/internal/rag-backfill-batch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operator_email\": {{ JSON.stringify($('Set Operator Email').first().json.operator_email) }},\n  \"rows\": {{ JSON.stringify($json.rows) }}\n}",
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "position": [1100, 0],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
