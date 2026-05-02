@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import type { Category } from '@/lib/classification/prompt';
 import { getKysely } from '@/lib/db';
-import { getPersonaContext } from '@/lib/drafting/persona-stub';
+import { getPersonaContext } from '@/lib/drafting/persona';
 import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
 import { parseJson } from '@/lib/middleware/validate';
