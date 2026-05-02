@@ -53,6 +53,7 @@ function mockEmbedAndSearch(opts: {
 describe('retrieveForDraft — STAQPRO-191', () => {
   const originalFetch = globalThis.fetch;
   const originalEnv = process.env.RAG_CLOUD_ROUTE_ENABLED;
+  const originalDisabledEnv = process.env.RAG_DISABLED;
 
   beforeEach(() => {
     process.env.OLLAMA_BASE_URL = 'http://test-ollama:11434';
@@ -62,7 +63,32 @@ describe('retrieveForDraft — STAQPRO-191', () => {
     globalThis.fetch = originalFetch;
     if (originalEnv === undefined) delete process.env.RAG_CLOUD_ROUTE_ENABLED;
     else process.env.RAG_CLOUD_ROUTE_ENABLED = originalEnv;
+    if (originalDisabledEnv === undefined) delete process.env.RAG_DISABLED;
+    else process.env.RAG_DISABLED = originalDisabledEnv;
     vi.restoreAllMocks();
+  });
+
+  it('returns disabled with empty refs when RAG_DISABLED=1, without firing fetch (STAQPRO-198)', async () => {
+    process.env.RAG_DISABLED = '1';
+    // The short-circuit must precede the embed/Qdrant pair — assert by
+    // installing a guard fetch that throws if it fires.
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('fetch should NOT have been called when RAG_DISABLED=1'),
+      ) as unknown as typeof fetch;
+
+    // Both routes must short-circuit, even cloud (which would otherwise hit
+    // the cloud_gated branch first).
+    const local = await retrieveForDraft({ ...baseInput, draft_source: 'local' });
+    expect(local.reason).toBe('disabled');
+    expect(local.refs).toEqual([]);
+
+    const cloud = await retrieveForDraft({ ...baseInput, draft_source: 'cloud' });
+    expect(cloud.reason).toBe('disabled');
+    expect(cloud.refs).toEqual([]);
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it('returns cloud_gated when draft_source=cloud and env not set', async () => {
