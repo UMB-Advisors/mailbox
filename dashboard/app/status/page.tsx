@@ -245,7 +245,7 @@ export default async function StatusPage() {
               <p className="text-sm text-accent-red">
                 Qdrant unreachable at{' '}
                 <code className="font-mono">{process.env.QDRANT_URL ?? 'http://qdrant:6333'}</code>{' '}
-                — RAG retrieval will fall back to persona-stub. STAQPRO-188.
+                — RAG retrieval disabled; drafts will use persona only. STAQPRO-188.
               </p>
             ) : !qdrantCollection.exists ? (
               <p className="text-sm text-accent-orange">

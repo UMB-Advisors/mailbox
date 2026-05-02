@@ -23,6 +23,14 @@ export interface StatisticalMarkers {
   emoji_count: number;
   per_category: Partial<Record<Category, PerCategoryMarkers>>;
   extracted_at: string; // ISO
+
+  // STAQPRO-195 operator-set override layer. These are NOT produced by
+  // extractPersona() — they're set via the persona settings UI and trump the
+  // extracted/derived defaults in lib/drafting/persona.ts:resolvePersonaContext.
+  tone?: string;
+  signoff?: string;
+  operator_first_name?: string;
+  operator_brand?: string;
 }
 
 export interface CategoryExemplar {

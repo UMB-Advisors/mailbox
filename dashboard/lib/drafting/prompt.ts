@@ -11,7 +11,7 @@
 
 import type { Category } from '@/lib/classification/prompt';
 import { CATEGORY_DESCRIPTIONS } from '@/lib/classification/prompt';
-import type { PersonaContext } from './persona-stub';
+import type { PersonaContext } from './persona';
 
 export const DRAFT_LOCAL_MODEL = 'qwen3:4b-ctx4k';
 // Default Ollama Cloud escalation model. Swappable via OLLAMA_CLOUD_MODEL env.
