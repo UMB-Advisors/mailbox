@@ -3,7 +3,7 @@ import type { InboxMessage } from '@/lib/types';
 
 export function EmailContext({ message }: { message: InboxMessage }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <dl className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1 font-mono text-xs">
         <Row label="From" value={message.from_addr} />
         <Row label="To" value={message.to_addr} />
@@ -13,11 +13,21 @@ export function EmailContext({ message }: { message: InboxMessage }) {
         )}
       </dl>
       {message.body && (
-        <div className="rounded border border-border-subtle bg-bg-deep p-3">
-          <pre className="whitespace-pre-wrap break-words font-serif text-sm leading-relaxed text-ink-muted">
-            {formatEmailBody(message.body)}
-          </pre>
-        </div>
+        // STAQPRO-148-followup (Delphi UX pass) — inbound body is reference
+        // material, not the primary task. Collapsed by default so the action
+        // bar + draft body stay above the fold. Native <details> is keyboard-
+        // accessible (Space/Enter to toggle) — no ARIA, no JS state.
+        <details className="group rounded border border-border-subtle">
+          <summary className="cursor-pointer list-none select-none px-3 py-1.5 font-mono text-[11px] text-ink-dim hover:text-ink-muted">
+            <span className="group-open:hidden">Show inbound email ▸</span>
+            <span className="hidden group-open:inline">Hide inbound email ▾</span>
+          </summary>
+          <div className="border-t border-border-subtle bg-bg-deep px-3 pb-3 pt-2">
+            <pre className="whitespace-pre-wrap break-words font-serif text-sm leading-relaxed text-ink-muted">
+              {formatEmailBody(message.body)}
+            </pre>
+          </div>
+        </details>
       )}
     </div>
   );

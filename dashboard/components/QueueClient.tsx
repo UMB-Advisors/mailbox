@@ -100,6 +100,21 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
         next.add(draft.id);
         return next;
       });
+      // STAQPRO-148-followup (Delphi UX pass) — auto-advance to the next
+      // draft so the operator can click Approve / Reject repeatedly (or
+      // hold `a` once keyboard nav lands) and burn through high-confidence
+      // drafts without re-selecting.
+      //
+      // Snapshot the visible list BEFORE the removal, find the actioned
+      // draft's position, then pick the next entry in the post-removal
+      // list. Falls back to the previous entry when actioning the last
+      // draft, or null when the queue empties.
+      const oldVisible =
+        view === 'pending' ? active.filter((d) => !removed.has(d.id)) : sent;
+      const idx = oldVisible.findIndex((d) => d.id === draft.id);
+      const newVisible = oldVisible.filter((_, i) => i !== idx);
+      const next = newVisible[idx] ?? newVisible[idx - 1] ?? null;
+      setSelectedId(next?.id ?? null);
       setToast({
         kind: 'success',
         text: kind === 'approve' ? 'Approved — sending' : 'Rejected',

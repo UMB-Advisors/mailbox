@@ -20,9 +20,19 @@ export function DraftDetail({
   onReject: () => void;
 }) {
   return (
-    <article className="rounded border border-border bg-bg-panel p-5">
-      <EmailContext message={draft.message} />
-      <div className="mt-5 border-t border-border pt-4">
+    // STAQPRO-148-followup (Delphi UX pass) — restructured top-to-bottom so
+    // operator never scrolls to reach the primary action: actions → draft →
+    // inbound (collapsed). Old order pushed actions below the inbound body
+    // which often overflowed the viewport.
+    <article className="flex flex-col rounded border border-border bg-bg-panel">
+      <div className="border-b border-border px-5 py-3">
+        {readOnly ? (
+          <StatusBanner draft={draft} />
+        ) : (
+          <ActionButtons busy={busy} onApprove={onApprove} onEdit={onEdit} onReject={onReject} />
+        )}
+      </div>
+      <div className="px-5 py-4">
         <p className="mb-2 flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-ink-dim">
           <span>Draft reply</span>
           {draft.status === 'edited' && (
@@ -50,11 +60,9 @@ export function DraftDetail({
           )}
         </p>
       </div>
-      {readOnly ? (
-        <StatusBanner draft={draft} />
-      ) : (
-        <ActionButtons busy={busy} onApprove={onApprove} onEdit={onEdit} onReject={onReject} />
-      )}
+      <div className="border-t border-border px-5 py-3">
+        <EmailContext message={draft.message} />
+      </div>
     </article>
   );
 }
@@ -109,7 +117,7 @@ function Banner({
   }[tone];
   return (
     <div
-      className={`mt-4 flex items-center gap-2 rounded border px-3 py-2 font-sans text-sm ${palette}`}
+      className={`flex items-center gap-2 rounded border px-3 py-2 font-sans text-sm ${palette}`}
     >
       {icon}
       <span className="font-medium">{label}</span>
