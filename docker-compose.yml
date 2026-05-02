@@ -139,6 +139,23 @@ services:
     networks:
       - default
     command: sh -c "npm install --no-audit --no-fund && npm run migrate"
+  mailbox-qdrant-bootstrap:
+    # STAQPRO-188 — one-shot idempotent Qdrant collection bootstrap. Runs to
+    # completion and exits. Re-running is safe (PUT collection + payload
+    # indexes are idempotent in Qdrant 1.13+).
+    profiles: ["qdrant-bootstrap"]
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./dashboard:/app
+    environment:
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    networks:
+      - default
+    command: sh -c "npm install --no-audit --no-fund && npm run qdrant:bootstrap"
 volumes:
   postgres_data: null
   qdrant_data: null

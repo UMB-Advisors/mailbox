@@ -327,7 +327,7 @@ CREATE TABLE mailbox.sent_history (
     sent_at timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT sent_history_category_check CHECK ((classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text]))),
-    CONSTRAINT sent_history_draft_source_check CHECK ((draft_source = ANY (ARRAY['local_qwen3'::text, 'cloud_haiku'::text])))
+    CONSTRAINT sent_history_draft_source_check CHECK ((draft_source = ANY (ARRAY['local'::text, 'cloud'::text, 'local_qwen3'::text, 'cloud_haiku'::text])))
 );
 
 
@@ -643,6 +643,55 @@ CREATE TRIGGER drafts_log_state_transition
     AFTER UPDATE OF status ON mailbox.drafts
     FOR EACH ROW
     EXECUTE FUNCTION mailbox.log_draft_state_transition();
+
+-- STAQPRO-189: archive draft to sent_history on status -> 'sent' (mirrors
+-- migration 010-fix-sent-history-and-archive-trigger).
+CREATE OR REPLACE FUNCTION mailbox.archive_draft_to_sent_history()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent' THEN
+        IF EXISTS (SELECT 1 FROM mailbox.sent_history WHERE draft_id = NEW.id) THEN
+            RETURN NEW;
+        END IF;
+
+        INSERT INTO mailbox.sent_history (
+            draft_id,
+            inbox_message_id,
+            from_addr,
+            to_addr,
+            subject,
+            body_text,
+            thread_id,
+            draft_original,
+            draft_sent,
+            draft_source,
+            classification_category,
+            classification_confidence,
+            sent_at
+        ) VALUES (
+            NEW.id,
+            NEW.inbox_message_id,
+            COALESCE(NEW.from_addr, ''),
+            COALESCE(NEW.to_addr, ''),
+            NEW.subject,
+            NEW.body_text,
+            NEW.thread_id,
+            NEW.draft_body,
+            NEW.draft_body,
+            COALESCE(NEW.draft_source, 'local'),
+            COALESCE(NEW.classification_category, 'unknown'),
+            COALESCE(NEW.classification_confidence, 0.0),
+            COALESCE(NEW.sent_at, NOW())
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER drafts_archive_to_sent_history
+    AFTER UPDATE OF status ON mailbox.drafts
+    FOR EACH ROW
+    EXECUTE FUNCTION mailbox.archive_draft_to_sent_history();
 
 --
 -- PostgreSQL database dump complete
