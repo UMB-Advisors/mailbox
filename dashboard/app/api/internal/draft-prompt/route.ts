@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import type { Category } from '@/lib/classification/prompt';
 import { getKysely } from '@/lib/db';
@@ -5,7 +6,15 @@ import { getPersonaContext } from '@/lib/drafting/persona';
 import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
 import { parseJson } from '@/lib/middleware/validate';
+import { retrieveForDraft } from '@/lib/rag/retrieve';
 import { draftPromptBodySchema } from '@/lib/schemas/internal';
+
+// STAQPRO-191 — single-persona appliances all use 'default'. When
+// multi-persona ships, this becomes a per-draft lookup against
+// mailbox.drafts.persona_key (or whichever join makes sense at the time).
+// Centralized so both the persona resolver and the retrieval filter use
+// the SAME value — they MUST match or retrieval returns zero hits.
+const DEFAULT_PERSONA_KEY = 'default';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,8 +66,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const persona = await getPersonaContext();
+    const persona = await getPersonaContext(DEFAULT_PERSONA_KEY);
     const confidence = row.classification_confidence ?? 0;
+
+    // STAQPRO-191 — pick the endpoint BEFORE assembling the prompt because
+    // the retrieval privacy gate depends on draft_source ('local' always
+    // retrieves; 'cloud' is opt-in via RAG_CLOUD_ROUTE_ENABLED=1). The
+    // existing call order ran pickEndpoint after assemble; reordering is
+    // safe — pickEndpoint is pure and doesn't depend on assembled state.
+    const endpoint = pickEndpoint(classification_category, confidence);
+
+    const retrieval = await retrieveForDraft({
+      from_addr: row.from_addr ?? '',
+      subject: row.subject ?? null,
+      body_text: row.body_text ?? null,
+      draft_source: endpoint.source,
+      persona_key: DEFAULT_PERSONA_KEY,
+    });
 
     const assembled = assemblePrompt({
       from_addr: row.from_addr ?? '',
@@ -68,9 +92,26 @@ export async function POST(req: NextRequest) {
       category: classification_category,
       confidence,
       persona,
+      // assemblePrompt's rag_refs accepts the {source, excerpt} subset;
+      // retrieve.ts returns a richer shape but the extra fields (point_id,
+      // score, direction, sent_at) are dropped by structural typing.
+      rag_refs: retrieval.refs,
     });
 
-    const endpoint = pickEndpoint(classification_category, confidence);
+    // STAQPRO-191 — unconditional writeback. Always persist refs + reason,
+    // even when refs is empty, so the eval delta (STAQPRO-192 phase 2) can
+    // distinguish 'no_hits' from 'embed_unavailable' / 'qdrant_unavailable' /
+    // 'cloud_gated'. Awaited; sub-ms on local Postgres. n8n needs the response
+    // anyway, so a sync write is fine.
+    const refIds = retrieval.refs.map((r) => r.point_id);
+    await db
+      .updateTable('drafts')
+      .set({
+        rag_context_refs: sql`${JSON.stringify(refIds)}::jsonb`,
+        rag_retrieval_reason: retrieval.reason,
+      })
+      .where('id', '=', draft_id)
+      .execute();
 
     return NextResponse.json({
       draft_id,
@@ -84,6 +125,13 @@ export async function POST(req: NextRequest) {
       messages: assembled.messages,
       max_tokens: assembled.max_tokens,
       temperature: assembled.temperature,
+      // STAQPRO-191 — RAG audit signal for n8n logging + dashboard debug
+      // surface. refs_count is what dashboards graph; reason is what
+      // eval/triage scripts filter on.
+      rag: {
+        refs_count: retrieval.refs.length,
+        reason: retrieval.reason,
+      },
     });
   } catch (error) {
     console.error('POST /api/internal/draft-prompt failed:', error);
