@@ -180,6 +180,63 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
     busy?.draftId === id && busy.kind !== 'retry' ? (busy.kind as ActionKind) : null;
   const busyRetryId = busy?.kind === 'retry' ? busy.draftId : null;
 
+  // STAQPRO-148-followup (Delphi UX pass) — keyboard nav for desktop
+  // operators. j/k or arrow keys move between drafts; a approves; e edits;
+  // x rejects. NOT 'r' (Cmd+R refresh muscle-memory creates accidental-
+  // reject risk per Eric's call-out). Modifier-key check bails on
+  // Cmd/Ctrl/Alt so genuine Cmd+letter browser shortcuts pass through.
+  // Guards: skip when typing in input/textarea/select OR when the edit
+  // modal is open OR when an action is already in flight.
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (editing !== null) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const currentList = view === 'pending' ? visibleActive : sent;
+      const currentIndex =
+        selectedId == null ? -1 : currentList.findIndex((d) => d.id === selectedId);
+
+      switch (e.key) {
+        case 'j':
+        case 'ArrowDown': {
+          e.preventDefault();
+          const nextDraft = currentList[currentIndex + 1];
+          if (nextDraft) setSelectedId(nextDraft.id);
+          return;
+        }
+        case 'k':
+        case 'ArrowUp': {
+          e.preventDefault();
+          const prevDraft = currentList[currentIndex - 1];
+          if (prevDraft) setSelectedId(prevDraft.id);
+          return;
+        }
+        case 'a': {
+          if (!selected || view === 'sent' || busy) return;
+          e.preventDefault();
+          fireAction('approve', selected);
+          return;
+        }
+        case 'e': {
+          if (!selected || view === 'sent' || busy) return;
+          e.preventDefault();
+          setEditing(selected);
+          return;
+        }
+        case 'x': {
+          if (!selected || view === 'sent' || busy) return;
+          e.preventDefault();
+          fireAction('reject', selected);
+          return;
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  });
+
   function switchView(next: View) {
     if (next === view) return;
     setView(next);

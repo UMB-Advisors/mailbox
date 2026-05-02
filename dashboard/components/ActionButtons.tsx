@@ -17,34 +17,44 @@ export function ActionButtons({
 }) {
   const disabled = busy !== null;
   return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        onClick={onApprove}
-        disabled={disabled}
-        className="inline-flex items-center gap-1.5 rounded bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Check size={16} />
-        {busy === 'approve' ? 'Approving…' : 'Approve'}
-      </button>
-      <button
-        type="button"
-        onClick={onEdit}
-        disabled={disabled}
-        className="inline-flex items-center gap-1.5 rounded border border-accent-blue/60 bg-accent-blue/10 px-3 py-2 font-sans text-sm text-accent-blue transition-colors hover:bg-accent-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Edit3 size={16} />
-        {busy === 'edit' ? 'Saving…' : 'Edit'}
-      </button>
-      <button
-        type="button"
-        onClick={onReject}
-        disabled={disabled}
-        className="ml-auto inline-flex items-center gap-1.5 rounded border border-accent-red/40 px-3 py-2 font-sans text-sm text-accent-red/80 transition-colors hover:border-accent-red/70 hover:text-accent-red disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <X size={16} />
-        {busy === 'reject' ? 'Rejecting…' : 'Reject'}
-      </button>
+    <div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 rounded bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Check size={16} />
+          {busy === 'approve' ? 'Approving…' : 'Approve'}
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 rounded border border-accent-blue/60 bg-accent-blue/10 px-3 py-2 font-sans text-sm text-accent-blue transition-colors hover:bg-accent-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Edit3 size={16} />
+          {busy === 'edit' ? 'Saving…' : 'Edit'}
+        </button>
+        <button
+          type="button"
+          onClick={onReject}
+          disabled={disabled}
+          className="ml-auto inline-flex items-center gap-1.5 rounded border border-accent-red/40 px-3 py-2 font-sans text-sm text-accent-red/80 transition-colors hover:border-accent-red/70 hover:text-accent-red disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <X size={16} />
+          {busy === 'reject' ? 'Rejecting…' : 'Reject'}
+        </button>
+      </div>
+      {/* Keyboard hint — hidden on mobile (no kbd shortcuts there). x not r
+          for reject so Cmd+R refresh slips don't accidentally reject. */}
+      <p className="mt-2 hidden font-mono text-[10px] text-ink-dim md:block">
+        <kbd className="rounded border border-border px-1">j/k</kbd> navigate ·{' '}
+        <kbd className="rounded border border-border px-1">a</kbd> approve ·{' '}
+        <kbd className="rounded border border-border px-1">e</kbd> edit ·{' '}
+        <kbd className="rounded border border-border px-1">x</kbd> reject
+      </p>
     </div>
   );
 }
