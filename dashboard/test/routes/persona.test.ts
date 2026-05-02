@@ -9,15 +9,18 @@ const dbDescribe = HAS_DB ? describe : describe.skip;
 
 dbDescribe('persona route handlers — real Postgres', () => {
   beforeAll(async () => {
-    // Make sure we don't poison other tests — restore default empty row before
-    // and after the suite.
+    // CI bootstraps the schema from a pg_dump -s snapshot (no rows). Seed the
+    // default persona row idempotently. Local dev DBs that already have the
+    // row from migration 006 see a no-op upsert.
     const pool = getTestPool();
     await pool.query(
-      `UPDATE mailbox.persona
+      `INSERT INTO mailbox.persona
+         (customer_key, statistical_markers, category_exemplars, source_email_count)
+       VALUES ('default', '{}'::jsonb, '{}'::jsonb, 0)
+       ON CONFLICT (customer_key) DO UPDATE
          SET statistical_markers = '{}'::jsonb,
              category_exemplars = '{}'::jsonb,
-             updated_at = NOW()
-       WHERE customer_key = 'default'`,
+             updated_at = NOW()`,
     );
   });
 
