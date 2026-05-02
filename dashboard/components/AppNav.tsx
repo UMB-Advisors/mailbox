@@ -5,23 +5,24 @@
 
 import { apiUrl } from '@/lib/api';
 
-type Slug = 'queue' | 'classifications' | 'status';
+type Slug = 'queue' | 'classifications' | 'status' | 'settings';
 
-const NAV: { slug: Slug; label: string }[] = [
-  { slug: 'queue', label: 'Queue' },
-  { slug: 'classifications', label: 'Classifications' },
-  { slug: 'status', label: 'Status' },
+const NAV: { slug: Slug; href: string; label: string }[] = [
+  { slug: 'queue', href: '/queue', label: 'Queue' },
+  { slug: 'classifications', href: '/classifications', label: 'Classifications' },
+  { slug: 'status', href: '/status', label: 'Status' },
+  { slug: 'settings', href: '/settings/persona', label: 'Settings' },
 ];
 
 export function AppNav({ active }: { active: Slug }) {
   return (
     <nav className="flex items-center gap-1 font-mono text-[11px]">
-      {NAV.map(({ slug, label }) => {
+      {NAV.map(({ slug, href, label }) => {
         const isActive = slug === active;
         return (
           <a
             key={slug}
-            href={apiUrl(`/${slug}`)}
+            href={apiUrl(href)}
             aria-current={isActive ? 'page' : undefined}
             className={`rounded px-2 py-1 transition-colors ${
               isActive ? 'bg-bg-deep text-ink' : 'text-ink-muted hover:bg-bg-deep hover:text-ink'
