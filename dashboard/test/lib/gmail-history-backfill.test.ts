@@ -123,6 +123,35 @@ describe('parseGmailMessage', () => {
     expect(parseGmailMessage({ id: '', threadId: 't' } as GmailMessage)).toBeNull();
     expect(parseGmailMessage({ id: 'g', threadId: '' } as GmailMessage)).toBeNull();
   });
+
+  it('falls back to top-level header fields when payload.headers is absent', () => {
+    // The MailBOX-FetchHistory n8n workflow flattens common headers to the
+    // message top-level instead of preserving payload.headers[]. Verified
+    // against the live workflow on 2026-05-02 — without this fallback the
+    // backfill silently extracts 0 pairs from valid threads.
+    const m = {
+      id: 'g-flat',
+      threadId: 't-flat',
+      internalDate: String(Date.parse('2026-05-01T16:00:00Z')),
+      payload: {
+        mimeType: 'text/plain',
+        body: { data: Buffer.from('hi').toString('base64url') },
+      },
+      From: 'dustin@heronlabsinc.com',
+      To: 'Eric Gang <eric@staqs.io>',
+      Subject: 'Re: Reorder',
+      'Message-Id': '<flat-msgid@mail.gmail.com>',
+      'In-Reply-To': '<orig@mail.gmail.com>',
+    } as unknown as GmailMessage;
+    const parsed = parseGmailMessage(m);
+    expect(parsed).not.toBeNull();
+    if (!parsed) return;
+    expect(parsed.from_addr).toBe('dustin@heronlabsinc.com');
+    expect(parsed.to_addr).toBe('eric@staqs.io');
+    expect(parsed.subject).toBe('Re: Reorder');
+    expect(parsed.rfc822_message_id).toBe('<flat-msgid@mail.gmail.com>');
+    expect(parsed.in_reply_to).toBe('<orig@mail.gmail.com>');
+  });
 });
 
 describe('extractReplyPairs', () => {
