@@ -92,23 +92,33 @@ export async function POST(req: NextRequest) {
       category: classification_category,
       confidence,
       persona,
-      // assemblePrompt's rag_refs accepts the {source, excerpt} subset;
-      // retrieve.ts returns a richer shape but the extra fields (point_id,
-      // score, direction, sent_at) are dropped by structural typing.
+      // assemblePrompt's rag_refs / kb_refs accept the {source, excerpt}
+      // subset; retrieve.ts returns richer shapes but the extra fields are
+      // dropped by structural typing.
       rag_refs: retrieval.refs,
+      kb_refs: retrieval.kb_refs,
     });
 
-    // STAQPRO-191 — unconditional writeback. Always persist refs + reason,
-    // even when refs is empty, so the eval delta (STAQPRO-192 phase 2) can
-    // distinguish 'no_hits' from 'embed_unavailable' / 'qdrant_unavailable' /
-    // 'cloud_gated'. Awaited; sub-ms on local Postgres. n8n needs the response
-    // anyway, so a sync write is fine.
-    const refIds = retrieval.refs.map((r) => r.point_id);
+    // STAQPRO-191/148 — unconditional writeback. Always persist BOTH refs
+    // + reasons, even when arrays are empty, so the eval delta
+    // (STAQPRO-192 phase 2) can distinguish 'no_hits' from
+    // 'embed_unavailable' / 'qdrant_unavailable' / 'cloud_gated' /
+    // 'kb_cloud_gated'. Awaited; sub-ms on local Postgres. n8n needs the
+    // response anyway, so a sync write is fine.
+    //
+    // Note: rag_retrieval_reason carries the EMAIL retrieval reason for
+    // backward-compat with STAQPRO-192's existing eval surface. The KB
+    // reason currently lives only in the response body — if the eval
+    // surface starts caring about KB hit-rate, add a kb_retrieval_reason
+    // column then (parallel to migration 013).
+    const emailRefIds = retrieval.refs.map((r) => r.point_id);
+    const kbRefIds = retrieval.kb_refs.map((r) => r.point_id);
     await db
       .updateTable('drafts')
       .set({
-        rag_context_refs: sql`${JSON.stringify(refIds)}::jsonb`,
+        rag_context_refs: sql`${JSON.stringify(emailRefIds)}::jsonb`,
         rag_retrieval_reason: retrieval.reason,
+        kb_context_refs: sql`${JSON.stringify(kbRefIds)}::jsonb`,
       })
       .where('id', '=', draft_id)
       .execute();
@@ -125,12 +135,17 @@ export async function POST(req: NextRequest) {
       messages: assembled.messages,
       max_tokens: assembled.max_tokens,
       temperature: assembled.temperature,
-      // STAQPRO-191 — RAG audit signal for n8n logging + dashboard debug
-      // surface. refs_count is what dashboards graph; reason is what
+      // STAQPRO-191 — email RAG audit signal for n8n logging + dashboard
+      // debug surface. refs_count is what dashboards graph; reason is what
       // eval/triage scripts filter on.
       rag: {
         refs_count: retrieval.refs.length,
         reason: retrieval.reason,
+      },
+      // STAQPRO-148 — parallel KB audit signal.
+      kb: {
+        refs_count: retrieval.kb_refs.length,
+        reason: retrieval.kb_reason,
       },
     });
   } catch (error) {
