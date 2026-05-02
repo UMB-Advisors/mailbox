@@ -8,6 +8,13 @@
 // stripping signatures and quoted reply blocks. Keeping this naive and
 // portable rather than pulling in a full email-parsing dep — re-evaluate
 // when tuning retrieval quality in STAQPRO-191/192.
+//
+// STAQPRO-193: PII scrub (US phone, SSN, credit-card-ish) is applied here,
+// after the structural strip and before the cap, so retrieval payloads +
+// embedding inputs are scrubbed in one place. Original bodies in Postgres
+// are not touched.
+
+import { scrubPII } from './scrub';
 
 const DEFAULT_EXCERPT_CHAR_CAP = Number(process.env.EMBED_EXCERPT_CHAR_CAP ?? 800);
 
@@ -35,6 +42,10 @@ export function buildBodyExcerpt(
 
   // Collapse whitespace.
   s = s.replace(/\s+/g, ' ').trim();
+
+  // STAQPRO-193: scrub PII before the cap so the redaction tokens are part
+  // of the embedded payload (not chopped mid-token).
+  s = scrubPII(s).text;
 
   return s.slice(0, cap);
 }

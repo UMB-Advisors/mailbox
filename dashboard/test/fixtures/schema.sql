@@ -693,6 +693,23 @@ CREATE TRIGGER drafts_archive_to_sent_history
     FOR EACH ROW
     EXECUTE FUNCTION mailbox.archive_draft_to_sent_history();
 
+-- Migration 011 — STAQPRO-193 sent_history extensions for Gmail Sent backfill.
+-- (1) message_id for idempotent UPSERT on backfilled rows. (2) Relax NOT NULL
+-- on draft_id + inbox_message_id (backfill rows have neither). (3) source
+-- discriminator ('live' vs 'backfill') so persona/RAG read paths can stay
+-- aware of provenance.
+
+ALTER TABLE mailbox.sent_history ADD COLUMN message_id TEXT;
+CREATE UNIQUE INDEX sent_history_message_id_unique
+    ON mailbox.sent_history(message_id) WHERE message_id IS NOT NULL;
+ALTER TABLE mailbox.sent_history ALTER COLUMN draft_id DROP NOT NULL;
+ALTER TABLE mailbox.sent_history ALTER COLUMN inbox_message_id DROP NOT NULL;
+ALTER TABLE mailbox.sent_history ADD COLUMN source TEXT NOT NULL DEFAULT 'live';
+ALTER TABLE mailbox.sent_history
+    ADD CONSTRAINT sent_history_source_check
+    CHECK (source = ANY (ARRAY['live'::text,'backfill'::text]));
+CREATE INDEX sent_history_source_idx ON mailbox.sent_history(source);
+
 --
 -- PostgreSQL database dump complete
 --
