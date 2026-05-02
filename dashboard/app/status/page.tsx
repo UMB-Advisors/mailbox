@@ -18,6 +18,7 @@ import {
   getLastInferenceLatency,
   getN8nFailures24h,
   getOllamaLoadedModels,
+  getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
 import { buildRagEvalSnapshot, type RagEvalSnapshot } from '@/lib/rag/eval-baseline';
@@ -42,6 +43,7 @@ export default async function StatusPage() {
     n8nFailures24h,
     cloudSpendLastHour,
     editRate7d,
+    qdrantCollection,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -56,6 +58,7 @@ export default async function StatusPage() {
     getN8nFailures24h(),
     getCloudSpendLastHour(),
     getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
+    getQdrantCollectionHealth(),
   ]);
 
   const ragEval = buildRagEvalSnapshot(editRate7d.edit_rate, editRate7d.sample_size);
@@ -229,6 +232,36 @@ export default async function StatusPage() {
               </>
             ) : (
               <span className="text-ink-dim">unavailable</span>
+            )}
+          </Card>
+        </section>
+
+        <section className="mb-6">
+          <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+            Qdrant — RAG corpus (M3.5)
+          </h2>
+          <Card>
+            {qdrantCollection === null ? (
+              <p className="text-sm text-accent-red">
+                Qdrant unreachable at{' '}
+                <code className="font-mono">{process.env.QDRANT_URL ?? 'http://qdrant:6333'}</code>{' '}
+                — RAG retrieval will fall back to persona-stub. STAQPRO-188.
+              </p>
+            ) : !qdrantCollection.exists ? (
+              <p className="text-sm text-accent-orange">
+                Collection <code className="font-mono">email_messages</code> missing — run{' '}
+                <code className="font-mono">
+                  docker compose --profile qdrant-bootstrap up mailbox-qdrant-bootstrap
+                </code>
+                .
+              </p>
+            ) : (
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono text-2xl font-semibold tracking-tight">
+                  {qdrantCollection.points_count ?? 0}
+                </span>
+                <span className="text-sm text-ink-muted">points in email_messages</span>
+              </div>
             )}
           </Card>
         </section>

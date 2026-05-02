@@ -17,6 +17,7 @@ import {
   getLastInferenceLatency,
   getN8nFailures24h,
   getOllamaLoadedModels,
+  getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
 import { buildRagEvalSnapshot } from '@/lib/rag/eval-baseline';
@@ -56,6 +57,7 @@ export async function GET() {
     n8nFailures24h,
     cloudSpendLastHour,
     editRate7d,
+    qdrantCollection,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -70,6 +72,7 @@ export async function GET() {
     getN8nFailures24h(),
     getCloudSpendLastHour(),
     getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
+    getQdrantCollectionHealth(),
   ]);
 
   // STAQPRO-192 — wrap the live edit-rate alongside the frozen pre-RAG
@@ -106,6 +109,7 @@ export async function GET() {
     drafts_24h: draftCounts24h,
     cloud_spend_24h: cloudSpend24h,
     rag_eval: ragEval,
+    qdrant_collection: qdrantCollection,
     alerts,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,
