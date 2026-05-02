@@ -48,3 +48,7 @@ Thumbs.db
 *.zst
 ollama-linux-*
 .planning/.next-call-count
+
+# RAG eval harness output (STAQPRO-198) — per-run JSON contains customer
+# email content (draft + actual reply). Operator-only; never commit.
+dashboard/eval-results/

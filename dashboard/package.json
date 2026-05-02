@@ -10,6 +10,7 @@
     "migrate": "tsx migrations/runner.ts",
     "qdrant:bootstrap": "tsx scripts/qdrant-bootstrap.ts",
     "rag:backfill": "tsx scripts/rag-backfill.ts",
+    "eval:rag": "tsx scripts/rag-eval-harness.ts",
     "onboarding:backfill": "tsx scripts/gmail-history-backfill.ts",
     "db:codegen": "bash scripts/codegen-db.sh",
     "db:codegen:verify": "bash scripts/codegen-db.sh --verify",
