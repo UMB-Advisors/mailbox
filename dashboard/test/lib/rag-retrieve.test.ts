@@ -27,6 +27,10 @@ function mockEmbedAndSearch(opts: {
   embedding?: number[] | null;
   hits?: Array<{ id: string; score: number; payload: Record<string, unknown> }>;
   searchStatus?: number;
+  // STAQPRO-148 — KB collection mock. Defaults to empty hits so existing
+  // tests behave as if KB has no relevant content (kb_reason='no_hits').
+  kbHits?: Array<{ id: string; score: number; payload: Record<string, unknown> }>;
+  kbSearchStatus?: number;
 }) {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -42,6 +46,14 @@ function mockEmbedAndSearch(opts: {
       const status = opts.searchStatus ?? 200;
       if (status !== 200) return new Response('boom', { status });
       return new Response(JSON.stringify({ result: opts.hits ?? [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.includes('/collections/kb_documents/points/search')) {
+      const status = opts.kbSearchStatus ?? 200;
+      if (status !== 200) return new Response('boom', { status });
+      return new Response(JSON.stringify({ result: opts.kbHits ?? [] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -101,6 +113,10 @@ describe('retrieveForDraft — STAQPRO-191', () => {
     const r = await retrieveForDraft({ ...baseInput, draft_source: 'cloud' });
     expect(r.reason).toBe('cloud_gated');
     expect(r.refs).toEqual([]);
+    // STAQPRO-148 — KB mirrors the cloud-gate but with a distinct reason
+    // value so audit logs can disambiguate even though the gate is shared.
+    expect(r.kb_reason).toBe('kb_cloud_gated');
+    expect(r.kb_refs).toEqual([]);
   });
 
   it('returns embed_unavailable when Ollama embed call fails', async () => {
@@ -184,6 +200,111 @@ describe('retrieveForDraft — STAQPRO-191', () => {
     });
     expect(r.reason).toBe('no_hits');
     expect(r.refs).toEqual([]);
+    // STAQPRO-148 — empty sender short-circuits BOTH retrievals (no embed
+    // budget burned for a malformed inbound). KB reason is 'none' (not
+    // attempted) rather than 'no_hits' (searched, found nothing) — the
+    // distinction matters for future KB hit-rate eval (Linus pre-flight).
+    expect(r.kb_reason).toBe('none');
+    expect(r.kb_refs).toEqual([]);
+  });
+
+  // STAQPRO-148 — KB-specific test cases.
+
+  it('returns kb_refs with formatted KB hits when KB collection has matches', async () => {
+    mockEmbedAndSearch({
+      hits: [],
+      kbHits: [
+        {
+          id: 'kb-pid-1',
+          score: 0.78,
+          payload: {
+            doc_id: 42,
+            chunk_index: 0,
+            doc_title: 'Returns Policy',
+            doc_sha256: 'abc123',
+            mime_type: 'text/markdown',
+            excerpt: 'Heron Labs accepts returns within 30 days of delivery.',
+            uploaded_at: '2026-05-02T00:00:00Z',
+          },
+        },
+      ],
+    });
+    const r = await retrieveForDraft({ ...baseInput, draft_source: 'local' });
+    expect(r.reason).toBe('no_hits'); // email collection empty in this scenario
+    expect(r.kb_reason).toBe('ok');
+    expect(r.kb_refs).toHaveLength(1);
+    expect(r.kb_refs[0].point_id).toBe('kb-pid-1');
+    expect(r.kb_refs[0].source).toBe('Returns Policy');
+    expect(r.kb_refs[0].excerpt).toContain('30 days');
+    expect(r.kb_refs[0].doc_id).toBe(42);
+    expect(r.kb_refs[0].chunk_index).toBe(0);
+  });
+
+  it('returns kb_reason=qdrant_unavailable on KB collection 5xx (independent of email path)', async () => {
+    mockEmbedAndSearch({
+      hits: [
+        {
+          id: 'pid-1',
+          score: 0.9,
+          payload: {
+            message_id: 'm1',
+            sender: 'cust@example.com',
+            subject: 'Order',
+            body_excerpt: 'Order body',
+            sent_at: '2026-04-15T10:00:00Z',
+            direction: 'outbound',
+          },
+        },
+      ],
+      kbSearchStatus: 500,
+    });
+    const r = await retrieveForDraft({ ...baseInput, draft_source: 'local' });
+    // Email retrieval succeeded
+    expect(r.reason).toBe('ok');
+    expect(r.refs).toHaveLength(1);
+    // KB retrieval failed independently — partial degradation is supported.
+    expect(r.kb_reason).toBe('qdrant_unavailable');
+    expect(r.kb_refs).toEqual([]);
+  });
+
+  it('happy path returns BOTH email refs AND kb refs in parallel', async () => {
+    mockEmbedAndSearch({
+      hits: [
+        {
+          id: 'pid-1',
+          score: 0.92,
+          payload: {
+            message_id: 'm1',
+            sender: 'cust@example.com',
+            subject: 'Order',
+            body_excerpt: 'Order body',
+            sent_at: '2026-04-15T10:00:00Z',
+            direction: 'outbound',
+          },
+        },
+      ],
+      kbHits: [
+        {
+          id: 'kb-pid-1',
+          score: 0.81,
+          payload: {
+            doc_id: 7,
+            chunk_index: 2,
+            doc_title: 'MOQ Reference',
+            doc_sha256: 'def456',
+            mime_type: 'text/markdown',
+            excerpt: 'Wholesale MOQ is 144 units.',
+            uploaded_at: '2026-05-02T00:00:00Z',
+          },
+        },
+      ],
+    });
+    const r = await retrieveForDraft({ ...baseInput, draft_source: 'local' });
+    expect(r.reason).toBe('ok');
+    expect(r.refs).toHaveLength(1);
+    expect(r.kb_reason).toBe('ok');
+    expect(r.kb_refs).toHaveLength(1);
+    expect(r.kb_refs[0].source).toBe('MOQ Reference');
   });
 });
 

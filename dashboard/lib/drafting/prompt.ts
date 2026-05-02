@@ -40,6 +40,11 @@ export interface DraftPromptInput {
   // Optional future hooks. 02-05 (RAG) and 02-06 (full persona) fill these.
   thread_context?: ReadonlyArray<{ from_addr: string; body_text: string }>;
   rag_refs?: ReadonlyArray<{ source: string; excerpt: string }>;
+  // STAQPRO-148 — operator-uploaded knowledge base snippets. Rendered as a
+  // distinct prompt section ("Reference snippets from your knowledge base")
+  // so the LLM treats them as authoritative policy content, not
+  // conversational context. Same {source, excerpt} contract as rag_refs.
+  kb_refs?: ReadonlyArray<{ source: string; excerpt: string }>;
 }
 
 // D-45 egress allowlist: when the assembled prompt is sent to a non-local
@@ -123,6 +128,24 @@ function ragBlock(input: DraftPromptInput): string {
   return lines.join('\n');
 }
 
+// STAQPRO-148 — KB block. Distinct from ragBlock (which is conversational
+// email-history context) — KB content is authoritative policy/SOP that the
+// LLM should defer to over its priors. Section header explicitly says
+// "your knowledge base" so the LLM weights these as ground truth.
+//
+// Per-chunk cap = 600 chars to match ragBlock and keep the combined
+// rag+kb+body context under the Qwen3-4B 4096-token ctx ceiling. See the
+// kbExcerptCharCap() comment in lib/rag/retrieve.ts for the full budget
+// math (Linus pre-flight on commit 36d8949).
+function kbBlock(input: DraftPromptInput): string {
+  if (!input.kb_refs || input.kb_refs.length === 0) return '';
+  const lines: string[] = ['', '## Reference snippets from your knowledge base'];
+  for (const ref of input.kb_refs.slice(0, 3)) {
+    lines.push(`[${ref.source}] ${ref.excerpt.slice(0, 600)}`);
+  }
+  return lines.join('\n');
+}
+
 export function buildUserPrompt(input: DraftPromptInput): string {
   const safeBody = (input.body_text ?? '').slice(0, MAX_BODY_CHARS);
   return [
@@ -143,6 +166,7 @@ export function buildUserPrompt(input: DraftPromptInput): string {
     safeBody,
     threadBlock(input),
     ragBlock(input),
+    kbBlock(input),
     '',
     '## Output format',
     'Return ONLY the body of the reply email. No subject line, no headers, no quoted original. Plain text only.',

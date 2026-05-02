@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
+import { KB_DOC_STATUSES } from '../lib/types';
 
 // Highest-leverage test for STAQPRO-133. Asserts that the live Postgres
 // CHECK constraints match (or are compatible with) the TS-side constants.
@@ -106,6 +107,20 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
       expect([...allowed].sort()).toEqual([...expected].sort());
     },
   );
+
+  it.skipIf(!DB_URL)(
+    'kb_documents.status CHECK matches KB_DOC_STATUSES (STAQPRO-148, migration 014)',
+    async () => {
+      const allowed = await getCheckValues(pool!, 'kb_documents', 'kb_documents_status_check');
+      const expected = [...KB_DOC_STATUSES];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it('KB_DOC_STATUSES from lib/types.ts has no duplicates and is non-empty', () => {
+    expect(KB_DOC_STATUSES.length).toBeGreaterThan(0);
+    expect(new Set(KB_DOC_STATUSES).size).toBe(KB_DOC_STATUSES.length);
+  });
 
   // Pure code-level invariant — does not need DB.
   it('CATEGORIES from prompt.ts has no duplicates and is non-empty', () => {

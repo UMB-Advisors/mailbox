@@ -245,7 +245,12 @@ describe('scorePair — STAQPRO-198', () => {
       jsonResponse({ message: { content: 'Confirmed for Friday — thanks for the order.' } }),
     );
     const embedMock = vi.fn(async () => unitX);
-    const retrieveMock = vi.fn(async () => ({ refs: [], reason: 'no_hits' as const }));
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
     const personaMock = vi.fn(async () => ({
       tone: 'concise',
       signoff: '— Heron Labs',
@@ -275,7 +280,12 @@ describe('scorePair — STAQPRO-198', () => {
   it('records draft_failed on Ollama 5xx without calling embed', async () => {
     const fetchMock = vi.fn(async () => new Response('boom', { status: 500 }));
     const embedMock = vi.fn(async () => unitX);
-    const retrieveMock = vi.fn(async () => ({ refs: [], reason: 'no_hits' as const }));
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
     const personaMock = vi.fn(async () => ({
       tone: 'concise',
       signoff: '— Heron Labs',
@@ -301,7 +311,12 @@ describe('scorePair — STAQPRO-198', () => {
       jsonResponse({ message: { content: 'Confirmed for Friday.' } }),
     );
     const embedMock = vi.fn(async () => null);
-    const retrieveMock = vi.fn(async () => ({ refs: [], reason: 'no_hits' as const }));
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
     const personaMock = vi.fn(async () => ({
       tone: 'concise',
       signoff: '— Heron Labs',
@@ -337,6 +352,10 @@ describe('scorePair — STAQPRO-198', () => {
         },
       ],
       reason: 'ok' as const,
+      // STAQPRO-148 — KB shape required by the post-merge RetrievalResult.
+      // Empty here since the test asserts only the email refs surface.
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
     }));
     const personaMock = vi.fn(async () => ({
       tone: 'concise',
@@ -373,7 +392,12 @@ describe('generateDraft — STAQPRO-198', () => {
       inbox_confidence: 0.9,
     };
     const fetchMock = vi.fn(async () => jsonResponse({ message: { content: 'drafted' } }));
-    const retrieveMock = vi.fn(async () => ({ refs: [], reason: 'no_hits' as const }));
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
     const personaMock = vi.fn(async () => ({
       tone: 'concise',
       signoff: '— Heron Labs',

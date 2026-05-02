@@ -19,6 +19,7 @@ import type {
   ClassificationLog as ClassificationLogRow_,
   Drafts as DraftsRow_,
   InboxMessages as InboxMessagesRow_,
+  KbDocuments as KbDocumentsRow_,
   Onboarding as OnboardingRow_,
   Persona as PersonaRow_,
   RejectedHistory as RejectedHistoryRow_,
@@ -68,6 +69,13 @@ export type OnboardingStage =
   | 'pending_tuning'
   | 'tuning_in_progress'
   | 'live';
+
+// kb_documents.status enum (STAQPRO-148). Mirrored against the CHECK constraint
+// in migrations/014-create-kb-documents-and-refs-v1-2026-05-02.sql; the
+// schema-invariants test asserts they stay in sync.
+export const KB_DOC_STATUSES = ['processing', 'ready', 'failed'] as const;
+
+export type KbDocStatus = (typeof KB_DOC_STATUSES)[number];
 
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
@@ -137,8 +145,25 @@ export interface SentHistory {
   classification_category: ClassificationCategory;
   classification_confidence: number; // REAL — pg returns as number
   rag_context_refs: unknown[];
+  kb_context_refs: unknown[]; // STAQPRO-148: parallel to rag_context_refs for KB corpus
   sent_at: string;
   created_at: string;
+}
+
+export interface KbDocument {
+  id: number;
+  title: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  chunk_count: number;
+  status: KbDocStatus;
+  error_message: string | null;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  processing_started_at: string;
+  ready_at: string | null;
 }
 
 export interface RejectedHistory {
@@ -194,3 +219,4 @@ export type SentHistoryRow = Selectable<SentHistoryRow_>;
 export type RejectedHistoryRow = Selectable<RejectedHistoryRow_>;
 export type PersonaRow = Selectable<PersonaRow_>;
 export type OnboardingRow = Selectable<OnboardingRow_>;
+export type KbDocumentRow = Selectable<KbDocumentsRow_>;

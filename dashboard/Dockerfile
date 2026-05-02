@@ -43,6 +43,17 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# STAQPRO-148 — pre-create the KB upload dir with nextjs:nodejs ownership so
+# the named volume (mailbox_kb_uploads in compose) inherits the right owner
+# on first mount. Docker initializes empty named volumes from the image's
+# pre-existing contents at the mount path, including ownership. Without
+# this, the volume gets root-owned and the runtime user (nextjs, uid 1001)
+# gets EACCES on writeKbFile. Fixed by hand on Bob 2026-05-02 via
+# `docker exec -u 0 mailbox-dashboard chown -R nextjs:nodejs /var/lib/mailbox/kb`;
+# this Dockerfile change makes future appliances bootstrap correctly.
+RUN mkdir -p /var/lib/mailbox/kb \
+ && chown -R nextjs:nodejs /var/lib/mailbox
+
 USER nextjs
 EXPOSE 3001
 

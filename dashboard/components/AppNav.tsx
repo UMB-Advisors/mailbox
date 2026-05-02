@@ -5,11 +5,12 @@
 
 import { apiUrl } from '@/lib/api';
 
-type Slug = 'queue' | 'classifications' | 'status' | 'settings';
+type Slug = 'queue' | 'classifications' | 'knowledge-base' | 'status' | 'settings';
 
 const NAV: { slug: Slug; href: string; label: string }[] = [
   { slug: 'queue', href: '/queue', label: 'Queue' },
   { slug: 'classifications', href: '/classifications', label: 'Classifications' },
+  { slug: 'knowledge-base', href: '/knowledge-base', label: 'Knowledge Base' },
   { slug: 'status', href: '/status', label: 'Status' },
   { slug: 'settings', href: '/settings/persona', label: 'Settings' },
 ];

@@ -1,6 +1,8 @@
 // dashboard/scripts/qdrant-bootstrap.ts
 //
-// STAQPRO-188 — idempotent Qdrant bootstrap for the `email_messages` collection.
+// STAQPRO-188 — idempotent Qdrant bootstrap. Two collections as of STAQPRO-148:
+//   - `email_messages` (STAQPRO-188): inbound + outbound email message embeddings
+//   - `kb_documents`   (STAQPRO-148): operator-uploaded SOP / price-sheet / policy chunks
 //
 // Why a script instead of extending mailbox-migrate: the migrate profile is the
 // Postgres schema-versioning surface (mailbox.migrations table, .sql files).
@@ -14,38 +16,55 @@
 // PUT and Qdrant treats them as upserts (no error if the index already
 // exists). Re-running this script on every appliance boot is safe.
 //
-// Vector config: 768 dims / Cosine distance — matches nomic-embed-text:v1.5
-// which is trained for cosine similarity. Vector size is the model's
-// embedding dimension; do not change without re-embedding the corpus.
+// Vector config: 768 dims / Cosine distance for both collections — matches
+// nomic-embed-text:v1.5 which is trained for cosine similarity. Vector size
+// is the model's embedding dimension; do not change without re-embedding.
 
 import process from 'node:process';
 
 const QDRANT_URL = process.env.QDRANT_URL ?? 'http://qdrant:6333';
-const COLLECTION = 'email_messages';
 const VECTOR_SIZE = 768; // nomic-embed-text:v1.5
 const DISTANCE = 'Cosine';
 
-// Indexed payload fields: keep narrow and intentional. Each indexed field
-// costs Qdrant memory; only index what we filter or sort by.
-//   - message_id: idempotent upsert key (text → keyword for exact match)
-//   - thread_id:  thread-grouping filter
-//   - sender:     counterparty filter (the primary retrieval hard-filter)
-//   - direction:  inbound vs outbound discriminator
-//   - sent_at:    time-range filter / recency ranking input
-//   - classification_category: future filter (e.g., "show me past 'reorder' replies")
-//   - persona_key: STAQPRO-191 multi-persona future-proofing. Per-appliance
-//                  tenant boundary is hardware (one Jetson per customer);
-//                  persona_key scopes within an appliance for the multi-mailbox
-//                  case (e.g., dustin@heronlabsinc.com + support@heronlabsinc.com
-//                  on one box). All current corpora seed with 'default'.
-const PAYLOAD_INDEXES: Array<{ field: string; schema: 'keyword' | 'datetime' }> = [
-  { field: 'message_id', schema: 'keyword' },
-  { field: 'thread_id', schema: 'keyword' },
-  { field: 'sender', schema: 'keyword' },
-  { field: 'direction', schema: 'keyword' },
-  { field: 'sent_at', schema: 'datetime' },
-  { field: 'classification_category', schema: 'keyword' },
-  { field: 'persona_key', schema: 'keyword' },
+interface PayloadIndex {
+  field: string;
+  schema: 'keyword' | 'datetime' | 'integer';
+}
+
+interface CollectionSpec {
+  name: string;
+  payloadIndexes: PayloadIndex[];
+}
+
+// Indexed payload fields per collection. Keep narrow and intentional —
+// each indexed field costs Qdrant memory; only index what we filter or
+// sort by.
+const COLLECTIONS: CollectionSpec[] = [
+  {
+    name: 'email_messages',
+    payloadIndexes: [
+      // STAQPRO-188 / STAQPRO-191
+      { field: 'message_id', schema: 'keyword' },
+      { field: 'thread_id', schema: 'keyword' },
+      { field: 'sender', schema: 'keyword' },
+      { field: 'direction', schema: 'keyword' },
+      { field: 'sent_at', schema: 'datetime' },
+      { field: 'classification_category', schema: 'keyword' },
+      { field: 'persona_key', schema: 'keyword' },
+    ],
+  },
+  {
+    name: 'kb_documents',
+    payloadIndexes: [
+      // STAQPRO-148
+      // - doc_id:      cascade-delete filter target (DELETE /api/kb-documents/[id])
+      // - chunk_index: ordered preview / debugging
+      // - mime_type:   future filter for biasing toward policy vs price-sheet
+      { field: 'doc_id', schema: 'integer' },
+      { field: 'chunk_index', schema: 'integer' },
+      { field: 'mime_type', schema: 'keyword' },
+    ],
+  },
 ];
 
 interface QdrantErrorBody {
@@ -72,52 +91,56 @@ async function qdrantRequest(
   return { status: res.status, json };
 }
 
-async function ensureCollection(): Promise<void> {
-  const probe = await qdrantRequest('GET', `/collections/${COLLECTION}`);
+async function ensureCollection(name: string): Promise<void> {
+  const probe = await qdrantRequest('GET', `/collections/${name}`);
   if (probe.status === 200) {
-    console.log(`[qdrant-bootstrap] collection '${COLLECTION}' already exists — skip create`);
+    console.log(`[qdrant-bootstrap] collection '${name}' already exists — skip create`);
     return;
   }
   if (probe.status !== 404) {
     throw new Error(
-      `[qdrant-bootstrap] unexpected status ${probe.status} probing collection: ${JSON.stringify(probe.json)}`,
+      `[qdrant-bootstrap] unexpected status ${probe.status} probing collection '${name}': ${JSON.stringify(probe.json)}`,
     );
   }
 
-  const create = await qdrantRequest('PUT', `/collections/${COLLECTION}`, {
+  const create = await qdrantRequest('PUT', `/collections/${name}`, {
     vectors: { size: VECTOR_SIZE, distance: DISTANCE },
   });
   if (create.status !== 200) {
     const err =
       (create.json as QdrantErrorBody | null)?.status?.error ?? JSON.stringify(create.json);
-    throw new Error(`[qdrant-bootstrap] create collection failed (${create.status}): ${err}`);
+    throw new Error(
+      `[qdrant-bootstrap] create collection '${name}' failed (${create.status}): ${err}`,
+    );
   }
-  console.log(
-    `[qdrant-bootstrap] created collection '${COLLECTION}' (${VECTOR_SIZE}d ${DISTANCE})`,
-  );
+  console.log(`[qdrant-bootstrap] created collection '${name}' (${VECTOR_SIZE}d ${DISTANCE})`);
 }
 
-async function ensurePayloadIndexes(): Promise<void> {
-  for (const idx of PAYLOAD_INDEXES) {
-    const res = await qdrantRequest('PUT', `/collections/${COLLECTION}/index`, {
+async function ensurePayloadIndexes(name: string, indexes: PayloadIndex[]): Promise<void> {
+  for (const idx of indexes) {
+    const res = await qdrantRequest('PUT', `/collections/${name}/index`, {
       field_name: idx.field,
       field_schema: idx.schema,
     });
-    // Qdrant returns 200 whether the index was created or already existed.
     if (res.status !== 200) {
       const err = (res.json as QdrantErrorBody | null)?.status?.error ?? JSON.stringify(res.json);
       throw new Error(
-        `[qdrant-bootstrap] payload index ${idx.field} (${idx.schema}) failed (${res.status}): ${err}`,
+        `[qdrant-bootstrap] payload index ${name}/${idx.field} (${idx.schema}) failed (${res.status}): ${err}`,
       );
     }
-    console.log(`[qdrant-bootstrap] payload index '${idx.field}' (${idx.schema}) ensured`);
+    console.log(
+      `[qdrant-bootstrap] '${name}' payload index '${idx.field}' (${idx.schema}) ensured`,
+    );
   }
 }
 
 async function main(): Promise<void> {
-  console.log(`[qdrant-bootstrap] target=${QDRANT_URL} collection=${COLLECTION}`);
-  await ensureCollection();
-  await ensurePayloadIndexes();
+  console.log(`[qdrant-bootstrap] target=${QDRANT_URL}`);
+  for (const spec of COLLECTIONS) {
+    console.log(`[qdrant-bootstrap] === ${spec.name} ===`);
+    await ensureCollection(spec.name);
+    await ensurePayloadIndexes(spec.name, spec.payloadIndexes);
+  }
   console.log('[qdrant-bootstrap] complete');
 }
 

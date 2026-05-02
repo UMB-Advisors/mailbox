@@ -809,6 +809,83 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ── STAQPRO-148 (migration 014): kb_documents + kb_context_refs ──────────
+-- Hand-applied to fixture pending next pg_dump refresh from Bob.
+
+CREATE TABLE IF NOT EXISTS mailbox.kb_documents (
+  id                    SERIAL PRIMARY KEY,
+  title                 TEXT NOT NULL,
+  filename              TEXT NOT NULL,
+  mime_type             TEXT NOT NULL,
+  size_bytes            BIGINT NOT NULL,
+  sha256                TEXT NOT NULL,
+  chunk_count           INTEGER NOT NULL DEFAULT 0,
+  status                TEXT NOT NULL DEFAULT 'processing',
+  error_message         TEXT,
+  uploaded_by           TEXT,
+  metadata              JSONB NOT NULL DEFAULT '{}'::jsonb,
+  uploaded_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processing_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ready_at              TIMESTAMPTZ,
+  CONSTRAINT kb_documents_sha256_unique UNIQUE (sha256),
+  CONSTRAINT kb_documents_status_check CHECK (status = ANY (ARRAY[
+    'processing',
+    'ready',
+    'failed'
+  ])),
+  CONSTRAINT kb_documents_size_positive CHECK (size_bytes > 0),
+  CONSTRAINT kb_documents_chunk_count_nonneg CHECK (chunk_count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS kb_documents_status_idx
+  ON mailbox.kb_documents (status);
+
+CREATE INDEX IF NOT EXISTS kb_documents_uploaded_at_idx
+  ON mailbox.kb_documents (uploaded_at DESC);
+
+CREATE INDEX IF NOT EXISTS kb_documents_processing_started_idx
+  ON mailbox.kb_documents (processing_started_at)
+  WHERE status = 'processing';
+
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS kb_context_refs JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE mailbox.sent_history
+  ADD COLUMN IF NOT EXISTS kb_context_refs JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- v014 trigger function: extends 013 to also carry kb_context_refs.
+CREATE OR REPLACE FUNCTION mailbox.archive_draft_to_sent_history()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent' THEN
+        IF EXISTS (SELECT 1 FROM mailbox.sent_history WHERE draft_id = NEW.id) THEN
+            RETURN NEW;
+        END IF;
+
+        INSERT INTO mailbox.sent_history (
+            draft_id, inbox_message_id, from_addr, to_addr, subject, body_text,
+            thread_id, draft_original, draft_sent, draft_source,
+            classification_category, classification_confidence, sent_at,
+            rag_context_refs, rag_retrieval_reason, kb_context_refs
+        ) VALUES (
+            NEW.id, NEW.inbox_message_id,
+            COALESCE(NEW.from_addr, ''), COALESCE(NEW.to_addr, ''),
+            NEW.subject, NEW.body_text, NEW.thread_id,
+            COALESCE(NEW.original_draft_body, NEW.draft_body),
+            NEW.draft_body,
+            COALESCE(NEW.draft_source, 'local'),
+            COALESCE(NEW.classification_category, 'unknown'),
+            COALESCE(NEW.classification_confidence, 0.0),
+            COALESCE(NEW.sent_at, NOW()),
+            COALESCE(NEW.rag_context_refs, '[]'::jsonb),
+            COALESCE(NEW.rag_retrieval_reason, 'none'),
+            COALESCE(NEW.kb_context_refs, '[]'::jsonb)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 --
 -- PostgreSQL database dump complete
 --

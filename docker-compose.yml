@@ -113,6 +113,12 @@ services:
       N8N_WEBHOOK_URL: http://n8n:5678/webhook/mailbox-send
       NODE_ENV: production
       PORT: "3001"
+      # STAQPRO-148 — KB upload original-bytes storage. Sha256-keyed file
+      # lifecycle handled by lib/rag/kb-ingest.ts. Survives container
+      # recreation via the mailbox_kb_uploads named volume below.
+      KB_STORAGE_DIR: /var/lib/mailbox/kb
+    volumes:
+      - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,6 +165,10 @@ services:
 volumes:
   postgres_data: null
   qdrant_data: null
+  # STAQPRO-148 — original KB upload bytes (sha256-keyed). Backed up alongside
+  # other named volumes; deletes via DELETE /api/kb-documents are idempotent
+  # against missing files (fs.rm with force:true).
+  mailbox_kb_uploads: null
   ollama_models: null
   n8n_data: null
   caddy_data: null
