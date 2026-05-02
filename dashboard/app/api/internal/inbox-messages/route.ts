@@ -2,6 +2,9 @@ import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import { getKysely } from '@/lib/db';
 import { parseJson } from '@/lib/middleware/validate';
+import { embedText } from '@/lib/rag/embed';
+import { buildBodyExcerpt, buildEmbeddingInput } from '@/lib/rag/excerpt';
+import { upsertEmailPoint } from '@/lib/rag/qdrant';
 import { inboxMessageInsertBodySchema } from '@/lib/schemas/internal';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +54,26 @@ export async function POST(req: NextRequest) {
       .returning(['id', 'message_id', sql<boolean>`xmax = 0`.as('created')])
       .executeTakeFirstOrThrow();
 
+    // STAQPRO-190 — fire-and-forget embed + Qdrant upsert for newly-inserted
+    // inbox rows. Skipped on dedup (created=false) since the point already
+    // exists with deterministic id (idempotent on re-run anyway, but skipping
+    // saves an Ollama call per 5-min Gmail poll cycle).
+    //
+    // Failure is silent on purpose: RAG is augmentation, not gate. The
+    // response to n8n must not depend on Qdrant/Ollama health, otherwise a
+    // momentarily-down RAG stack stalls the draft pipeline.
+    if (row.created) {
+      void embedAndUpsertInbound({
+        message_id: row.message_id,
+        thread_id: rest.thread_id ?? null,
+        sender: rest.from_addr ?? '',
+        recipient: rest.to_addr ?? '',
+        subject: rest.subject ?? null,
+        body: rest.body ?? '',
+        sent_at: received_at ?? new Date().toISOString(),
+      });
+    }
+
     return NextResponse.json({
       id: row.id,
       message_id: row.message_id,
@@ -62,5 +85,38 @@ export async function POST(req: NextRequest) {
       { error: error instanceof Error ? error.message : 'Internal error' },
       { status: 500 },
     );
+  }
+}
+
+interface EmbedInboundParams {
+  message_id: string;
+  thread_id: string | null;
+  sender: string;
+  recipient: string;
+  subject: string | null;
+  body: string;
+  sent_at: string;
+}
+
+async function embedAndUpsertInbound(params: EmbedInboundParams): Promise<void> {
+  try {
+    const excerpt = buildBodyExcerpt(params.body);
+    const input = buildEmbeddingInput(params.subject, excerpt);
+    if (!input.trim()) return;
+    const vector = await embedText(input);
+    if (!vector) return;
+    await upsertEmailPoint(vector, {
+      message_id: params.message_id,
+      thread_id: params.thread_id,
+      sender: params.sender,
+      recipient: params.recipient,
+      subject: params.subject,
+      body_excerpt: excerpt,
+      sent_at: params.sent_at,
+      direction: 'inbound',
+      classification_category: null,
+    });
+  } catch (err) {
+    console.error('[rag] inbound embed/upsert failed (non-fatal):', err);
   }
 }

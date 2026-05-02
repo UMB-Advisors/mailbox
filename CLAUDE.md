@@ -225,6 +225,16 @@ Schedule (5 min)
 - `LOCAL_CATEGORIES` (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`) → local Qwen3
 - `CLOUD_CATEGORIES` (`escalate`, `unknown`) → Ollama Cloud (`gpt-oss:120b` default; `OLLAMA_CLOUD_MODEL` env override)
 
+### RAG ingestion (M3.5 / STAQPRO-190)
+
+The Qdrant `email_messages` collection (STAQPRO-188) is populated by:
+
+- **Inbound — automatic.** `/api/internal/inbox-messages` POST (called by n8n `MailBOX > Insert Inbox` node) fires a fire-and-forget `embedText() → upsertEmailPoint()` after a successful insert (only when `created=true` to skip dedupe re-fires). Failures are logged and swallowed; n8n's response is not blocked. Latency-wise the embed runs in parallel with the response, so the 5-min poll cycle isn't extended.
+- **Outbound — explicit.** `POST /api/internal/embed` (`dashboard/app/api/internal/embed/route.ts`) is the single entry point. The `MailBOX-Send` workflow should add an HTTP node *after* `Mark Sent` that POSTs `{ message_id, sender, recipient, subject, body, sent_at, direction: 'outbound', classification_category }` to `http://mailbox-dashboard:3001/api/internal/embed`. The route is idempotent on `message_id` (deterministic Qdrant point UUID), so re-fires are safe.
+- **Backfill — one-shot.** `npm run rag:backfill` (or the `mailbox-dashboard` container `npx tsx scripts/rag-backfill.ts`) backfills from `mailbox.inbox_messages` + `mailbox.sent_history` over a configurable lookback window (`RAG_BACKFILL_LOOKBACK_DAYS`, default 90). Idempotent on point UUID. Gmail History-API backfill (pre-appliance history) is intentionally deferred — the local-row corpus is the v1 starting point.
+
+Failure semantics: every RAG path returns success-shaped responses on Ollama or Qdrant outage so the draft pipeline keeps running. RAG is augmentation, not gate.
+
 ### Active decision records
 
 | DR | Decision | Status |
