@@ -95,6 +95,124 @@ DB-backed tests skip without `TEST_POSTGRES_URL`. CI bootstraps a postgres:17-al
 Infrastructure smoke remains: `scripts/smoke-test.sh` (GPU/Qdrant/Postgres health) and the in-container `smoke-draft.mjs`.
 <!-- GSD:architecture-end -->
 
+<!-- GSD:n8n-boundary-start source:N8N-BOUNDARY.md -->
+## n8n Boundary Contract (STAQPRO-186)
+
+> Single canonical writeup of every wire we share with n8n. Cheap insurance per the 2026-05-01 architecture audit (Liotta + Linus + Neo Architect, unanimous keep-n8n): if n8n 3.x ever forces a breaking upgrade or memory pressure forces a smaller runtime, this contract is small enough to reimplement in a single sprint (STAQPRO-187 tracks the post-customer-#2 spike).
+>
+> Source of truth: `dashboard/app/api/{internal,onboarding}/**/route.ts` for our side, `n8n/workflows/*.json` for n8n's side. If those drift from this doc, the code wins — file an issue.
+
+### Direction 1: dashboard → n8n (webhooks n8n exposes)
+
+Both endpoints live on `http://n8n:5678/...` over the docker-compose internal network. **Caddy is not in the loop** — `/webhook/*` is basic_auth gated at the public edge per STAQPRO-161, but dashboard-to-n8n traffic uses internal docker DNS and bypasses Caddy entirely.
+
+| Webhook | Caller | Body | Response | Side effects |
+|---|---|---|---|---|
+| `POST /webhook/mailbox-send` | `dashboard/lib/n8n.ts` (called by approve, retry, transitions) | `{ draft_id: number }` | `respondToWebhook` "When Last Node Finishes". Three terminal nodes: `Respond Success` (draft loaded + sent), `Respond Failure` (Gmail Reply errored), `Respond Not Found` (draft id missing) | `MailBOX-Send` loads `mailbox.drafts` → `Gmail Reply` via OAuth → `UPDATE drafts SET status='sent'` (or `'failed'`) + writes `sent_at` / `gmail_message_id`. State-transition trigger (STAQPRO-185, migration 009) defaults `actor='system'` for these flips. |
+| `POST /webhook/mailbox-fetch-history` | `dashboard/lib/onboarding/gmail-history-backfill.ts` (called by `POST /api/onboarding/backfill`) | `{ days_lookback?: number, max_messages?: number }` (defaults: 180 days / 5000 msgs) | NDJSON stream of sent-history rows | `MailBOX-FetchHistory` lists Gmail Sent over lookback window (`q=in:sent after:<computed-date>`); per-message PII scrub + reply-pairing happens in the dashboard ingestor, not n8n. |
+
+**URL configuration:**
+- `N8N_WEBHOOK_URL` (mailbox-send) — set in `dashboard/deploy/docker-compose.snippet.yml` to `http://n8n:5678/webhook/mailbox-send`
+- `MAILBOX_FETCH_HISTORY_URL` (mailbox-fetch-history) — defaults to `http://n8n:5678/webhook/mailbox-fetch-history` if env var absent (`dashboard/lib/onboarding/gmail-history-backfill.ts:398`)
+
+**Failure handling:**
+- Approve route does NOT roll back `drafts.status='approved'` on webhook failure (REQUIREMENTS API-03). Returns 502 with details; operator manual retry via the dashboard `/retry` route. Reason: a partial-send + rollback would risk a double-send if the webhook actually delivered before failing the response.
+- Backfill route streams; partial failure mid-stream is logged and a 502 returned; operator decides whether to re-run.
+
+### Direction 2: n8n → dashboard (internal API routes the dashboard exposes)
+
+All routes live on `http://mailbox-dashboard:3001/...` over the docker network. **Not Caddy basic_auth gated** — they're called from n8n inside docker. Treat them as trust-boundary inputs and zod-validate aggressively (STAQPRO-138 wired the schemas; HMAC header gating is a planned hardening, not yet wired).
+
+#### `POST /api/internal/inbox-messages` — STAQPRO-135 (replaces n8n Postgres `Insert Inbox` node)
+- **Caller**: `MailBOX` parent workflow, `Insert Inbox (HTTP)` node
+- **Schema**: `inboxMessageInsertBodySchema` in `lib/schemas/internal.ts` — `{ message_id (Gmail msg id, required), thread_id?, from_addr?, to_addr?, subject?, snippet?, body?, in_reply_to?, references?, received_at? }`
+- **Response (LOCKED — downstream `MailBOX-Classify > Load Inbox Row` reads `$json.id`)**: `{ id: number, message_id: string, created: boolean }`. `created` distinguishes a fresh INSERT from a dedupe-on-`message_id` skip via the postgres `xmax = 0` trick.
+- **Side effects**:
+  - Upserts row in `mailbox.inbox_messages` (deduplicated on `message_id`)
+  - When `created=true`: fires fire-and-forget `embedText()` → `upsertEmailPoint()` for the new inbound into Qdrant `email_messages` collection (RAG ingestion, STAQPRO-190). Failures swallowed — never blocks the route response.
+- **Why HTTP (not Postgres node)**: see STAQPRO-135. n8n Postgres node UPSERT couldn't surface the `created` flag without a separate SELECT, and the IF gate downstream ("skip Classify on dedup hits") needed it.
+
+#### `POST /api/internal/classification-prompt` — assemble classify prompt
+- **Caller**: `MailBOX-Classify`, `Build Prompt` node
+- **Schema**: `classificationPromptBodySchema` — `{ from?, subject?, body? }` (all optional; route falls back to `''`)
+- **Response**: full Ollama `/api/generate` payload ready to forward (prompt + model + stop tokens + options)
+- **Side effects**: read-only
+
+#### `POST /api/internal/classification-normalize` — Qwen3 output → enum + confidence
+- **Caller**: `MailBOX-Classify`, `Normalize` node
+- **Schema**: `classificationNormalizeBodySchema` — `{ raw?: string, from?: string, to?: string }`. `from`/`to` feed the deterministic operator-domain preclass per DR-50.
+- **Response**: normalized result `{ category, confidence, reason, route, persona_key, ... }` ready for the `Insert Draft Stub` node
+- **Side effects**: read-only at the route level. The classification log row (`mailbox.classification_log`) is written by n8n's `Shape Log Row` + Postgres node downstream, not by this route.
+
+#### `POST /api/internal/draft-prompt` — assemble drafting prompt + RAG retrieval
+- **Caller**: `MailBOX-Draft`, `Get Prompt` node
+- **Schema**: `draftPromptBodySchema` — `{ draft_id: number }`
+- **Response**: `{ draft_id, baseUrl, apiKey, model, source, display_label, messages, max_tokens, temperature, rag: { refs_count, reason } }` — full LLM call payload, route-aware (local vs cloud). `baseUrl`+`apiKey` are forwarded to n8n per-call (Ollama Cloud / Anthropic credentials never live in n8n's credential store).
+- **Side effects**:
+  - Resolves persona context (operator override → extraction-derived → Heron default per STAQPRO-195)
+  - **Unconditionally writes** `drafts.rag_context_refs` (jsonb point UUIDs) and `drafts.rag_retrieval_reason` (`'ok' | 'cloud_gated' | 'embed_unavailable' | 'no_hits' | 'qdrant_unavailable' | 'none'`) — even when refs is empty, so the audit chain captures retrieval attempts (STAQPRO-191)
+- **Status codes**: `404` if draft missing, `422` if persona resolution fails, `500` on internal error
+
+#### `POST /api/internal/draft-finalize` — persist LLM output
+- **Caller**: `MailBOX-Draft`, `Finalize Draft` node, after the Ollama HTTP call returns
+- **Schema**: `draftFinalizeBodySchema` — `{ draft_id, body (non-empty), source: 'local' | 'cloud', model, input_tokens?, output_tokens? }`
+- **Response**: `{ ok: true, draft_id, id, status, draft_source, model, input_tokens, output_tokens, cost_usd }` — `cost_usd` is the persisted NUMERIC-as-string echoed from `RETURNING`.
+- **Side effects**: updates `mailbox.drafts` row with body + source + model + token counts + computed `cost_usd` (PRICING table in `lib/drafting/cost.ts` — not n8n's job). **Does NOT change `drafts.status`** — status was set to `pending` when `Insert Draft Stub` ran in `MailBOX-Classify`.
+
+#### `POST /api/internal/embed` — STAQPRO-190 ingestion entry point
+- **Caller**: `MailBOX-Send` should add an HTTP node **after `Mark Sent`** to POST outbound embeddings; also called as an internal helper from `inbox-messages` for inbound (not directly by n8n in that case).
+- **Schema**: `embedRequestBodySchema` — `{ message_id, sender, recipient, subject?, body, sent_at, direction: 'inbound' | 'outbound', classification_category? }`
+- **Response**: `{ ok: true, message_id, point_id }` on success; `{ ok: false, message_id, reason }` on infra failure (`empty_input` | `embed_unavailable` | `qdrant_upsert_failed: <detail>`). **Bad-shape body returns 400** (caller bug); infra failure returns 200 with `ok:false` (RAG is augmentation, not gate).
+- **Side effects**: embed via `nomic-embed-text:v1.5` on local Ollama → upsert one Qdrant point in `email_messages` collection. Idempotent on `message_id` (deterministic UUID via `pointIdFromMessageId(message_id)`).
+
+#### `GET /api/onboarding/live-gate` — gate classify/draft execution behind onboarding completion
+- **Caller**: `MailBOX-Classify` (and friends) — checked early in each cycle. **Note: GET not POST.**
+- **Response**: `{ live: boolean, stage: string, bypass: boolean }`. `live=false` halts processing for the cycle. `bypass=true` when `MAILBOX_LIVE_GATE_BYPASS=1` is set (dogfood escape hatch). On error: returns `{ live: false, stage: 'error', bypass: false, error }` with status `500` — **fail closed**, never accidentally allow drafting because the gate errored.
+- **Side effects**: read-only
+
+### Credentials n8n owns
+
+n8n's encrypted credential store lives in the `credentials_entity` Postgres table on the same Postgres instance as `mailbox.*`. The encryption key is `N8N_ENCRYPTION_KEY` (env var, generated once via `openssl rand -hex 32`). **If the key is lost, every stored credential is unrecoverable** — operator must re-authorize Gmail OAuth and re-enter the Postgres credential.
+
+| Credential | Type | n8n credential ID | Used by | Owner / sourcing |
+|---|---|---|---|---|
+| **Gmail OAuth** | `gmailOAuth2` (n8n credential name "Gmail account") | per-instance | `MailBOX > Gmail Get`, `MailBOX-Send > Gmail Reply`, `MailBOX-FetchHistory > Gmail List/Get` | **Per-customer OAuth client** (current state, customers #1+#2 — one-off setup in customer's GCP project, sees "unverified app" warning during consent). **Future state**: shared Staqs OAuth client post-Google App Verification, tracked in **STAQPRO-197**. Refresh token encrypted at rest in `credentials_entity`. |
+| **Postgres** | `postgres` (n8n credential name "MailBox Postgres") | `JFX4tvrffvKnTouV` | All 4 sub-workflows for `mailbox.*` reads/writes (every `Postgres` node references this id) | Single appliance Postgres pool. **Hardcoded ID in workflow JSONs** (Linus flagged in 186 ticket) — if the credential is recreated rather than restored from the n8n volume, the ID changes and all 4 workflow JSONs break until re-imported or rewritten. **Mitigation**: always restore from the `n8n_data` named volume on container recreate; never hand-recreate the credential. If the ID does change, fix is a sed across `n8n/workflows/*.json` + re-import all 4. |
+
+**Anthropic + Ollama Cloud are NOT n8n credentials** — they're env vars (`ANTHROPIC_API_KEY`, `OLLAMA_CLOUD_BASE_URL`, `OLLAMA_CLOUD_API_KEY`) read by `dashboard/app/api/internal/draft-prompt/route.ts` and forwarded to n8n in the `baseUrl` / `apiKey` response fields per call. n8n receives the secrets per-request as part of the prompt payload; the secrets never enter n8n's credential store. Rotation = update env + restart `mailbox-dashboard`; n8n needs no change.
+
+### Schedule + cron
+
+- **Parent workflow `MailBOX`**: `n8n-nodes-base.scheduleTrigger` at 5-minute interval (`minutesInterval: 5`). This is the **only** schedule trigger in the system.
+- **Sub-workflows** (`MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`): no triggers — invoked via `executeWorkflowTrigger` from upstream nodes. Their `active` flag should be `false` to avoid n8n's "no native trigger" cosmetic-but-loud activation errors on every restart (root CLAUDE.md gotcha).
+- **`MailBOX-FetchHistory`**: webhook trigger only (`/webhook/mailbox-fetch-history`).
+- **No cron jobs run inside n8n.** The dashboard's `/api/system/status` aggregator is a pull-pattern (operator views the page), not a push.
+
+### Retry semantics
+
+**Per-node defaults are 0 retries across the board.** This is intentional for the live customer #1 path (avoid double-sends, double-classifies) but **Linus flagged it in the STAQPRO-186 ticket as something to revisit** — currently we depend on operator manual retry + the 5-min Schedule cycle's inherent at-least-once behavior on dedup-keyed inserts.
+
+| Failure | Behavior | Recovery path |
+|---|---|---|
+| Internal HTTP route returns 5xx | n8n workflow execution fails; surfaces error in execution log; no auto-retry | Operator views error in n8n UI; fix root cause; manually re-trigger from `Insert Inbox` node, OR wait for next 5-min cycle (`message_id` dedup will handle re-fires) |
+| Postgres node fails (e.g., conn exhaustion) | Workflow fails; same recovery | Same |
+| Gmail node 429 or 5xx | n8n's Gmail node uses Google's HTTP client which has built-in backoff for 429s; for 5xx the workflow fails | Wait for rate limit reset OR retry via `Insert Inbox` |
+| `mailbox-send` webhook fails (dashboard side) | Returns 502 to dashboard. Dashboard does NOT roll back `drafts.status='approved'` (REQUIREMENTS API-03 — risk of double-send if the send actually delivered). Operator manual retry via `/api/drafts/[id]/retry`. | Operator clicks Retry in queue UI |
+| `Insert Inbox` empty cycle (no Gmail returns) | `Run Classify Sub` fires once with empty `$json`, errors at `Load Inbox Row` | **Pre-existing benign error** — appears in logs every empty 5-min poll. Documented in root CLAUDE.md gotchas. STAQPRO-135 added an `Only If Newly Inserted` IF gate to suppress this on dedup-skip; the empty-poll case still trips it. |
+
+### Operational invariants
+
+- **Caddy `/webhook/*` at the public edge is basic_auth gated** (STAQPRO-161, post DR-22 KILL). Internal docker network calls (dashboard → n8n on `n8n:5678`) bypass Caddy entirely.
+- **`mailbox.drafts.status` is the source of truth** for "where is this draft." n8n MUST NOT skip the dashboard-mediated approval gate. The only legal `drafts.status` writes from n8n are inside `MailBOX-Send` (`'sent'` or `'failed'` after Gmail Reply); all other state changes go through `/api/internal/draft-finalize` or dashboard CRUD routes.
+- **State-transition log integrity**: any flip done by n8n's Postgres node defaults to `actor='system'` in the migration 009 trigger. Dashboard-mediated flips (approve/retry) set `actor='operator'` explicitly via session-local GUC. Don't add ad-hoc `state_transitions` writes from app code.
+- **Workflow JSON deploy = `docker compose restart n8n`**. `n8n import:workflow` defaults to `active=false` — don't import without reactivating + restarting (STAQPRO-135 deploy hit this; customer #1 dark for ~2 minutes). Deploy invocation: `n8n import:workflow ...` + `n8n update:workflow --active=true` + `docker compose restart n8n` in a single SSH session.
+- **`n8n update:workflow --active=...` is a no-op at runtime without a container restart** — it persists to the DB but the live runtime keeps the cached activation state.
+
+### If we ever rip out n8n
+
+This contract is the spec for the replacement. A ~100-line `setInterval` poll loop in the dashboard plus a Gmail OAuth library (`googleapis`) plus a small webhook router would replace it. STAQPRO-187 (post-customer-#2 spike, gated on customer #2 stable + STAQPRO-133 + STAQPRO-185) tracks the proof-of-concept. The boundary is intentionally narrow: **2 webhooks one direction, 7 routes the other, 2 credentials.** Total surface fits on this page.
+<!-- GSD:n8n-boundary-end -->
+
 <!-- GSD:workflow-start source:GSD defaults -->
 ## GSD Workflow Enforcement
 
