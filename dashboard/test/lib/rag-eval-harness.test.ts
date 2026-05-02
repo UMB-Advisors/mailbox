@@ -352,6 +352,10 @@ describe('scorePair — STAQPRO-198', () => {
         },
       ],
       reason: 'ok' as const,
+      // STAQPRO-148 — KB shape required by the post-merge RetrievalResult.
+      // Empty here since the test asserts only the email refs surface.
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
     }));
     const personaMock = vi.fn(async () => ({
       tone: 'concise',
