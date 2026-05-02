@@ -756,6 +756,59 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Migration 013 — STAQPRO-191 rag_retrieval_reason column + trigger carry of
+-- rag_context_refs / rag_retrieval_reason from drafts → sent_history.
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS rag_retrieval_reason TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE mailbox.sent_history
+  ADD COLUMN IF NOT EXISTS rag_retrieval_reason TEXT NOT NULL DEFAULT 'none';
+
+CREATE OR REPLACE FUNCTION mailbox.archive_draft_to_sent_history()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent' THEN
+        IF EXISTS (SELECT 1 FROM mailbox.sent_history WHERE draft_id = NEW.id) THEN
+            RETURN NEW;
+        END IF;
+
+        INSERT INTO mailbox.sent_history (
+            draft_id,
+            inbox_message_id,
+            from_addr,
+            to_addr,
+            subject,
+            body_text,
+            thread_id,
+            draft_original,
+            draft_sent,
+            draft_source,
+            classification_category,
+            classification_confidence,
+            sent_at,
+            rag_context_refs,
+            rag_retrieval_reason
+        ) VALUES (
+            NEW.id,
+            NEW.inbox_message_id,
+            COALESCE(NEW.from_addr, ''),
+            COALESCE(NEW.to_addr, ''),
+            NEW.subject,
+            NEW.body_text,
+            NEW.thread_id,
+            COALESCE(NEW.original_draft_body, NEW.draft_body),
+            NEW.draft_body,
+            COALESCE(NEW.draft_source, 'local'),
+            COALESCE(NEW.classification_category, 'unknown'),
+            COALESCE(NEW.classification_confidence, 0.0),
+            COALESCE(NEW.sent_at, NOW()),
+            COALESCE(NEW.rag_context_refs, '[]'::jsonb),
+            COALESCE(NEW.rag_retrieval_reason, 'none')
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 --
 -- PostgreSQL database dump complete
 --

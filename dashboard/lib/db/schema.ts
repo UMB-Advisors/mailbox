@@ -60,6 +60,7 @@ export interface Drafts {
   original_draft_body: string | null;
   output_tokens: number | null;
   rag_context_refs: Generated<Json>;
+  rag_retrieval_reason: Generated<string>;
   received_at: string | null;
   references: string | null;
   sent_at: string | null;
@@ -148,6 +149,7 @@ export interface SentHistory {
   inbox_message_id: number | null;
   message_id: string | null;
   rag_context_refs: Generated<Json>;
+  rag_retrieval_reason: Generated<string>;
   sent_at: string;
   source: Generated<string>;
   subject: string | null;

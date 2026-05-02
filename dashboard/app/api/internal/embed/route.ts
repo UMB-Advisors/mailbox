@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { parseJson } from '@/lib/middleware/validate';
 import { embedText } from '@/lib/rag/embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from '@/lib/rag/excerpt';
-import { upsertEmailPoint } from '@/lib/rag/qdrant';
+import { normalizeSender, upsertEmailPoint } from '@/lib/rag/qdrant';
 import { embedRequestBodySchema } from '@/lib/schemas/rag';
 
 export const dynamic = 'force-dynamic';
@@ -53,13 +53,19 @@ export async function POST(req: NextRequest) {
   const upsert = await upsertEmailPoint(vector, {
     message_id: body.message_id,
     thread_id: body.thread_id ?? null,
-    sender: body.sender,
+    // STAQPRO-191 — symmetric with retrieve.ts. Outbound rows from
+    // MailBOX-Send carry 'sender' as either Gmail-shaped 'Name <addr>'
+    // or bare addr depending on the n8n node config; normalize both.
+    sender: normalizeSender(body.sender),
     recipient: body.recipient,
     subject: body.subject ?? null,
     body_excerpt: excerpt,
     sent_at: body.sent_at,
     direction: body.direction,
     classification_category: body.classification_category ?? null,
+    // STAQPRO-191 — single-persona appliances all seed 'default'. Future
+    // multi-persona ingestion will plumb persona_key through the schema.
+    persona_key: 'default',
   });
 
   if (!upsert.ok) {

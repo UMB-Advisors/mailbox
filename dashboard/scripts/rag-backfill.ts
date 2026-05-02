@@ -26,7 +26,7 @@ import process from 'node:process';
 import { Pool } from 'pg';
 import { embedText } from '../lib/rag/embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from '../lib/rag/excerpt';
-import { type Direction, upsertEmailPoint } from '../lib/rag/qdrant';
+import { type Direction, normalizeSender, upsertEmailPoint } from '../lib/rag/qdrant';
 
 interface BackfillRow {
   message_id: string;
@@ -92,13 +92,19 @@ async function backfillRow(row: BackfillRow): Promise<'ok' | 'skip' | 'fail'> {
   const r = await upsertEmailPoint(vector, {
     message_id: row.message_id,
     thread_id: row.thread_id,
-    sender: row.sender,
+    // STAQPRO-191 — symmetric with retrieve.ts. Existing Heron rows seeded
+    // before this commit may have unnormalized senders; re-running this
+    // backfill (idempotent on point UUID) overwrites the payload with the
+    // normalized form.
+    sender: normalizeSender(row.sender),
     recipient: row.recipient,
     subject: row.subject,
     body_excerpt: excerpt,
     sent_at: typeof row.sent_at === 'string' ? row.sent_at : new Date(row.sent_at).toISOString(),
     direction: row.direction,
     classification_category: row.classification_category,
+    // STAQPRO-191 — single-persona appliances all seed 'default'.
+    persona_key: 'default',
   });
   return r.ok ? 'ok' : 'fail';
 }
