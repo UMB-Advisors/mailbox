@@ -128,7 +128,12 @@ function excerptCharCap(): number {
   return Number(process.env.RAG_RETRIEVE_EXCERPT_CHARS ?? 600);
 }
 function kbExcerptCharCap(): number {
-  return Number(process.env.KB_RETRIEVE_EXCERPT_CHARS ?? 800);
+  // STAQPRO-148 — 600 to match ragBlock per-chunk cap and stay under the
+  // Qwen3-4B 4096-token ctx ceiling when ragBlock + kbBlock both fire on
+  // a long-body inbound (Linus pre-flight on commit 36d8949). Combined
+  // worst case: 1500 (body) + 450 (rag) + 450 (kb) + 600 (system) = ~3000
+  // tokens, leaving ~1000 for completion.
+  return Number(process.env.KB_RETRIEVE_EXCERPT_CHARS ?? 600);
 }
 
 // Lazy env read so operators can flip RAG_CLOUD_ROUTE_ENABLED without a
@@ -179,14 +184,19 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
   // Empty sender means a malformed inbound; both email retrieval (sender-
   // filtered) and KB retrieval (corpus-wide) skip — the draft itself is
   // unlikely to be useful.
+  //
+  // STAQPRO-148 — kb_reason='none' (not 'no_hits') for short-circuits:
+  // 'no_hits' means "we searched and found nothing"; 'none' means "we
+  // never attempted." Future KB hit-rate eval needs to disambiguate these.
+  // (Linus pre-flight on commit 36d8949.)
   const normalizedSender = normalizeSender(input.from_addr);
   if (!normalizedSender) {
-    return { refs: [], reason: 'no_hits', kb_refs: [], kb_reason: 'no_hits' };
+    return { refs: [], reason: 'no_hits', kb_refs: [], kb_reason: 'none' };
   }
 
   const embedInput = buildEmbeddingInput(input.subject, buildBodyExcerpt(input.body_text));
   if (!embedInput.trim()) {
-    return { refs: [], reason: 'no_hits', kb_refs: [], kb_reason: 'no_hits' };
+    return { refs: [], reason: 'no_hits', kb_refs: [], kb_reason: 'none' };
   }
 
   const vector = await embedText(embedInput);

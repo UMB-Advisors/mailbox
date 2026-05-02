@@ -201,8 +201,10 @@ describe('retrieveForDraft — STAQPRO-191', () => {
     expect(r.reason).toBe('no_hits');
     expect(r.refs).toEqual([]);
     // STAQPRO-148 — empty sender short-circuits BOTH retrievals (no embed
-    // budget burned for a malformed inbound).
-    expect(r.kb_reason).toBe('no_hits');
+    // budget burned for a malformed inbound). KB reason is 'none' (not
+    // attempted) rather than 'no_hits' (searched, found nothing) — the
+    // distinction matters for future KB hit-rate eval (Linus pre-flight).
+    expect(r.kb_reason).toBe('none');
     expect(r.kb_refs).toEqual([]);
   });
 
