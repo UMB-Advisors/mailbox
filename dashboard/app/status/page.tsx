@@ -12,6 +12,7 @@ import {
   getDiskFree,
   getDraftBacklogAged,
   getDraftCounts24h,
+  getEditRate7d,
   getLastEmailReceivedAt,
   getLastError,
   getLastInferenceLatency,
@@ -20,6 +21,7 @@ import {
   getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
+import { buildRagEvalSnapshot, type RagEvalSnapshot } from '@/lib/rag/eval-baseline';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +42,7 @@ export default async function StatusPage() {
     draftBacklogAged,
     n8nFailures24h,
     cloudSpendLastHour,
+    editRate7d,
     qdrantCollection,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
@@ -54,8 +57,11 @@ export default async function StatusPage() {
     getDraftBacklogAged(DRAFT_BACKLOG_THRESHOLD_HOURS).catch(() => null),
     getN8nFailures24h(),
     getCloudSpendLastHour(),
+    getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
     getQdrantCollectionHealth(),
   ]);
+
+  const ragEval = buildRagEvalSnapshot(editRate7d.edit_rate, editRate7d.sample_size);
 
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
@@ -139,6 +145,13 @@ export default async function StatusPage() {
             />
             <Stat label="Rejected" value={draftCounts24h?.rejected ?? '—'} />
           </div>
+        </section>
+
+        <section className="mb-6">
+          <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+            RAG eval — edit-rate (M3.5)
+          </h2>
+          <RagEvalCard snap={ragEval} />
         </section>
 
         <section className="mb-6">
@@ -365,6 +378,67 @@ function Card({ title, children }: { title?: string; children: React.ReactNode }
       {title && <div className="mb-2 text-xs uppercase tracking-wider text-ink-dim">{title}</div>}
       {children}
     </div>
+  );
+}
+
+// STAQPRO-192 — RAG eval card. Renders the frozen pre-RAG baseline next to
+// the live 7-day edit-rate so the operator can see at a glance whether
+// retrieval is helping. Until the baseline is captured (post-188/189/190
+// merge, pre-191 deploy), the card surfaces a clear "baseline pending
+// capture" state with the operator's next action embedded.
+function RagEvalCard({ snap }: { snap: RagEvalSnapshot }) {
+  const fmtPct = (n: number | null): string => (n === null ? '—' : `${(n * 100).toFixed(1)}%`);
+  const baselineMissing = snap.baseline.edit_rate === null;
+  return (
+    <Card>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-ink-dim">Pre-RAG baseline</div>
+          <div className="mt-1 font-mono text-2xl font-semibold tracking-tight">
+            {fmtPct(snap.baseline.edit_rate)}
+          </div>
+          <div className="mt-1 text-xs text-ink-dim">
+            {baselineMissing
+              ? 'Pending capture — see lib/rag/eval-baseline.ts'
+              : `n=${snap.baseline.sample_size ?? '—'} · captured ${snap.baseline.captured_at ?? '—'}`}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wider text-ink-dim">Live 7d</div>
+          <div className="mt-1 font-mono text-2xl font-semibold tracking-tight">
+            {fmtPct(snap.live_7d.edit_rate)}
+          </div>
+          <div className="mt-1 text-xs text-ink-dim">
+            n={snap.live_7d.sample_size} (approved + edited + sent)
+          </div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wider text-ink-dim">Delta vs baseline</div>
+          <div
+            className={`mt-1 font-mono text-2xl font-semibold tracking-tight ${
+              snap.delta.helping === true
+                ? 'text-accent-green'
+                : snap.delta.helping === false
+                  ? 'text-accent-orange'
+                  : 'text-ink-dim'
+            }`}
+          >
+            {snap.delta.relative === null
+              ? '—'
+              : `${snap.delta.relative >= 0 ? '+' : ''}${(snap.delta.relative * 100).toFixed(1)}%`}
+          </div>
+          <div className="mt-1 text-xs text-ink-dim">
+            {snap.delta.helping === true
+              ? 'RAG helping (>=15% reduction)'
+              : snap.delta.helping === false
+                ? 'No improvement vs baseline'
+                : baselineMissing
+                  ? 'Capture baseline to compute delta'
+                  : 'Not enough data'}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 
