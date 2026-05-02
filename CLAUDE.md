@@ -248,7 +248,7 @@ Schedule (5 min)
 
 Tunables (env): `RAG_RETRIEVE_TOP_K` (default 3, sized for the 4096-token Qwen3 context per DR-18), `RAG_RETRIEVE_EXCERPT_CHARS` (default 600 ≈ 150 tokens per snippet).
 
-Failure modes (`retrieveForDraft` in `dashboard/lib/rag/retrieve.ts` returns `{ refs: [], reason: ... }`): `cloud_gated`, `embed_unavailable`, `qdrant_unavailable`, `no_hits`. Drafting falls back to persona-stub on any non-`ok` reason — RAG is augmentation, not gate. The reason is persisted alongside refs in `drafts.rag_retrieval_reason` (TEXT, default `'none'` per migration 013), and the trigger from STAQPRO-189 carries it onto `sent_history` at archival time.
+Failure modes (`retrieveForDraft` in `dashboard/lib/rag/retrieve.ts` returns `{ refs: [], reason: ... }`): `cloud_gated`, `embed_unavailable`, `qdrant_unavailable`, `no_hits`, plus `disabled` when the eval harness sets `RAG_DISABLED=1` to short-circuit retrieval (STAQPRO-198 — operator-only, never set in production). Drafting falls back to persona-stub on any non-`ok` reason — RAG is augmentation, not gate. The reason is persisted alongside refs in `drafts.rag_retrieval_reason` (TEXT, default `'none'` per migration 013), and the trigger from STAQPRO-189 carries it onto `sent_history` at archival time.
 
 ### RAG ingestion (M3.5 / STAQPRO-190)
 

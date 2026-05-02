@@ -56,7 +56,16 @@ export interface RetrievalRef {
 
 export interface RetrievalResult {
   refs: RetrievalRef[];
-  reason: 'ok' | 'cloud_gated' | 'embed_unavailable' | 'no_hits' | 'qdrant_unavailable';
+  reason:
+    | 'ok'
+    | 'cloud_gated'
+    | 'embed_unavailable'
+    | 'no_hits'
+    | 'qdrant_unavailable'
+    // STAQPRO-198 — set when `RAG_DISABLED=1` short-circuits retrieveForDraft
+    // before any embed / Qdrant call. Used by the eval harness's no-rag pass
+    // to run a baseline draft without persona-stub vs RAG noise.
+    | 'disabled';
 }
 
 export interface RetrievalInput {
@@ -85,7 +94,22 @@ export function isCloudRetrievalEnabled(): boolean {
   return process.env.RAG_CLOUD_ROUTE_ENABLED === '1';
 }
 
+// STAQPRO-198 — operator-controlled kill switch for the eval harness's
+// no-rag baseline pass. Lazy env read so the same script invocation flips
+// behavior per `RAG_DISABLED=1 npm run eval:rag` without a process restart.
+// Production code never sets this; only the eval harness does, and only on
+// the second of its two passes.
+export function isRagDisabled(): boolean {
+  return process.env.RAG_DISABLED === '1';
+}
+
 export async function retrieveForDraft(input: RetrievalInput): Promise<RetrievalResult> {
+  // STAQPRO-198 — short-circuit before any embed / Qdrant call. The harness
+  // baseline relies on this returning empty refs without touching infra.
+  if (isRagDisabled()) {
+    return { refs: [], reason: 'disabled' };
+  }
+
   // Privacy gate: cloud-route retrieval is opt-in.
   if (input.draft_source === 'cloud' && !isCloudRetrievalEnabled()) {
     return { refs: [], reason: 'cloud_gated' };
