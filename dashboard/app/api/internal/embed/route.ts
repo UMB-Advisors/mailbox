@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
     sent_at: body.sent_at,
     direction: body.direction,
     classification_category: body.classification_category ?? null,
+    // STAQPRO-191 — single-persona appliances all seed 'default'. Future
+    // multi-persona ingestion will plumb persona_key through the schema.
+    persona_key: 'default',
   });
 
   if (!upsert.ok) {

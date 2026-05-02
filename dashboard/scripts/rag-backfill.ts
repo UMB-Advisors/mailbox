@@ -99,6 +99,8 @@ async function backfillRow(row: BackfillRow): Promise<'ok' | 'skip' | 'fail'> {
     sent_at: typeof row.sent_at === 'string' ? row.sent_at : new Date(row.sent_at).toISOString(),
     direction: row.direction,
     classification_category: row.classification_category,
+    // STAQPRO-191 — single-persona appliances all seed 'default'.
+    persona_key: 'default',
   });
   return r.ok ? 'ok' : 'fail';
 }

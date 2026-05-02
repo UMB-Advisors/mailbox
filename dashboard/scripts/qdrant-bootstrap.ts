@@ -33,6 +33,11 @@ const DISTANCE = 'Cosine';
 //   - direction:  inbound vs outbound discriminator
 //   - sent_at:    time-range filter / recency ranking input
 //   - classification_category: future filter (e.g., "show me past 'reorder' replies")
+//   - persona_key: STAQPRO-191 multi-persona future-proofing. Per-appliance
+//                  tenant boundary is hardware (one Jetson per customer);
+//                  persona_key scopes within an appliance for the multi-mailbox
+//                  case (e.g., dustin@heronlabsinc.com + support@heronlabsinc.com
+//                  on one box). All current corpora seed with 'default'.
 const PAYLOAD_INDEXES: Array<{ field: string; schema: 'keyword' | 'datetime' }> = [
   { field: 'message_id', schema: 'keyword' },
   { field: 'thread_id', schema: 'keyword' },
@@ -40,6 +45,7 @@ const PAYLOAD_INDEXES: Array<{ field: string; schema: 'keyword' | 'datetime' }> 
   { field: 'direction', schema: 'keyword' },
   { field: 'sent_at', schema: 'datetime' },
   { field: 'classification_category', schema: 'keyword' },
+  { field: 'persona_key', schema: 'keyword' },
 ];
 
 interface QdrantErrorBody {

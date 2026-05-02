@@ -64,6 +64,12 @@ export interface RetrievalInput {
   subject: string | null;
   body_text: string | null;
   draft_source: 'local' | 'cloud';
+  // STAQPRO-191 — persona scoping. Multi-mailbox appliances (one Jetson,
+  // 2-5 personas) require retrieval to be filtered to the persona that
+  // owns the draft. Single-persona appliances pass 'default'. Must match
+  // the value written into payload.persona_key at ingestion time or the
+  // search returns zero hits.
+  persona_key: string;
 }
 
 function topK(): number {
@@ -102,6 +108,7 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
   const search = await searchByVector(vector, {
     limit: topK(),
     senderFilter: input.from_addr,
+    personaKey: input.persona_key,
   });
   if (!search.ok) {
     return { refs: [], reason: 'qdrant_unavailable' };

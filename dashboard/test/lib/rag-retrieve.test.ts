@@ -18,6 +18,9 @@ const baseInput = {
   from_addr: 'cust@example.com',
   subject: 'Re: order',
   body_text: 'Confirming the order details.',
+  // STAQPRO-191 — single-persona appliances seed 'default'. The retrieval
+  // call always carries a persona_key now (multi-persona future-proofing).
+  persona_key: 'default',
 };
 
 function mockEmbedAndSearch(opts: {
@@ -151,6 +154,7 @@ describe('retrieveForDraft — STAQPRO-191', () => {
       subject: 'Hi',
       body_text: 'Hello',
       draft_source: 'local',
+      persona_key: 'default',
     });
     expect(r.reason).toBe('no_hits');
     expect(r.refs).toEqual([]);

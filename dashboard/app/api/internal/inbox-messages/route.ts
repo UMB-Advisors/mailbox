@@ -115,6 +115,10 @@ async function embedAndUpsertInbound(params: EmbedInboundParams): Promise<void> 
       sent_at: params.sent_at,
       direction: 'inbound',
       classification_category: null,
+      // STAQPRO-191 — single-persona appliances all seed 'default'. When
+      // multi-persona ships, this will be the mailbox.persona.customer_key
+      // for whichever mailbox the inbound landed in.
+      persona_key: 'default',
     });
   } catch (err) {
     console.error('[rag] inbound embed/upsert failed (non-fatal):', err);
