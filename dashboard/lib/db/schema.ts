@@ -55,6 +55,7 @@ export interface Drafts {
   in_reply_to: string | null;
   inbox_message_id: number;
   input_tokens: number | null;
+  kb_context_refs: Generated<Json>;
   message_id: string | null;
   model: string;
   original_draft_body: string | null;
@@ -89,6 +90,23 @@ export interface InboxMessages {
   subject: string | null;
   thread_id: string | null;
   to_addr: string | null;
+}
+
+export interface KbDocuments {
+  chunk_count: Generated<number>;
+  error_message: string | null;
+  filename: string;
+  id: Generated<number>;
+  metadata: Generated<Json>;
+  mime_type: string;
+  processing_started_at: Generated<string>;
+  ready_at: string | null;
+  sha256: string;
+  size_bytes: Int8;
+  status: Generated<string>;
+  title: string;
+  uploaded_at: Generated<string>;
+  uploaded_by: string | null;
 }
 
 export interface Migrations {
@@ -147,6 +165,7 @@ export interface SentHistory {
   from_addr: string;
   id: Generated<Int8>;
   inbox_message_id: number | null;
+  kb_context_refs: Generated<Json>;
   message_id: string | null;
   rag_context_refs: Generated<Json>;
   rag_retrieval_reason: Generated<string>;
@@ -172,6 +191,7 @@ export interface DB {
   classification_log: ClassificationLog;
   drafts: Drafts;
   inbox_messages: InboxMessages;
+  kb_documents: KbDocuments;
   migrations: Migrations;
   onboarding: Onboarding;
   persona: Persona;
