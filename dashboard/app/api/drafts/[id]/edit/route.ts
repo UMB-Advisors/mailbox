@@ -24,6 +24,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         draft_body,
         draft_subject,
         status: 'edited',
+        // STAQPRO-121: snapshot the LLM's original body before the first
+        // edit overwrites it, so migration 010's archive trigger has a real
+        // pre-edit pair to write into sent_history.draft_original. Only
+        // populate on first edit (COALESCE keeps prior value); subsequent
+        // edits preserve the FIRST snapshot — that's the true LLM-original.
+        original_draft_body: sql<string>`COALESCE(original_draft_body, draft_body)`,
         updated_at: sql<string>`NOW()`,
       })
       .where('id', '=', id)

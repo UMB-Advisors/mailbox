@@ -710,6 +710,52 @@ ALTER TABLE mailbox.sent_history
     CHECK (source = ANY (ARRAY['live'::text,'backfill'::text]));
 CREATE INDEX sent_history_source_idx ON mailbox.sent_history(source);
 
+-- Migration 012 — STAQPRO-121 capture-side: snapshot LLM original before edit.
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS original_draft_body TEXT;
+
+CREATE OR REPLACE FUNCTION mailbox.archive_draft_to_sent_history()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent' THEN
+        IF EXISTS (SELECT 1 FROM mailbox.sent_history WHERE draft_id = NEW.id) THEN
+            RETURN NEW;
+        END IF;
+
+        INSERT INTO mailbox.sent_history (
+            draft_id,
+            inbox_message_id,
+            from_addr,
+            to_addr,
+            subject,
+            body_text,
+            thread_id,
+            draft_original,
+            draft_sent,
+            draft_source,
+            classification_category,
+            classification_confidence,
+            sent_at
+        ) VALUES (
+            NEW.id,
+            NEW.inbox_message_id,
+            COALESCE(NEW.from_addr, ''),
+            COALESCE(NEW.to_addr, ''),
+            NEW.subject,
+            NEW.body_text,
+            NEW.thread_id,
+            COALESCE(NEW.original_draft_body, NEW.draft_body),
+            NEW.draft_body,
+            COALESCE(NEW.draft_source, 'local'),
+            COALESCE(NEW.classification_category, 'unknown'),
+            COALESCE(NEW.classification_confidence, 0.0),
+            COALESCE(NEW.sent_at, NOW())
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 --
 -- PostgreSQL database dump complete
 --
