@@ -27,6 +27,12 @@ mailbox.heronlabsinc.com {
   # Convenience: bare /dashboard → /dashboard/queue
   redir /dashboard /dashboard/queue 308
 
+  # Root → dashboard queue. Without this, / falls through to n8n's
+  # reverse_proxy and users hit n8n's /signin page (n8n's own app
+  # auth, layered behind Caddy's basic_auth). The appliance's
+  # customer-facing surface is the approval queue, not the n8n editor.
+  redir / /dashboard/queue 308
+
   # Dashboard approval queue. STAQPRO-131: behind the basic_auth above.
   handle /dashboard/* {
     reverse_proxy mailbox-dashboard:3001
