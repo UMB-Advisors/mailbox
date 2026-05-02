@@ -140,21 +140,44 @@ If `status_counts.embed_failed` is non-trivial, check Ollama's `nomic-embed-text
 
 ## Customer-#1 baseline
 
-> **TODO** — first run pending after merge of STAQPRO-198. Operator will fill this section in via a Linear comment on STAQPRO-198 plus a follow-up edit to this runbook.
+First run on `dustin@heronlabsinc.com` (Heron appliance), 2026-05-02. 441-pair corpus from STAQPRO-193 backfill.
+
+### Aggregate (per-pass, ok subset)
 
 | Metric | with-rag | no-rag | delta |
 |--------|----------|--------|-------|
-| pairs scored | TBD | TBD | — |
-| ok status | TBD | TBD | — |
-| global mean cosine | TBD | TBD | TBD |
-| global median cosine | TBD | TBD | TBD |
-| `inquiry` mean cosine | TBD | TBD | TBD |
-| `reorder` mean cosine | TBD | TBD | TBD |
-| wall-clock | TBD | TBD | — |
+| pairs requested | 441 | 441 | — |
+| `ok` | 336 (76%) | 336 (76%) | — |
+| `embed_failed` | 105 | 105 | — (same long-message tail in both — STAQPRO-199) |
+| `draft_failed` | 0 | 0 | — |
+| global mean cosine | 0.7102 | 0.7122 | −0.0020 |
+| global median cosine | 0.7098 | 0.7130 | −0.0032 |
+| p25 / p75 cosine | 0.6514 / 0.7750 | 0.6557 / 0.7732 | — |
+| min / max cosine | 0.4613 / 0.9435 | 0.4842 / 0.9209 | — |
+| per-category | all `unclassified` (backfilled rows have null classification) | — | — |
+| wall-clock | ~22 min | ~22 min | — |
 
-**Interpretation (TBD):** _to be filled after first run_
+### Paired analysis (n=289 — pairs OK in **both** passes)
 
-**JSON artifacts:** `dashboard/eval-results/rag-eval-<ts>-with-rag.json`, `dashboard/eval-results/rag-eval-<ts>-no-rag.json` (operator local — gitignored).
+| Metric | Value |
+|---|---|
+| paired n | 289 |
+| mean(with-RAG) | 0.7112 |
+| mean(no-RAG) | 0.7101 |
+| **mean(Δ)** | **+0.0011** (RAG marginally higher) |
+| sd(Δ) | 0.0579 (per-pair noise is ~50× the mean delta) |
+| range(Δ) | [−0.2012, +0.1725] |
+| Paired t-test (two-sided) | t=0.32, **p≈0.75** |
+| Wilcoxon signed-rank | z=−0.83, **p≈0.41** |
+| Sign test | 149 RAG-better / 136 RAG-worse / 4 tied (52.3%) |
+
+**Interpretation:** Statistically indistinguishable from no-RAG at this corpus + this metric. RAG produces large per-pair swings (±15-20 pp tails) that cancel out in aggregate. Two independent non-parametric tests both p > 0.4 — not "RAG hurts," but not "RAG helps" either.
+
+**Re-run gate:** Ship STAQPRO-199 (embed-truncation fix), then re-run both passes against the same fixture set. The 105 dropped pairs are systematically the longer messages — plausibly where RAG matters most. After the bug fix recovers them, retest.
+
+**JSON artifacts:** `dashboard/eval-results/rag-eval-2026-05-02T07-22-49-651Z-with-rag.json`, `rag-eval-2026-05-02T08-07-48-168Z-no-rag.json` (operator local — gitignored).
+
+**Paired-stats script (reusable):** `/tmp/eval-pull/paired-stats.py` — pure stdlib Python, no external deps; reads both JSONs, indexes per-pair scores by `inbound_message_id`, runs paired t-test + Wilcoxon. Reuse on every re-run.
 
 ---
 
