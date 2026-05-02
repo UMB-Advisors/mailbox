@@ -290,14 +290,20 @@ export async function callFetchHistory(
 }
 
 // UPSERT an inbound message into mailbox.inbox_messages on message_id.
-// Returns 'inserted' if a new row was created, 'existing' if a row already
-// exists. Backfill rows have classification = NULL (Locked Decision: skip
-// classifier on historical data).
+// Returns the upserted row's id + whether it was newly created — the id is
+// needed downstream so upsertReply can wire sent_history.inbox_message_id
+// (without it, STAQPRO-153's persona extractor LEFT JOINs to NULL on every
+// backfill row and exemplars degrade).
+export interface UpsertInboundResult {
+  result: 'inserted' | 'existing';
+  id: number;
+}
+
 export async function upsertInbound(
   db: Kysely<DB>,
   msg: ParsedMessage,
-): Promise<'inserted' | 'existing'> {
-  const r = await db
+): Promise<UpsertInboundResult> {
+  const inserted = await db
     .insertInto('inbox_messages')
     .values({
       message_id: msg.message_id,
@@ -319,13 +325,21 @@ export async function upsertInbound(
       draft_id: null,
     })
     .onConflict((oc) => oc.column('message_id').doNothing())
+    .returning(['id'])
     .executeTakeFirst();
 
-  // Kysely returns numInsertedOrUpdatedRows = 0n when ON CONFLICT DO NOTHING
-  // fired (no row changed). Compare against BigInt(0) — bigint literals
-  // require ES2020 and tsconfig targets ES2017.
-  const affected = r?.numInsertedOrUpdatedRows ?? BigInt(0);
-  return affected === BigInt(0) ? 'existing' : 'inserted';
+  if (inserted?.id != null) {
+    return { result: 'inserted', id: inserted.id };
+  }
+
+  // ON CONFLICT DO NOTHING fired — fetch the existing row's id so the caller
+  // can wire the FK in sent_history.
+  const existing = await db
+    .selectFrom('inbox_messages')
+    .select(['id'])
+    .where('message_id', '=', msg.message_id)
+    .executeTakeFirstOrThrow();
+  return { result: 'existing', id: existing.id };
 }
 
 // UPSERT an outbound reply into mailbox.sent_history on message_id (the
@@ -336,13 +350,14 @@ export async function upsertReply(
   db: Kysely<DB>,
   inbound: ParsedMessage,
   reply: ParsedMessage,
+  inbox_message_id: number,
 ): Promise<'inserted' | 'existing'> {
   const r = await db
     .insertInto('sent_history')
     .values({
       message_id: reply.message_id,
       draft_id: null,
-      inbox_message_id: null,
+      inbox_message_id,
       from_addr: reply.from_addr,
       to_addr: reply.to_addr,
       subject: reply.subject,
@@ -412,10 +427,10 @@ export async function runGmailHistoryBackfill(
     for (const pair of pairs) {
       try {
         const inboundResult = await upsertInbound(db, pair.inbound);
-        if (inboundResult === 'inserted') counts.inbox_upserts += 1;
+        if (inboundResult.result === 'inserted') counts.inbox_upserts += 1;
         else counts.inbox_skipped_existing += 1;
 
-        const replyResult = await upsertReply(db, pair.inbound, pair.reply);
+        const replyResult = await upsertReply(db, pair.inbound, pair.reply, inboundResult.id);
         if (replyResult === 'inserted') counts.sent_history_upserts += 1;
         else counts.sent_history_skipped_existing += 1;
       } catch (err) {
