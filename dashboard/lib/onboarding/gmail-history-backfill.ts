@@ -113,6 +113,18 @@ function header(payload: GmailPayload | undefined, name: string): string | null 
   return null;
 }
 
+// MailBOX-FetchHistory's n8n workflow flattens common headers (From, To,
+// Subject, Message-Id, In-Reply-To, References) onto the message object
+// itself instead of preserving the standard `payload.headers[]` array. This
+// helper tries the standard shape first, then falls back to the top-level
+// field, so the parser tolerates either contract.
+function messageHeader(msg: GmailMessage, name: string): string | null {
+  const fromPayload = header(msg.payload, name);
+  if (fromPayload !== null) return fromPayload;
+  const top = (msg as unknown as Record<string, unknown>)[name];
+  return typeof top === 'string' ? top : null;
+}
+
 // Walk a Gmail payload tree looking for the best body text. Prefers
 // text/plain; falls back to text/html stripped of tags.
 function extractBody(payload: GmailPayload | undefined): string {
@@ -184,12 +196,12 @@ function parseAddress(value: string | null): string {
 // Parse a single Gmail message into our internal shape.
 export function parseGmailMessage(msg: GmailMessage): ParsedMessage | null {
   if (!msg.id || !msg.threadId) return null;
-  const from = parseAddress(header(msg.payload, 'From'));
-  const to = parseAddress(header(msg.payload, 'To'));
-  const subject = header(msg.payload, 'Subject');
-  const inReplyTo = header(msg.payload, 'In-Reply-To');
-  const references = header(msg.payload, 'References');
-  const rfcMsgId = header(msg.payload, 'Message-ID') ?? header(msg.payload, 'Message-Id');
+  const from = parseAddress(messageHeader(msg, 'From'));
+  const to = parseAddress(messageHeader(msg, 'To'));
+  const subject = messageHeader(msg, 'Subject');
+  const inReplyTo = messageHeader(msg, 'In-Reply-To');
+  const references = messageHeader(msg, 'References');
+  const rfcMsgId = messageHeader(msg, 'Message-ID') ?? messageHeader(msg, 'Message-Id');
   const body = extractBody(msg.payload);
   const sentAtMs = msg.internalDate ? Number(msg.internalDate) : null;
   const sentAt =
