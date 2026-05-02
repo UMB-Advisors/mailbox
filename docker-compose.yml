@@ -117,6 +117,11 @@ services:
       # lifecycle handled by lib/rag/kb-ingest.ts. Survives container
       # recreation via the mailbox_kb_uploads named volume below.
       KB_STORAGE_DIR: /var/lib/mailbox/kb
+      # STAQPRO-199 followup — PR #35's 6000-char default still 500'd nomic on
+      # dense-token replies (~1.36 tok/char × 6000 ≈ 8160 tok, at the 8192
+      # ceiling once prefix tokens land). Empirical smoke (2026-05-02) showed
+      # 1/30 fail at 6000. Lower to 4500 (~6120 tok worst-case) for headroom.
+      EMBED_MAX_CHARS: "4500"
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
