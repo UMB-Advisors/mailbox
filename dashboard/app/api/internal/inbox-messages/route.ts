@@ -4,7 +4,7 @@ import { getKysely } from '@/lib/db';
 import { parseJson } from '@/lib/middleware/validate';
 import { embedText } from '@/lib/rag/embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from '@/lib/rag/excerpt';
-import { upsertEmailPoint } from '@/lib/rag/qdrant';
+import { normalizeSender, upsertEmailPoint } from '@/lib/rag/qdrant';
 import { inboxMessageInsertBodySchema } from '@/lib/schemas/internal';
 
 export const dynamic = 'force-dynamic';
@@ -108,7 +108,10 @@ async function embedAndUpsertInbound(params: EmbedInboundParams): Promise<void> 
     await upsertEmailPoint(vector, {
       message_id: params.message_id,
       thread_id: params.thread_id,
-      sender: params.sender,
+      // STAQPRO-191 — symmetric with retrieve.ts normalization. Without
+      // this, 'Name <addr@host>' inbounds never match a retrieval filter
+      // built from the bare 'addr@host'.
+      sender: normalizeSender(params.sender),
       recipient: params.recipient,
       subject: params.subject,
       body_excerpt: excerpt,

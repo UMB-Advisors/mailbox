@@ -43,7 +43,7 @@
 
 import { embedText } from './embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from './excerpt';
-import { searchByVector } from './qdrant';
+import { normalizeSender, searchByVector } from './qdrant';
 
 export interface RetrievalRef {
   point_id: string;
@@ -91,7 +91,13 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
     return { refs: [], reason: 'cloud_gated' };
   }
 
-  if (!input.from_addr.trim()) {
+  // STAQPRO-191 — normalize sender BEFORE filter construction. Inbound
+  // from_addr can be 'Customer Name <cust@example.com>' or already-bare
+  // 'cust@example.com'; ingestion paths normalize the same way (see
+  // normalizeSender export). Without symmetric normalization, retrieval
+  // silently returns zero hits for half of senders.
+  const normalizedSender = normalizeSender(input.from_addr);
+  if (!normalizedSender) {
     return { refs: [], reason: 'no_hits' };
   }
 
@@ -107,7 +113,7 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
 
   const search = await searchByVector(vector, {
     limit: topK(),
-    senderFilter: input.from_addr,
+    senderFilter: normalizedSender,
     personaKey: input.persona_key,
   });
   if (!search.ok) {

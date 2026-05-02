@@ -19,6 +19,24 @@ const QDRANT_TIMEOUT_MS = Number(process.env.QDRANT_TIMEOUT_MS ?? 5000);
 
 export type Direction = 'inbound' | 'outbound';
 
+// STAQPRO-191 — symmetric sender normalization for the
+// payload.sender == inbound.from_addr counterparty filter. Gmail headers
+// arrive as either 'Display Name <addr@host>' or already-bare 'addr@host';
+// without symmetric normalization at ingestion AND retrieval, half of
+// senders silently miss the filter and return zero hits. Both sides MUST
+// import this single normalizer — do not inline.
+//
+// Pure function (no IO). Returns '' on empty/whitespace input so callers
+// can short-circuit instead of throwing.
+export function normalizeSender(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  // 'Name <addr@host>' → 'addr@host'; lone 'addr@host' passes through.
+  const angled = trimmed.match(/<([^>]+)>/);
+  return (angled ? angled[1] : trimmed).trim().toLowerCase();
+}
+
 export interface EmailPointPayload {
   message_id: string;
   thread_id: string | null;
