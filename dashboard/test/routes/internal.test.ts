@@ -142,10 +142,9 @@ dbDescribe('internal route handlers — real Postgres', () => {
           const r = await getPool().query<{
             rag_context_refs: unknown;
             rag_retrieval_reason: string;
-          }>(
-            'SELECT rag_context_refs, rag_retrieval_reason FROM mailbox.drafts WHERE id = $1',
-            [seed.draftId],
-          );
+          }>('SELECT rag_context_refs, rag_retrieval_reason FROM mailbox.drafts WHERE id = $1', [
+            seed.draftId,
+          ]);
           expect(r.rows[0].rag_retrieval_reason).toBe('ok');
           expect(r.rows[0].rag_context_refs).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
         } finally {
@@ -170,10 +169,9 @@ dbDescribe('internal route handlers — real Postgres', () => {
           const r = await getPool().query<{
             rag_context_refs: unknown;
             rag_retrieval_reason: string;
-          }>(
-            'SELECT rag_context_refs, rag_retrieval_reason FROM mailbox.drafts WHERE id = $1',
-            [seed.draftId],
-          );
+          }>('SELECT rag_context_refs, rag_retrieval_reason FROM mailbox.drafts WHERE id = $1', [
+            seed.draftId,
+          ]);
           expect(r.rows[0].rag_retrieval_reason).toBe('embed_unavailable');
           expect(r.rows[0].rag_context_refs).toEqual([]);
         } finally {
