@@ -20,9 +20,10 @@ function setEnv() {
   process.env.OLLAMA_BASE_URL = 'http://test-ollama:11434';
   process.env.EMBED_MODEL = 'nomic-embed-text:v1.5';
   // Pin the test config so changes to defaults don't silently flip
-  // assertion meanings.
+  // assertion meanings. STAQPRO-200 — pinned to 4500 to match the
+  // tightened in-code default (was 6000 prior).
   process.env.EMBED_NUM_CTX = '8192';
-  process.env.EMBED_MAX_CHARS = '6000';
+  process.env.EMBED_MAX_CHARS = '4500';
 }
 
 interface CapturedRequest {
@@ -88,7 +89,7 @@ describe('embedText — STAQPRO-199 truncation + num_ctx', () => {
     const { fetchMock, captured } = captureFetch(embedding);
     globalThis.fetch = fetchMock;
 
-    // 50,000 chars — comfortably over the 6000 cap and the kind of size
+    // 50,000 chars — comfortably over the 4500 cap and the kind of size
     // that triggers nomic 500s in production (long Gmail threads).
     const longInput = 'a'.repeat(50_000);
     const { embedText } = await import('@/lib/rag/embed');
@@ -100,7 +101,7 @@ describe('embedText — STAQPRO-199 truncation + num_ctx', () => {
     const out = await embedText(longInput);
 
     expect(out).not.toBeNull();
-    expect(captured[0]?.body.prompt?.length).toBe(6000);
+    expect(captured[0]?.body.prompt?.length).toBe(4500);
     expect(warnSpy).toHaveBeenCalledOnce();
     expect(warnSpy.mock.calls[0]?.[0]).toMatch(/truncated/i);
   });
