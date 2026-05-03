@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ONBOARDING_STAGES } from '@/lib/types';
 
 // Schemas for the n8n-facing internal routes. These accept the exact shapes
 // n8n already sends today; tightening here would break the live pipeline.
@@ -69,3 +70,16 @@ export const inboxMessageInsertBodySchema = z.object({
 });
 
 export type InboxMessageInsertBody = z.infer<typeof inboxMessageInsertBodySchema>;
+
+// POST /api/internal/onboarding/advance — STAQPRO-152 wizard step transition.
+// Both `from` and `to` are constrained to the live OnboardingStage enum; the
+// route then checks them against ALLOWED_TRANSITIONS (lib/onboarding/wizard-stages.ts)
+// for the strict adjacent-pair contract. customer_key defaults to 'default'
+// since the appliance is single-tenant in v1.
+export const onboardingAdvanceBodySchema = z.object({
+  from: z.enum(ONBOARDING_STAGES),
+  to: z.enum(ONBOARDING_STAGES),
+  customer_key: z.string().min(1).default('default'),
+});
+
+export type OnboardingAdvanceBody = z.infer<typeof onboardingAdvanceBodySchema>;

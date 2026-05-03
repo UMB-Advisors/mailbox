@@ -62,13 +62,19 @@ export type ClassificationCategory =
   | 'escalate'
   | 'unknown';
 
-export type OnboardingStage =
-  | 'pending_admin'
-  | 'pending_email'
-  | 'ingesting'
-  | 'pending_tuning'
-  | 'tuning_in_progress'
-  | 'live';
+// onboarding.stage enum (migration 006). Const tuple is the SoT for the
+// zod enum in lib/schemas/internal.ts; the OnboardingStage union is derived
+// from it so the two stay in lockstep.
+export const ONBOARDING_STAGES = [
+  'pending_admin',
+  'pending_email',
+  'ingesting',
+  'pending_tuning',
+  'tuning_in_progress',
+  'live',
+] as const;
+
+export type OnboardingStage = (typeof ONBOARDING_STAGES)[number];
 
 // kb_documents.status enum (STAQPRO-148). Mirrored against the CHECK constraint
 // in migrations/014-create-kb-documents-and-refs-v1-2026-05-02.sql; the
