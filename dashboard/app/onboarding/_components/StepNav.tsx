@@ -62,9 +62,7 @@ export function StepNav({ slug }: StepNavProps) {
 
       const payload = await res.json().catch(() => ({}));
       const message =
-        typeof payload?.error === 'string'
-          ? payload.error
-          : `unexpected status ${res.status}`;
+        typeof payload?.error === 'string' ? payload.error : `unexpected status ${res.status}`;
       setError(message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'network error');

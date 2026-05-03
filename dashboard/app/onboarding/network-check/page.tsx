@@ -13,7 +13,9 @@ export default function NetworkCheckPage() {
       <ul className="list-disc space-y-1 pl-5 text-neutral-400">
         <li>Verify the appliance can reach Gmail's API endpoints (oauth + send).</li>
         <li>Confirm the public dashboard hostname resolves and the HTTPS cert is valid.</li>
-        <li>Check the cloud drafter (Ollama Cloud / Anthropic) is reachable for the safety-net path.</li>
+        <li>
+          Check the cloud drafter (Ollama Cloud / Anthropic) is reachable for the safety-net path.
+        </li>
       </ul>
     </StepShell>
   );

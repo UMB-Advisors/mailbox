@@ -55,7 +55,9 @@ dbDescribe('POST /api/internal/onboarding/advance — DB-backed', () => {
   it('happy path: pending_admin → pending_email returns 200 + persists', async () => {
     const { POST } = await import('@/app/api/internal/onboarding/advance/route');
     const res = await POST(
-      fakeRequest({ body: { from: 'pending_admin', to: 'pending_email', customer_key: 'default' } }),
+      fakeRequest({
+        body: { from: 'pending_admin', to: 'pending_email', customer_key: 'default' },
+      }),
     );
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -80,7 +82,9 @@ dbDescribe('POST /api/internal/onboarding/advance — DB-backed', () => {
     await setStageDirect('pending_email');
     const { POST } = await import('@/app/api/internal/onboarding/advance/route');
     const res = await POST(
-      fakeRequest({ body: { from: 'pending_email', to: 'pending_admin', customer_key: 'default' } }),
+      fakeRequest({
+        body: { from: 'pending_email', to: 'pending_admin', customer_key: 'default' },
+      }),
     );
     expect(res.status).toBe(409);
     const json = await res.json();
@@ -92,7 +96,9 @@ dbDescribe('POST /api/internal/onboarding/advance — DB-backed', () => {
     await setStageDirect('pending_email');
     const { POST } = await import('@/app/api/internal/onboarding/advance/route');
     const res = await POST(
-      fakeRequest({ body: { from: 'pending_admin', to: 'pending_email', customer_key: 'default' } }),
+      fakeRequest({
+        body: { from: 'pending_admin', to: 'pending_email', customer_key: 'default' },
+      }),
     );
     expect(res.status).toBe(409);
     const json = await res.json();

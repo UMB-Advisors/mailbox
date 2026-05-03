@@ -12,7 +12,9 @@ export default function WelcomePage() {
       <ul className="list-disc space-y-1 pl-5 text-neutral-400">
         <li>Introduce the appliance and what onboarding covers (about 10 minutes).</li>
         <li>Confirm the box is online and the dashboard is reachable from this device.</li>
-        <li>Set expectations: the operator stays in the loop on every send during the first week.</li>
+        <li>
+          Set expectations: the operator stays in the loop on every send during the first week.
+        </li>
       </ul>
     </StepShell>
   );

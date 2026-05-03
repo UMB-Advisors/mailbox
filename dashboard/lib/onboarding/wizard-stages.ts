@@ -53,7 +53,8 @@ export const WIZARD_STEPS = [
   {
     slug: 'network-check',
     title: 'Network check',
-    intent: "We'll verify the appliance can reach Gmail and the cloud drafter before you connect email.",
+    intent:
+      "We'll verify the appliance can reach Gmail and the cloud drafter before you connect email.",
     dbStage: 'pending_email',
     allowsBack: true,
   },
@@ -67,7 +68,8 @@ export const WIZARD_STEPS = [
   {
     slug: 'complete',
     title: "You're live",
-    intent: 'The appliance is now running. The first draft will hit the queue on the next 5-minute poll.',
+    intent:
+      'The appliance is now running. The first draft will hit the queue on the next 5-minute poll.',
     dbStage: 'live',
     allowsBack: false,
   },

@@ -12,7 +12,9 @@ export default function PasswordPage() {
     <StepShell slug="password">
       <h2 className="mb-2 text-sm font-semibold text-neutral-200">What this step will do</h2>
       <ul className="list-disc space-y-1 pl-5 text-neutral-400">
-        <li>Pick the username + password the appliance uses to gate the dashboard and n8n editor.</li>
+        <li>
+          Pick the username + password the appliance uses to gate the dashboard and n8n editor.
+        </li>
         <li>The appliance bcrypt-hashes the password locally — Staqs never sees it.</li>
         <li>Caddy picks up the new credentials on the next config reload.</li>
       </ul>
