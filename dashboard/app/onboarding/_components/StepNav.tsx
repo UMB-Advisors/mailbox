@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { apiUrl } from '@/lib/api';
 import {
   dbStageForSlug,
   nextSlug,
@@ -49,7 +50,7 @@ export function StepNav({ slug }: StepNavProps) {
 
     setBusy(true);
     try {
-      const res = await fetch('/api/internal/onboarding/advance', {
+      const res = await fetch(apiUrl('/api/internal/onboarding/advance'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ from, to, customer_key: 'default' }),
