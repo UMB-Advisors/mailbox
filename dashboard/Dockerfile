@@ -43,6 +43,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Operator scripts (one-shot tools): rag-backfill, classify-backfill, etc.
+# Run via `docker exec mailbox-dashboard npx tsx scripts/<name>.ts`.
+# `tsx` auto-installs on first invocation; runtime deps (pg, etc.) are
+# already traced into the standalone node_modules.
+COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+
 # STAQPRO-148 — pre-create the KB upload dir with nextjs:nodejs ownership so
 # the named volume (mailbox_kb_uploads in compose) inherits the right owner
 # on first mount. Docker initializes empty named volumes from the image's
