@@ -15,9 +15,16 @@
 // "the input length exceeds the context length". nomic-embed-text:v1.5
 // supports up to 8192 tokens; Ollama's default for embedding-only models
 // can be smaller. We send `options.num_ctx=8192` and char-cap at
-// EMBED_MAX_CHARS (~6000 chars ≈ 1500 tokens; comfortable margin under
+// EMBED_MAX_CHARS (~4500 chars ≈ 1125 tokens; comfortable margin under
 // 8192). Truncation logs a single-line warning so the surface is visible
 // in production without spamming the logs.
+//
+// STAQPRO-200 — tightened the in-code default from 6000 → 4500 after a
+// post-merge canonical eval found 1/30 messages still hit `embed_failed`
+// at 6000. The deployed appliance has had `EMBED_MAX_CHARS=4500` via the
+// docker-compose env override since commit caa24a7; this aligns the code
+// default so anyone running outside the appliance compose (local dev,
+// CI, fresh container) gets the corrected behavior automatically.
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://ollama:11434';
 const EMBED_MODEL = process.env.EMBED_MODEL ?? 'nomic-embed-text:v1.5';
@@ -28,11 +35,12 @@ const EMBED_TIMEOUT_MS = Number(process.env.EMBED_TIMEOUT_MS ?? 10000);
 // embedding-default (often 512).
 const EMBED_NUM_CTX = Number(process.env.EMBED_NUM_CTX ?? 8192);
 
-// Defensive char-level cap. ~4 chars/token average → ~1500 tokens for
-// 6000 chars, a safe margin under EMBED_NUM_CTX. Tunable via env so we
+// Defensive char-level cap. ~4 chars/token average → ~1125 tokens for
+// 4500 chars, a safe margin under EMBED_NUM_CTX. Tunable via env so we
 // can shrink if a future model swap brings the context window down
-// without redeploying code.
-const EMBED_MAX_CHARS = Number(process.env.EMBED_MAX_CHARS ?? 6000);
+// without redeploying code. Default tightened 6000 → 4500 in STAQPRO-200
+// after empirical eval; see header for context.
+const EMBED_MAX_CHARS = Number(process.env.EMBED_MAX_CHARS ?? 4500);
 
 export const EMBED_VECTOR_SIZE = 768;
 
