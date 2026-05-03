@@ -10,11 +10,15 @@ import { closeTestPool, fakeRequest, getTestPool, HAS_DB } from '../helpers/db';
 const dbDescribe = HAS_DB ? describe : describe.skip;
 
 async function setStageDirect(stage: string, customerKey = 'default'): Promise<void> {
+  // Upsert because the test fixture schema.sql is structure-only; the
+  // production seed (migration 006) is not replayed in CI.
   const pool = getTestPool();
-  await pool.query('UPDATE mailbox.onboarding SET stage = $1 WHERE customer_key = $2', [
-    stage,
-    customerKey,
-  ]);
+  await pool.query(
+    `INSERT INTO mailbox.onboarding (customer_key, stage)
+     VALUES ($2, $1)
+     ON CONFLICT (customer_key) DO UPDATE SET stage = EXCLUDED.stage`,
+    [stage, customerKey],
+  );
 }
 
 async function readStageDirect(customerKey = 'default'): Promise<string | null> {
