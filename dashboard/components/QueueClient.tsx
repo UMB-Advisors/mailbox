@@ -9,7 +9,6 @@ import { DraftCard } from './DraftCard';
 import { DraftDetail } from './DraftDetail';
 import { EditModal } from './EditModal';
 import { EmptyState } from './EmptyState';
-import { FailedSends } from './FailedSends';
 import { NewDraftsBanner } from './NewDraftsBanner';
 import { StuckApproved } from './StuckApproved';
 import { Toast } from './Toast';
@@ -23,13 +22,11 @@ type View = 'pending' | 'sent';
 
 interface Props {
   initialActive: DraftWithMessage[];
-  initialFailed: DraftWithMessage[];
   initialSent: DraftWithMessage[];
 }
 
-export function QueueClient({ initialActive, initialFailed, initialSent }: Props) {
+export function QueueClient({ initialActive, initialSent }: Props) {
   const [active, setActive] = useState(initialActive);
-  const [failed, setFailed] = useState(initialFailed);
   const [sent, setSent] = useState(initialSent);
   const [view, setView] = useState<View>('pending');
   const [removed, setRemoved] = useState<Set<number>>(new Set());
@@ -46,19 +43,16 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
 
   const fetchData = useCallback(async (silent: boolean) => {
     try {
-      const [actRes, failRes, sentRes] = await Promise.all([
+      const [actRes, sentRes] = await Promise.all([
         fetch(apiUrl('/api/drafts?status=pending,edited&limit=50'), { cache: 'no-store' }),
-        fetch(apiUrl('/api/drafts?status=failed&limit=50'), { cache: 'no-store' }),
         fetch(apiUrl('/api/drafts?status=approved,sent,rejected&limit=50'), {
           cache: 'no-store',
         }),
       ]);
-      if (!actRes.ok || !failRes.ok || !sentRes.ok) return;
+      if (!actRes.ok || !sentRes.ok) return;
       const actJson = await actRes.json();
-      const failJson = await failRes.json();
       const sentJson = await sentRes.json();
       const nextActive: DraftWithMessage[] = actJson.drafts ?? [];
-      const nextFailed: DraftWithMessage[] = failJson.drafts ?? [];
       const nextSent: DraftWithMessage[] = sentJson.drafts ?? [];
 
       if (silent) {
@@ -72,7 +66,6 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
       }
 
       setActive(nextActive);
-      setFailed(nextFailed);
       setSent(nextSent);
     } catch {
       // Background poll — swallow transient errors.
@@ -177,8 +170,9 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
 
   const visibleActive = active.filter((d) => !removed.has(d.id));
   // STAQPRO-202 — drafts stuck at status='approved' beyond the webhook
-  // timeout window. Surfaced alongside FailedSends so the operator has
-  // a recovery path (with a warning chip — see StuckApproved component).
+  // timeout window. Sole operator recovery surface for send-side failures
+  // (the 'failed' status was retired in migration 016 — see CLAUDE.md
+  // Conventions > Draft status state machine). Warning chip below.
   const stuckApproved = sent.filter((d) => {
     if (d.status !== 'approved') return false;
     const updated = d.updated_at ? new Date(d.updated_at).getTime() : NaN;
@@ -265,11 +259,6 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
           <span className="rounded-full border border-border bg-bg-deep px-2 py-0.5 font-mono text-[11px] tabular-nums text-ink-muted">
             {visibleActive.length} pending
           </span>
-          {failed.length > 0 && (
-            <span className="rounded-full border border-accent-red/40 bg-accent-red/10 px-2 py-0.5 font-mono text-[11px] tabular-nums text-accent-red">
-              {failed.length} failed
-            </span>
-          )}
           {stuckApproved.length > 0 && (
             <span className="rounded-full border border-accent-orange/40 bg-accent-orange/10 px-2 py-0.5 font-mono text-[11px] tabular-nums text-accent-orange">
               {stuckApproved.length} stuck
@@ -302,18 +291,12 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
             />
           </nav>
 
-          {view === 'pending' &&
-            (failed.length > 0 || stuckApproved.length > 0 || newCount > 0) && (
-              <div className="space-y-2 border-b border-border-subtle p-2">
-                <FailedSends drafts={failed} busyId={busyRetryId} onRetry={fireRetry} />
-                <StuckApproved
-                  drafts={stuckApproved}
-                  busyId={busyRetryId}
-                  onRetry={fireRetry}
-                />
-                <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
-              </div>
-            )}
+          {view === 'pending' && (stuckApproved.length > 0 || newCount > 0) && (
+            <div className="space-y-2 border-b border-border-subtle p-2">
+              <StuckApproved drafts={stuckApproved} busyId={busyRetryId} onRetry={fireRetry} />
+              <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {list.length === 0 ? (
               view === 'pending' ? (

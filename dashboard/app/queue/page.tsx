@@ -6,17 +6,16 @@ export const dynamic = 'force-dynamic';
 
 export default async function QueuePage() {
   let initialActive: DraftWithMessage[] = [];
-  let initialFailed: DraftWithMessage[] = [];
   let initialSent: DraftWithMessage[] = [];
   let error: string | null = null;
 
   try {
-    [initialActive, initialFailed, initialSent] = await Promise.all([
+    [initialActive, initialSent] = await Promise.all([
       listDrafts(['pending', 'edited'], 50),
-      listDrafts(['failed'], 50),
       // "Sent" view aggregates approved + sent + rejected so operators can see
       // what they shipped (and what they killed). Approved is in-flight; sent
-      // hit Gmail Reply; rejected was killed in the queue.
+      // hit Gmail Reply; rejected was killed in the queue. Stuck-at-approved
+      // (STAQPRO-202) is computed from this list client-side.
       listDrafts(['approved', 'sent', 'rejected'], 50),
     ]);
   } catch (err) {
@@ -37,11 +36,5 @@ export default async function QueuePage() {
     );
   }
 
-  return (
-    <QueueClient
-      initialActive={initialActive}
-      initialFailed={initialFailed}
-      initialSent={initialSent}
-    />
-  );
+  return <QueueClient initialActive={initialActive} initialSent={initialSent} />;
 }
