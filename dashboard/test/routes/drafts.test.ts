@@ -157,8 +157,10 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       }
     });
 
-    it('returns 409 when draft is in failed state', async () => {
-      const seed = await seedDraft({ status: 'failed' });
+    it('returns 409 when draft is in a terminal state (rejected)', async () => {
+      // STAQPRO-202 / migration 016 retired the 'failed' status; 'rejected'
+      // is the canonical terminal state the edit guard must refuse.
+      const seed = await seedDraft({ status: 'rejected' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/edit/route');
         const res = await POST(fakeRequest({ body: { draft_body: 'any body' } }), {
@@ -172,8 +174,11 @@ dbDescribe('drafts route handlers — real Postgres', () => {
   });
 
   describe('POST /api/drafts/[id]/retry', () => {
-    it('flips failed → approved and fires webhook', async () => {
-      const seed = await seedDraft({ status: 'failed' });
+    it('re-fires webhook for stuck-at-approved draft and clears error', async () => {
+      // STAQPRO-202 / migration 016 — retry now only advances rows stuck at
+      // status='approved' (Gmail Reply errors leave them there; the
+      // StuckApproved UI surfaces them for operator-driven re-send).
+      const seed = await seedDraft({ status: 'approved' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/retry/route');
         const res = await POST(fakeRequest(), {
@@ -188,7 +193,7 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       }
     });
 
-    it('returns 409 when draft is pending (retry only valid from failed)', async () => {
+    it('returns 409 when draft is pending (retry only valid from approved)', async () => {
       const seed = await seedDraft({ status: 'pending' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/retry/route');

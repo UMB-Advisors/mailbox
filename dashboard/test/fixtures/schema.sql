@@ -111,7 +111,7 @@ CREATE TABLE mailbox.drafts (
     "references" text,
     CONSTRAINT drafts_classification_category_check CHECK (((classification_category IS NULL) OR (classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text])))),
     CONSTRAINT drafts_draft_source_check CHECK (((draft_source IS NULL) OR (draft_source = ANY (ARRAY['local'::text, 'cloud'::text, 'local_qwen3'::text, 'cloud_haiku'::text])))),
-    CONSTRAINT drafts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'awaiting_cloud'::text, 'approved'::text, 'rejected'::text, 'edited'::text, 'sent'::text, 'failed'::text])))
+    CONSTRAINT drafts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'awaiting_cloud'::text, 'approved'::text, 'rejected'::text, 'edited'::text, 'sent'::text])))
 );
 
 
