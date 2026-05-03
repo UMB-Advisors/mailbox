@@ -352,6 +352,39 @@ Don't use `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`
 - Ollama API: `http://192.168.1.45:11434` (LAN only)
 - Qdrant: `http://192.168.1.45:6333` (LAN only)
 
+### Post-n8n-upgrade verification
+
+After **any** n8n version bump or workflow re-import, all four `MailBOX*`
+workflows must be `active=true` or the polling chain silently breaks at the
+`Run Classify Sub` ExecuteWorkflow node ("Workflow is not active and cannot
+be executed"). `n8n import:workflow` defaults to `active=false`; STAQPRO-135
+hit this on the original deploy and STAQPRO-181 (n8n `1.123.35 → 2.14.2`,
+2026-05-01) re-introduced the gap, dark-classifying ~12h of inbox before it
+was caught.
+
+Verification one-liner — run after every n8n change:
+
+    ssh jetson-tailscale "docker exec mailbox-postgres-1 psql \
+      -U \$(grep ^POSTGRES_USER /home/bob/mailbox/.env | cut -d= -f2-) \
+      -d \$(grep ^POSTGRES_DB /home/bob/mailbox/.env | cut -d= -f2-) \
+      -c \"SELECT name, active FROM workflow_entity WHERE name LIKE 'MailBOX%' ORDER BY name;\""
+
+All four (`MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`)
+must show `active = t`. The dashboard `/status` page also surfaces this via
+the **Classify lag** Stat — green ("caught up") when no unclassified
+inbox_messages in the last 24h, red when the oldest unclassified row is
+older than 15 min. Use the Stat as the always-on guardrail; use the psql
+one-liner as the deploy gate.
+
+Activation runbook (post-import): toggle Active on each sub-workflow in the
+n8n editor (`http://mailbox-jetson-01:5678`), or via CLI:
+
+    ssh jetson-tailscale "docker exec mailbox-n8n-1 n8n update:workflow --active=true --id=<id>"
+    ssh jetson-tailscale "cd /home/bob/mailbox && docker compose restart n8n"
+
+The CLI flag is a no-op at runtime without the restart (n8n caches
+activation state in memory).
+
 ### Tailscale access
 
 Both Jetsons live on the shared `consultingfutures@gmail.com` tailnet
