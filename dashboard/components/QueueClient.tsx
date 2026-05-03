@@ -11,9 +11,11 @@ import { EditModal } from './EditModal';
 import { EmptyState } from './EmptyState';
 import { FailedSends } from './FailedSends';
 import { NewDraftsBanner } from './NewDraftsBanner';
+import { StuckApproved } from './StuckApproved';
 import { Toast } from './Toast';
 
 const POLL_INTERVAL_MS = 30_000;
+const STUCK_APPROVED_THRESHOLD_MS = 5 * 60 * 1000;
 
 type Busy = { draftId: number; kind: ActionKind | 'retry' } | null;
 type ToastMsg = { kind: 'success' | 'error'; text: string } | null;
@@ -174,6 +176,15 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
   }
 
   const visibleActive = active.filter((d) => !removed.has(d.id));
+  // STAQPRO-202 — drafts stuck at status='approved' beyond the webhook
+  // timeout window. Surfaced alongside FailedSends so the operator has
+  // a recovery path (with a warning chip — see StuckApproved component).
+  const stuckApproved = sent.filter((d) => {
+    if (d.status !== 'approved') return false;
+    const updated = d.updated_at ? new Date(d.updated_at).getTime() : NaN;
+    if (!Number.isFinite(updated)) return false;
+    return Date.now() - updated > STUCK_APPROVED_THRESHOLD_MS;
+  });
   const list = view === 'pending' ? visibleActive : sent;
   const selected = list.find((d) => d.id === selectedId) ?? list[0] ?? null;
   const busyKindFor = (id: number): ActionKind | null =>
@@ -259,6 +270,11 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
               {failed.length} failed
             </span>
           )}
+          {stuckApproved.length > 0 && (
+            <span className="rounded-full border border-accent-orange/40 bg-accent-orange/10 px-2 py-0.5 font-mono text-[11px] tabular-nums text-accent-orange">
+              {stuckApproved.length} stuck
+            </span>
+          )}
         </div>
       </header>
 
@@ -286,12 +302,18 @@ export function QueueClient({ initialActive, initialFailed, initialSent }: Props
             />
           </nav>
 
-          {view === 'pending' && (failed.length > 0 || newCount > 0) && (
-            <div className="space-y-2 border-b border-border-subtle p-2">
-              <FailedSends drafts={failed} busyId={busyRetryId} onRetry={fireRetry} />
-              <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
-            </div>
-          )}
+          {view === 'pending' &&
+            (failed.length > 0 || stuckApproved.length > 0 || newCount > 0) && (
+              <div className="space-y-2 border-b border-border-subtle p-2">
+                <FailedSends drafts={failed} busyId={busyRetryId} onRetry={fireRetry} />
+                <StuckApproved
+                  drafts={stuckApproved}
+                  busyId={busyRetryId}
+                  onRetry={fireRetry}
+                />
+                <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
+              </div>
+            )}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {list.length === 0 ? (
               view === 'pending' ? (
