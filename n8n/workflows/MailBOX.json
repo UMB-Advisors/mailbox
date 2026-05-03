@@ -99,6 +99,7 @@
         "filters": {
           "q": "in:inbox"
         },
+        "limit": 1000,
         "operation": "getAll",
         "options": {},
         "simple": false
