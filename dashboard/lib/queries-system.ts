@@ -61,6 +61,42 @@ export async function getLastEmailReceivedAt(): Promise<string | null> {
   return (r.m as string | null) ?? null;
 }
 
+// Catches the failure mode where ingestion writes to inbox_messages but the
+// downstream MailBOX-Classify sub-workflow stops firing (e.g., the 2026-05-01
+// n8n upgrade left it active=false; STAQPRO-135 hit the same gotcha). The
+// "Last classified" Stat alone can look fresh during a quiet inbox; pair it
+// with `unclassifiedCount24h > 0` + `unclassifiedSince` to detect a stall.
+export interface ClassificationHealth {
+  lastClassifiedAt: string | null;
+  unclassifiedSince: string | null;
+  unclassifiedCount24h: number;
+}
+
+export async function getClassificationHealth(): Promise<ClassificationHealth> {
+  const db = getKysely();
+  const latest = await db
+    .selectFrom('classification_log')
+    .select((eb) => eb.fn.max('created_at').as('m'))
+    .executeTakeFirstOrThrow();
+
+  const backlog = await sql<{ count: string; oldest: string | null }>`
+    SELECT
+      COUNT(*)::text AS count,
+      MIN(m.received_at)::text AS oldest
+    FROM mailbox.inbox_messages m
+    LEFT JOIN mailbox.classification_log c ON c.inbox_message_id = m.id
+    WHERE c.id IS NULL
+      AND m.received_at > NOW() - INTERVAL '24 hours'
+  `.execute(db);
+
+  const row = backlog.rows[0];
+  return {
+    lastClassifiedAt: (latest.m as string | null) ?? null,
+    unclassifiedSince: row?.oldest ?? null,
+    unclassifiedCount24h: row ? Number(row.count) : 0,
+  };
+}
+
 // n8n's workflow_entity lives in the `public` schema, outside the kysely-codegen
 // scope. Use sql template + raw query rather than expanding the codegen include
 // pattern — n8n's schema is upstream-managed and shouldn't be a source of

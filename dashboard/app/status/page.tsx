@@ -7,6 +7,7 @@ import {
 } from '@/lib/alerts';
 import {
   getActiveWorkflowCount,
+  getClassificationHealth,
   getCloudSpend24h,
   getCloudSpendLastHour,
   getDiskFree,
@@ -44,6 +45,7 @@ export default async function StatusPage() {
     cloudSpendLastHour,
     editRate7d,
     qdrantCollection,
+    classificationHealth,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -59,7 +61,25 @@ export default async function StatusPage() {
     getCloudSpendLastHour(),
     getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
     getQdrantCollectionHealth(),
+    getClassificationHealth().catch(() => null),
   ]);
+
+  // Classify-lag tone: backlog > 0 AND oldest waiter > 15m → red, > 10m → orange.
+  // Empty backlog renders neutral (no work to do, not a problem).
+  const classifyLagSeconds =
+    classificationHealth?.unclassifiedSince
+      ? Math.max(0, Math.round((Date.now() - new Date(classificationHealth.unclassifiedSince).getTime()) / 1000))
+      : null;
+  const classifyTone: 'default' | 'green' | 'orange' | 'red' =
+    classificationHealth === null
+      ? 'default'
+      : classificationHealth.unclassifiedCount24h === 0
+        ? 'green'
+        : classifyLagSeconds !== null && classifyLagSeconds > 15 * 60
+          ? 'red'
+          : classifyLagSeconds !== null && classifyLagSeconds > 10 * 60
+            ? 'orange'
+            : 'default';
 
   const ragEval = buildRagEvalSnapshot(editRate7d.edit_rate, editRate7d.sample_size);
 
@@ -112,7 +132,7 @@ export default async function StatusPage() {
             </section>
           )}
 
-          <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Stat label="Uptime" value={formatUptime(uptimeSeconds)} mono />
             <Stat
               label="Queue depth"
@@ -130,6 +150,25 @@ export default async function StatusPage() {
               label="Last email"
               value={formatRelative(lastEmailReceivedAt)}
               sub={lastEmailReceivedAt ?? 'no emails yet'}
+              mono
+            />
+            <Stat
+              label="Classify lag"
+              value={
+                classificationHealth === null
+                  ? '—'
+                  : classificationHealth.unclassifiedCount24h === 0
+                    ? 'caught up'
+                    : formatRelative(classificationHealth.unclassifiedSince)
+              }
+              sub={
+                classificationHealth === null
+                  ? 'unavailable'
+                  : classificationHealth.unclassifiedCount24h === 0
+                    ? `last: ${formatRelative(classificationHealth.lastClassifiedAt)}`
+                    : `${classificationHealth.unclassifiedCount24h} unclassified (24h)`
+              }
+              tone={classifyTone}
               mono
             />
           </section>
