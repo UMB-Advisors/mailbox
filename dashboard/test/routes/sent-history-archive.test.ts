@@ -105,9 +105,11 @@ dbDescribe('sent_history archive trigger — STAQPRO-189', () => {
          WHERE id = $1`,
       [seed.draftId],
     );
-    // Bounce status to failed and back to sent — second transition should
-    // not create a duplicate sent_history row (idempotency guard).
-    await pool.query(`UPDATE mailbox.drafts SET status = 'failed' WHERE id = $1`, [seed.draftId]);
+    // Bounce status away from sent and back to sent — second transition
+    // should not create a duplicate sent_history row (idempotency guard).
+    // Trigger fires on IS DISTINCT FROM 'sent', so any non-sent value works
+    // as the bounce target; 'rejected' is a valid CHECK value (post-016).
+    await pool.query(`UPDATE mailbox.drafts SET status = 'rejected' WHERE id = $1`, [seed.draftId]);
     await pool.query(`UPDATE mailbox.drafts SET status = 'sent' WHERE id = $1`, [seed.draftId]);
 
     const r = await pool.query(

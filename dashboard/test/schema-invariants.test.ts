@@ -69,18 +69,10 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   });
 
   it.skipIf(!DB_URL)(
-    'drafts.status CHECK matches the live state machine (pending → awaiting_cloud → approved/rejected/edited → sent/failed)',
+    "drafts.status CHECK matches the live state machine (pending → awaiting_cloud → approved/rejected/edited → sent; 'failed' retired by migration 016 / STAQPRO-202)",
     async () => {
       const allowed = await getCheckValues(pool!, 'drafts', 'drafts_status_check');
-      const expected = [
-        'pending',
-        'awaiting_cloud',
-        'approved',
-        'rejected',
-        'edited',
-        'sent',
-        'failed',
-      ];
+      const expected = ['pending', 'awaiting_cloud', 'approved', 'rejected', 'edited', 'sent'];
       expect([...allowed].sort()).toEqual([...expected].sort());
     },
   );
