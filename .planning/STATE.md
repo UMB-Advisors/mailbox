@@ -116,6 +116,12 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - ID jump from 26 → 909 in inbox_messages.id sequence — cosmetic only
 - Pub/Sub watch-renewal (DR-22, originally tracked as STAQPRO-115) — REVERTED 2026-04-30 per post-audit reviewer consensus. Captured as **D-51** in `02-CONTEXT-ADDENDUM-v2-2026-04-27.md`. Live ingestion path is Gmail node + Schedule trigger (per 02-03 SUMMARY); no Pub/Sub watch-renewal job is required.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260502-rk0 | Scaffold onboarding wizard GUI (STAQPRO-152) + customer onboarding docs templates (STAQPRO-132) | 2026-05-03 | c1d66f9 | [260502-rk0-scaffold-onboarding-wizard-gui-staqpro-1](./quick/260502-rk0-scaffold-onboarding-wizard-gui-staqpro-1/) |
+
 ## Architectural Decision Record: Dashboard Stack Pivot
 
 **Date:** 2026-04-27
