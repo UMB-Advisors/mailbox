@@ -3,10 +3,11 @@ mailbox.heronlabsinc.com {
     dns cloudflare {env.CLOUDFLARE_API_TOKEN}
   }
 
-  # Single auth gate covers all paths. Hoisted to the site scope so both
-  # /dashboard/* and / (n8n editor) share one auth realm — without this,
-  # browsers re-prompt every time a request crosses between the two
-  # handle blocks (split-realm trap surfaced 2026-05-01).
+  # Single auth gate covers all paths EXCEPT /mcp-server/*, which uses its
+  # own n8n-issued JWT Bearer auth (see STAQPRO-203). Hoisted to the site
+  # scope so /dashboard/* and / (n8n editor) share one auth realm —
+  # without this, browsers re-prompt every time a request crosses between
+  # the two handle blocks (split-realm trap surfaced 2026-05-01).
   #
   # Set MAILBOX_BASIC_AUTH_USER + MAILBOX_BASIC_AUTH_HASH in .env, AND
   # ensure both vars are passed through to the caddy container in
@@ -20,7 +21,15 @@ mailbox.heronlabsinc.com {
   # This is intentional — an appliance with deployed customer data must
   # not silently fall through to unauthenticated proxying. If you're
   # provisioning a fresh appliance, set the env vars BEFORE first boot.
-  basic_auth {
+  #
+  # /mcp-server/* bypass rationale (STAQPRO-203): n8n's instance-level
+  # MCP server (added in 2.13+) authenticates with its own JWT Bearer
+  # token — Caddy's basic_auth header would shadow that and break the
+  # handshake. The bypass leaves auth to n8n, same security model as
+  # n8n Cloud. The MCP token is per-client, revocable in the n8n UI
+  # at Settings > Instance-level MCP > Connected clients.
+  @protected not path /mcp-server/*
+  basic_auth @protected {
     {env.MAILBOX_BASIC_AUTH_USER} {env.MAILBOX_BASIC_AUTH_HASH}
   }
 
