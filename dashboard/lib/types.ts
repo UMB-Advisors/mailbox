@@ -29,7 +29,8 @@ import type {
 // ── String-literal enums (SoT — asserted against Postgres CHECK constraints) ─
 
 // drafts.status enum (STAQPRO-137). Mirrored against the CHECK constraint in
-// migrations/003-evolve-drafts-to-queue-shape-v1-2026-04-27.sql; the
+// migrations/003-evolve-drafts-to-queue-shape-v1-2026-04-27.sql (last narrowed
+// by migration 016, which dropped 'failed' per STAQPRO-202); the
 // schema-invariants test asserts they stay in sync.
 export const DRAFT_STATUSES = [
   'pending',
@@ -38,7 +39,6 @@ export const DRAFT_STATUSES = [
   'rejected',
   'edited',
   'sent',
-  'failed',
 ] as const;
 
 export type DraftStatus = (typeof DRAFT_STATUSES)[number];
