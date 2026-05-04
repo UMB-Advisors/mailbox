@@ -44,6 +44,13 @@ import path from 'node:path';
 import process from 'node:process';
 import { Pool } from 'pg';
 import type { Category } from '../lib/classification/prompt';
+import {
+  callJudge,
+  type JudgeProvider,
+  type JudgeResult,
+  type JudgeScores,
+  judgeScoreSum,
+} from '../lib/drafting/judge';
 import { getPersonaContext } from '../lib/drafting/persona';
 import { assemblePrompt } from '../lib/drafting/prompt';
 import { pickEndpoint } from '../lib/drafting/router';
@@ -133,8 +140,19 @@ export interface PerPairScore {
   rag_reason: RetrievalResult['reason'];
   draft_chars: number;
   actual_chars: number;
-  status: 'ok' | 'draft_failed' | 'embed_failed' | 'error';
+  status: 'ok' | 'draft_failed' | 'embed_failed' | 'error' | 'judge_only';
   error?: string;
+  // STAQPRO-220 — judge fields. Populated only when --judge / --judge-only
+  // is on; absent on cosine-only runs so existing eval JSON shape is
+  // unchanged when the harness is invoked the same way as before.
+  judge_provider?: JudgeProvider;
+  judge_status?: JudgeResult['status'];
+  judge_score?: number;
+  judge_voice?: number;
+  judge_facts?: number;
+  judge_length?: number;
+  judge_rationale?: string;
+  judge_error?: string;
 }
 
 export interface AggregateStats {
@@ -156,11 +174,20 @@ export interface RagEvalReport {
   sample_size_actual: number;
   aggregates_global: AggregateStats;
   aggregates_by_category: Record<string, AggregateStats>;
+  // STAQPRO-220 — judge aggregates. Present only when judge was enabled.
+  // Mirrors the cosine block; aggregated over per-pair judge_score values.
+  judge_provider?: JudgeProvider;
+  judge_aggregates_global?: AggregateStats;
+  judge_aggregates_by_category?: Record<string, AggregateStats>;
   per_pair: PerPairScore[];
   // Counts of pair statuses so an operator can spot drift between modes
   // (e.g., draft_failed exploding under no-rag when local drafts hallucinate
   // empty completions because they have no anchor).
-  status_counts: Record<PerPairScore['status'], number>;
+  // `judge_failed` (STAQPRO-220) counts pairs where the judge call or parse
+  // failed — judge outages should not poison the cosine aggregate.
+  status_counts: Record<PerPairScore['status'], number> & {
+    judge_failed: number;
+  };
 }
 
 /**
@@ -207,8 +234,10 @@ export function buildReport(args: {
   embed_model: string;
   sample_size_requested: number | 'all';
   per_pair: PerPairScore[];
+  judge_provider?: JudgeProvider;
 }): RagEvalReport {
-  const { mode, drafter_model, embed_model, sample_size_requested, per_pair } = args;
+  const { mode, drafter_model, embed_model, sample_size_requested, per_pair, judge_provider } =
+    args;
   const okScores = per_pair.filter((p) => p.cosine !== null).map((p) => p.cosine as number);
   const byCategory = new Map<string, number[]>();
   for (const pair of per_pair) {
@@ -225,13 +254,50 @@ export function buildReport(args: {
   for (const [cat, scores] of byCategory) {
     aggregates_by_category[cat] = aggregate(scores);
   }
-  const status_counts: Record<PerPairScore['status'], number> = {
+
+  // Judge aggregates — only computed when judge_provider is supplied AND
+  // at least one pair carries an `ok` judge_status. The aggregator filters
+  // on judge_status === 'ok' so parse_failed / call_failed don't pollute
+  // the judge-score distribution.
+  let judge_aggregates_global: AggregateStats | undefined;
+  let judge_aggregates_by_category: Record<string, AggregateStats> | undefined;
+  if (judge_provider) {
+    const okJudge = per_pair
+      .filter((p) => p.judge_status === 'ok' && typeof p.judge_score === 'number')
+      .map((p) => p.judge_score as number);
+    judge_aggregates_global = aggregate(okJudge);
+    const judgeByCategory = new Map<string, number[]>();
+    for (const pair of per_pair) {
+      if (pair.judge_status !== 'ok' || typeof pair.judge_score !== 'number') continue;
+      const cat = pair.classification ?? 'unclassified';
+      let bucket = judgeByCategory.get(cat);
+      if (!bucket) {
+        bucket = [];
+        judgeByCategory.set(cat, bucket);
+      }
+      bucket.push(pair.judge_score);
+    }
+    judge_aggregates_by_category = {};
+    for (const [cat, scores] of judgeByCategory) {
+      judge_aggregates_by_category[cat] = aggregate(scores);
+    }
+  }
+
+  const status_counts: RagEvalReport['status_counts'] = {
     ok: 0,
     draft_failed: 0,
     embed_failed: 0,
     error: 0,
+    judge_only: 0,
+    judge_failed: 0,
   };
-  for (const p of per_pair) status_counts[p.status] += 1;
+  for (const p of per_pair) {
+    status_counts[p.status] += 1;
+    // judge_failed mirrors `embed_failed` semantically — count pairs whose
+    // judge attempt produced anything other than `ok`. Pairs without any
+    // judge attempt (cosine-only run) are not counted.
+    if (p.judge_status && p.judge_status !== 'ok') status_counts.judge_failed += 1;
+  }
 
   return {
     generated_at: new Date().toISOString(),
@@ -242,6 +308,9 @@ export function buildReport(args: {
     sample_size_actual: per_pair.length,
     aggregates_global: aggregate(okScores),
     aggregates_by_category,
+    judge_provider,
+    judge_aggregates_global,
+    judge_aggregates_by_category,
     per_pair,
     status_counts,
   };
@@ -249,10 +318,30 @@ export function buildReport(args: {
 
 export interface ParsedArgs {
   limit: number | 'all';
+  // STAQPRO-220 — judge mode. `null` means cosine-only (existing behavior).
+  // `judge_only=true` skips the cosine path and only runs the judge — used
+  // for re-scoring an already-eval'd corpus without re-paying for the
+  // 67-min Qwen3 draft + embed loop.
+  judge: JudgeProvider | null;
+  judge_only: boolean;
+}
+
+const JUDGE_PROVIDERS: readonly JudgeProvider[] = ['haiku', 'gpt-oss'];
+
+function parseJudgeValue(flag: string, v: string | undefined): JudgeProvider {
+  if (v === undefined || v === '') {
+    throw new Error(`${flag} requires a value (one of: ${JUDGE_PROVIDERS.join(', ')})`);
+  }
+  if (!JUDGE_PROVIDERS.includes(v as JudgeProvider)) {
+    throw new Error(`${flag} must be one of ${JUDGE_PROVIDERS.join(', ')}, got: ${v}`);
+  }
+  return v as JudgeProvider;
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   let limit: number | 'all' = 'all';
+  let judge: JudgeProvider | null = null;
+  let judge_only = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') {
@@ -268,9 +357,29 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         limit = Math.floor(n);
       }
       i++;
+      continue;
+    }
+    if (a === '--judge') {
+      judge = parseJudgeValue('--judge', argv[i + 1]);
+      i++;
+      continue;
+    }
+    if (a?.startsWith('--judge=')) {
+      judge = parseJudgeValue('--judge', a.slice('--judge='.length));
+      continue;
+    }
+    if (a === '--judge-only') {
+      judge = parseJudgeValue('--judge-only', argv[i + 1]);
+      judge_only = true;
+      i++;
+      continue;
+    }
+    if (a?.startsWith('--judge-only=')) {
+      judge = parseJudgeValue('--judge-only', a.slice('--judge-only='.length));
+      judge_only = true;
     }
   }
-  return { limit };
+  return { limit, judge, judge_only };
 }
 
 // =============================================================================
@@ -381,10 +490,32 @@ export async function generateDraft(
 
 export interface ScorePairDeps extends DrafterDeps {
   embedFn?: typeof embedText;
+  // STAQPRO-220 — pluggable judge call for tests. Production uses the real
+  // callJudge from lib/drafting/judge.ts.
+  judgeFn?: typeof callJudge;
 }
 
-export async function scorePair(pair: PairRow, deps: ScorePairDeps = {}): Promise<PerPairScore> {
+export interface ScorePairOptions {
+  /**
+   * STAQPRO-220 — when set, run the LLM-judge in addition to (or instead
+   * of, under judge_only) cosine. The harness owns the decision; the call
+   * site here just plugs it in per pair so the per-pair object can carry
+   * judge_* fields alongside cosine.
+   */
+  judge?: JudgeProvider | null;
+  judge_only?: boolean;
+}
+
+export async function scorePair(
+  pair: PairRow,
+  deps: ScorePairDeps = {},
+  options: ScorePairOptions = {},
+): Promise<PerPairScore> {
   const embedFn = deps.embedFn ?? embedText;
+  const judgeFn = deps.judgeFn ?? callJudge;
+  const judgeProvider = options.judge ?? null;
+  const judgeOnly = options.judge_only === true && judgeProvider !== null;
+
   const base: Omit<
     PerPairScore,
     'cosine' | 'rag_refs_count' | 'rag_reason' | 'draft_chars' | 'status'
@@ -426,18 +557,103 @@ export async function scorePair(pair: PairRow, deps: ScorePairDeps = {}): Promis
     return { ...base, status: 'embed_failed', error: 'empty draft or actual reply' };
   }
 
-  const [draftVec, actualVec] = await Promise.all([
-    embedFn(draftBody),
-    embedFn(pair.actual_reply_body),
-  ]);
-  if (!draftVec || !actualVec) {
-    return { ...base, status: 'embed_failed', error: 'embed returned null' };
+  // Cosine path — skipped when --judge-only is set, so the harness can
+  // re-score an already-eval'd corpus without paying for embed calls.
+  let cosine: number | null = null;
+  let cosineFailed: { error: string } | null = null;
+  if (!judgeOnly) {
+    const [draftVec, actualVec] = await Promise.all([
+      embedFn(draftBody),
+      embedFn(pair.actual_reply_body),
+    ]);
+    if (!draftVec || !actualVec) {
+      cosineFailed = { error: 'embed returned null' };
+    } else {
+      cosine = cosineSimilarity(draftVec, actualVec);
+    }
   }
 
+  // Judge path — runs alongside cosine when --judge=... is set, OR alone
+  // when --judge-only=... is set. Failures here populate judge_status and
+  // judge_error but do not poison the cosine result; the aggregate code
+  // filters on judge_status === 'ok'.
+  let judgeFields: Pick<
+    PerPairScore,
+    | 'judge_provider'
+    | 'judge_status'
+    | 'judge_score'
+    | 'judge_voice'
+    | 'judge_facts'
+    | 'judge_length'
+    | 'judge_rationale'
+    | 'judge_error'
+  > = {};
+  if (judgeProvider) {
+    const judgeResult = await judgeFn(judgeProvider, {
+      draft: draftBody,
+      actual_reply: pair.actual_reply_body,
+    });
+    judgeFields = applyJudgeResult(judgeProvider, judgeResult);
+  }
+
+  // Decide final status. Cosine-only legacy path keeps `embed_failed`
+  // semantics. judge-only path uses `judge_only` if cosine wasn't attempted
+  // (so the operator can read status_counts.judge_only and know it was an
+  // intentional no-cosine run, not an embed outage).
+  if (judgeOnly) {
+    return {
+      ...base,
+      ...judgeFields,
+      cosine: null,
+      status: 'judge_only',
+    };
+  }
+  if (cosineFailed) {
+    return { ...base, ...judgeFields, status: 'embed_failed', error: cosineFailed.error };
+  }
   return {
     ...base,
-    cosine: cosineSimilarity(draftVec, actualVec),
+    ...judgeFields,
+    cosine,
     status: 'ok',
+  };
+}
+
+/**
+ * STAQPRO-220 — translate a JudgeResult into the JSON-friendly per-pair
+ * fields. Centralized so the shape is consistent across the cosine-and-
+ * judge and the judge-only paths.
+ */
+function applyJudgeResult(
+  provider: JudgeProvider,
+  result: JudgeResult,
+): Pick<
+  PerPairScore,
+  | 'judge_provider'
+  | 'judge_status'
+  | 'judge_score'
+  | 'judge_voice'
+  | 'judge_facts'
+  | 'judge_length'
+  | 'judge_rationale'
+  | 'judge_error'
+> {
+  if (result.status === 'ok' && result.scores) {
+    const s: JudgeScores = result.scores;
+    return {
+      judge_provider: provider,
+      judge_status: 'ok',
+      judge_score: judgeScoreSum(s),
+      judge_voice: s.voice_match,
+      judge_facts: s.factual_alignment,
+      judge_length: s.length_appropriateness,
+      judge_rationale: s.rationale,
+    };
+  }
+  return {
+    judge_provider: provider,
+    judge_status: result.status,
+    judge_error: result.error,
   };
 }
 
@@ -456,7 +672,7 @@ function summaryTable(report: RagEvalReport): string {
   lines.push('');
   lines.push(`RAG eval — mode=${report.mode} model=${report.drafter_model}`);
   lines.push(
-    `pairs: ${report.sample_size_actual} (requested ${report.sample_size_requested})  ok=${report.status_counts.ok} draft_failed=${report.status_counts.draft_failed} embed_failed=${report.status_counts.embed_failed} error=${report.status_counts.error}`,
+    `pairs: ${report.sample_size_actual} (requested ${report.sample_size_requested})  ok=${report.status_counts.ok} draft_failed=${report.status_counts.draft_failed} embed_failed=${report.status_counts.embed_failed} error=${report.status_counts.error} judge_only=${report.status_counts.judge_only} judge_failed=${report.status_counts.judge_failed}`,
   );
   lines.push('');
   lines.push('Global cosine similarity:');
@@ -472,6 +688,26 @@ function summaryTable(report: RagEvalReport): string {
       );
     }
   }
+  if (report.judge_provider && report.judge_aggregates_global) {
+    const j = report.judge_aggregates_global;
+    lines.push('');
+    lines.push(`Global judge score (provider=${report.judge_provider}, range 0-9):`);
+    lines.push(
+      `  count=${j.count}  mean=${j.mean.toFixed(3)}  median=${j.median.toFixed(3)}  p25=${j.p25.toFixed(3)}  p75=${j.p75.toFixed(3)}  min=${j.min.toFixed(3)}  max=${j.max.toFixed(3)}`,
+    );
+    if (
+      report.judge_aggregates_by_category &&
+      Object.keys(report.judge_aggregates_by_category).length > 0
+    ) {
+      lines.push('');
+      lines.push('Judge per-category:');
+      for (const [cat, agg] of Object.entries(report.judge_aggregates_by_category)) {
+        lines.push(
+          `  ${cat.padEnd(16)} count=${String(agg.count).padStart(4)}  mean=${agg.mean.toFixed(3)}  median=${agg.median.toFixed(3)}`,
+        );
+      }
+    }
+  }
   lines.push('');
   return lines.join('\n');
 }
@@ -484,6 +720,18 @@ async function main(): Promise<void> {
   const mode: 'with-rag' | 'no-rag' = process.env.RAG_DISABLED === '1' ? 'no-rag' : 'with-rag';
   const drafterModel = process.env.RAG_EVAL_DRAFTER_MODEL ?? 'qwen3:4b-ctx4k';
   const embedModel = process.env.EMBED_MODEL ?? 'nomic-embed-text:v1.5';
+  const judgeProvider = args.judge;
+  const judgeOnly = args.judge_only;
+
+  // STAQPRO-220 — privacy notice. The judge sees draft + actual reply bytes;
+  // both go to whichever cloud the operator picked. The runbook documents
+  // this; the harness echoes it on every judge run so it's hard to miss.
+  if (judgeProvider) {
+    const cloud = judgeProvider === 'haiku' ? 'Anthropic' : 'Ollama Cloud';
+    console.log(
+      `[rag-eval] judge=${judgeProvider} (${cloud}) judge_only=${judgeOnly} — draft + actual reply bytes WILL be sent to the cloud provider`,
+    );
+  }
 
   console.log(
     `[rag-eval] mode=${mode} limit=${args.limit} drafter=${drafterModel} embed=${embedModel}`,
@@ -501,7 +749,7 @@ async function main(): Promise<void> {
     for (const pair of pairs) {
       i += 1;
       try {
-        const score = await scorePair(pair);
+        const score = await scorePair(pair, {}, { judge: judgeProvider, judge_only: judgeOnly });
         perPair.push(score);
       } catch (err) {
         perPair.push({
@@ -519,7 +767,11 @@ async function main(): Promise<void> {
       }
       if (i % 10 === 0 || i === pairs.length) {
         const ok = perPair.filter((p) => p.status === 'ok').length;
-        console.log(`[rag-eval] ${i}/${pairs.length} ok=${ok}`);
+        const judgeOk = judgeProvider
+          ? perPair.filter((p) => p.judge_status === 'ok').length
+          : null;
+        const judgeFragment = judgeOk === null ? '' : ` judge_ok=${judgeOk}`;
+        console.log(`[rag-eval] ${i}/${pairs.length} ok=${ok}${judgeFragment}`);
       }
     }
 
@@ -529,12 +781,21 @@ async function main(): Promise<void> {
       embed_model: embedModel,
       sample_size_requested: args.limit,
       per_pair: perPair,
+      judge_provider: judgeProvider ?? undefined,
     });
 
     const outDir = path.resolve(process.cwd(), 'eval-results');
     await mkdir(outDir, { recursive: true });
     const ts = report.generated_at.replace(/[:.]/g, '-');
-    const outPath = path.join(outDir, `rag-eval-${ts}-${mode}.json`);
+    // Tag judge runs in the filename so cosine-only and judge runs don't
+    // collide in eval-results/. judge-only runs land with `-judge-<provider>`
+    // suffix so they're trivially globbable.
+    const judgeSuffix = judgeProvider
+      ? judgeOnly
+        ? `-judge-only-${judgeProvider}`
+        : `-judge-${judgeProvider}`
+      : '';
+    const outPath = path.join(outDir, `rag-eval-${ts}-${mode}${judgeSuffix}.json`);
     await writeFile(outPath, JSON.stringify(report, null, 2), 'utf-8');
 
     console.log(summaryTable(report));

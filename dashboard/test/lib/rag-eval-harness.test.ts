@@ -121,17 +121,25 @@ describe('buildSampleSql — STAQPRO-198', () => {
   });
 });
 
-describe('parseArgs — STAQPRO-198', () => {
+describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
   it("defaults to limit='all' when no flag passed", () => {
-    expect(parseArgs([])).toEqual({ limit: 'all' });
+    expect(parseArgs([])).toEqual({ limit: 'all', judge: null, judge_only: false });
   });
 
   it('accepts --limit all as an explicit choice', () => {
-    expect(parseArgs(['--limit', 'all'])).toEqual({ limit: 'all' });
+    expect(parseArgs(['--limit', 'all'])).toEqual({
+      limit: 'all',
+      judge: null,
+      judge_only: false,
+    });
   });
 
   it('parses --limit N as an integer', () => {
-    expect(parseArgs(['--limit', '50'])).toEqual({ limit: 50 });
+    expect(parseArgs(['--limit', '50'])).toEqual({
+      limit: 50,
+      judge: null,
+      judge_only: false,
+    });
   });
 
   it('rejects non-positive or non-numeric --limit values', () => {
@@ -142,6 +150,58 @@ describe('parseArgs — STAQPRO-198', () => {
 
   it('rejects --limit with no value', () => {
     expect(() => parseArgs(['--limit'])).toThrow();
+  });
+
+  // STAQPRO-220 — judge mode flags.
+
+  it('parses --judge=haiku', () => {
+    expect(parseArgs(['--judge=haiku'])).toEqual({
+      limit: 'all',
+      judge: 'haiku',
+      judge_only: false,
+    });
+  });
+
+  it('parses --judge gpt-oss as a separated value', () => {
+    expect(parseArgs(['--judge', 'gpt-oss'])).toEqual({
+      limit: 'all',
+      judge: 'gpt-oss',
+      judge_only: false,
+    });
+  });
+
+  it('parses --judge-only=haiku and sets judge_only=true', () => {
+    expect(parseArgs(['--judge-only=haiku'])).toEqual({
+      limit: 'all',
+      judge: 'haiku',
+      judge_only: true,
+    });
+  });
+
+  it('parses --judge-only gpt-oss separated form', () => {
+    expect(parseArgs(['--judge-only', 'gpt-oss'])).toEqual({
+      limit: 'all',
+      judge: 'gpt-oss',
+      judge_only: true,
+    });
+  });
+
+  it('rejects an unknown --judge provider', () => {
+    expect(() => parseArgs(['--judge=bogus'])).toThrow(/haiku, gpt-oss/);
+    expect(() => parseArgs(['--judge', 'sonnet'])).toThrow();
+  });
+
+  it('rejects --judge with no value', () => {
+    expect(() => parseArgs(['--judge'])).toThrow();
+    expect(() => parseArgs(['--judge='])).toThrow();
+  });
+
+  it('combines --limit and --judge flags', () => {
+    expect(parseArgs(['--limit', '10', '--judge=haiku'])).toEqual({
+      limit: 10,
+      judge: 'haiku',
+      judge_only: false,
+    });
   });
 });
 
@@ -194,6 +254,8 @@ describe('buildReport — STAQPRO-198', () => {
       draft_failed: 1,
       embed_failed: 0,
       error: 0,
+      judge_only: 0,
+      judge_failed: 0,
     });
     // ISO-8601 with 'Z' — verify it's parseable, since the file path uses it.
     expect(new Date(report.generated_at).toString()).not.toBe('Invalid Date');
@@ -214,6 +276,83 @@ describe('buildReport — STAQPRO-198', () => {
     });
     expect(report.aggregates_by_category.unclassified.count).toBe(2);
     expect(report.aggregates_by_category.unclassified.mean).toBeCloseTo(0.5, 10);
+  });
+
+  // STAQPRO-220 — judge aggregates.
+
+  it('produces judge_aggregates_global only when judge_provider is supplied', () => {
+    const cosineOnly = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      per_pair: [baseScore({ cosine: 0.5 })],
+    });
+    expect(cosineOnly.judge_provider).toBeUndefined();
+    expect(cosineOnly.judge_aggregates_global).toBeUndefined();
+    expect(cosineOnly.judge_aggregates_by_category).toBeUndefined();
+  });
+
+  it('aggregates judge_score over judge_status=ok pairs only and counts judge_failed', () => {
+    const report = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      judge_provider: 'haiku',
+      per_pair: [
+        baseScore({
+          sent_history_id: 1,
+          classification: 'inquiry',
+          cosine: 0.7,
+          judge_provider: 'haiku',
+          judge_status: 'ok',
+          judge_score: 6,
+          judge_voice: 2,
+          judge_facts: 3,
+          judge_length: 1,
+          judge_rationale: 'good',
+        }),
+        baseScore({
+          sent_history_id: 2,
+          classification: 'inquiry',
+          cosine: 0.6,
+          judge_provider: 'haiku',
+          judge_status: 'ok',
+          judge_score: 8,
+          judge_voice: 3,
+          judge_facts: 3,
+          judge_length: 2,
+          judge_rationale: 'great',
+        }),
+        baseScore({
+          sent_history_id: 3,
+          classification: 'reorder',
+          cosine: 0.9,
+          judge_provider: 'haiku',
+          judge_status: 'parse_failed',
+          judge_error: 'bad json',
+        }),
+        baseScore({
+          sent_history_id: 4,
+          classification: 'reorder',
+          cosine: 0.85,
+          judge_provider: 'haiku',
+          judge_status: 'call_failed',
+          judge_error: '429',
+        }),
+      ],
+    });
+
+    expect(report.judge_provider).toBe('haiku');
+    // ok pairs only — 6 and 8 → mean 7
+    expect(report.judge_aggregates_global?.count).toBe(2);
+    expect(report.judge_aggregates_global?.mean).toBeCloseTo(7, 10);
+    expect(report.judge_aggregates_by_category?.inquiry.count).toBe(2);
+    // No 'ok' judge in reorder, so the per-category bucket should be absent.
+    expect(report.judge_aggregates_by_category?.reorder).toBeUndefined();
+    // judge_failed counts both parse_failed and call_failed.
+    expect(report.status_counts.judge_failed).toBe(2);
   });
 });
 
@@ -373,6 +512,146 @@ describe('scorePair — STAQPRO-198', () => {
 
     expect(score.rag_refs_count).toBe(1);
     expect(score.rag_reason).toBe('ok');
+  });
+
+  // STAQPRO-220 — judge integration through scorePair.
+
+  it('populates judge fields when --judge=haiku is enabled alongside cosine', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ message: { content: 'Confirmed for Friday.' } }),
+    );
+    const embedMock = vi.fn(async () => unitX);
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
+    const personaMock = vi.fn(async () => ({
+      tone: 'concise',
+      signoff: '— Heron Labs',
+      operator_first_name: 'Heron Labs team',
+      operator_brand: 'Heron Labs',
+    }));
+    const judgeMock = vi.fn(async () => ({
+      status: 'ok' as const,
+      scores: {
+        voice_match: 2,
+        factual_alignment: 3,
+        length_appropriateness: 1,
+        rationale: 'close',
+      },
+    }));
+
+    const score = await scorePair(
+      pair,
+      {
+        fetchFn: fetchMock as unknown as typeof fetch,
+        embedFn: embedMock as unknown as typeof import('@/lib/rag/embed').embedText,
+        retrieve: retrieveMock,
+        resolvePersona: personaMock,
+        judgeFn: judgeMock as unknown as typeof import('@/lib/drafting/judge').callJudge,
+      },
+      { judge: 'haiku' },
+    );
+
+    expect(score.status).toBe('ok');
+    expect(score.cosine).toBeCloseTo(1, 10);
+    expect(score.judge_provider).toBe('haiku');
+    expect(score.judge_status).toBe('ok');
+    expect(score.judge_score).toBe(6); // 2+3+1
+    expect(score.judge_voice).toBe(2);
+    expect(score.judge_facts).toBe(3);
+    expect(score.judge_length).toBe(1);
+    expect(score.judge_rationale).toBe('close');
+    expect(judgeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('judge_only=true skips embeds and yields status=judge_only with cosine=null', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ message: { content: 'Confirmed for Friday.' } }),
+    );
+    const embedMock = vi.fn(async () => unitX);
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
+    const personaMock = vi.fn(async () => ({
+      tone: 'concise',
+      signoff: '— Heron Labs',
+      operator_first_name: 'Heron Labs team',
+      operator_brand: 'Heron Labs',
+    }));
+    const judgeMock = vi.fn(async () => ({
+      status: 'ok' as const,
+      scores: {
+        voice_match: 3,
+        factual_alignment: 2,
+        length_appropriateness: 2,
+        rationale: 'fine',
+      },
+    }));
+
+    const score = await scorePair(
+      pair,
+      {
+        fetchFn: fetchMock as unknown as typeof fetch,
+        embedFn: embedMock as unknown as typeof import('@/lib/rag/embed').embedText,
+        retrieve: retrieveMock,
+        resolvePersona: personaMock,
+        judgeFn: judgeMock as unknown as typeof import('@/lib/drafting/judge').callJudge,
+      },
+      { judge: 'haiku', judge_only: true },
+    );
+
+    expect(score.status).toBe('judge_only');
+    expect(score.cosine).toBeNull();
+    expect(embedMock).not.toHaveBeenCalled();
+    expect(score.judge_score).toBe(7);
+  });
+
+  it('judge call_failed does NOT poison cosine — pair still ok', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ message: { content: 'Confirmed for Friday.' } }),
+    );
+    const embedMock = vi.fn(async () => unitX);
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
+    const personaMock = vi.fn(async () => ({
+      tone: 'concise',
+      signoff: '— Heron Labs',
+      operator_first_name: 'Heron Labs team',
+      operator_brand: 'Heron Labs',
+    }));
+    const judgeMock = vi.fn(async () => ({
+      status: 'call_failed' as const,
+      scores: null,
+      error: 'anthropic 429',
+    }));
+
+    const score = await scorePair(
+      pair,
+      {
+        fetchFn: fetchMock as unknown as typeof fetch,
+        embedFn: embedMock as unknown as typeof import('@/lib/rag/embed').embedText,
+        retrieve: retrieveMock,
+        resolvePersona: personaMock,
+        judgeFn: judgeMock as unknown as typeof import('@/lib/drafting/judge').callJudge,
+      },
+      { judge: 'haiku' },
+    );
+
+    expect(score.status).toBe('ok');
+    expect(score.cosine).toBeCloseTo(1, 10);
+    expect(score.judge_status).toBe('call_failed');
+    expect(score.judge_score).toBeUndefined();
+    expect(score.judge_error).toBe('anthropic 429');
   });
 });
 
