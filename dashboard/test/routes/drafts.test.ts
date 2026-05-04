@@ -207,6 +207,39 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       }
     });
 
+    it('returns 429 gmail_rate_limit_active when system cooldown is set (STAQPRO-227 stretch)', async () => {
+      const seed = await seedDraft({ status: 'approved' });
+      const pool = getTestPool();
+      // Set system cooldown 10 min in the future. Restored after.
+      await pool.query(
+        `UPDATE mailbox.system_state SET gmail_rate_limit_until = NOW() + interval '10 minutes', gmail_rate_limit_set_at = NOW() WHERE id = 1`,
+      );
+      try {
+        const { POST } = await import('@/app/api/drafts/[id]/retry/route');
+        const res = await POST(fakeRequest(), {
+          params: { id: String(seed.draftId) },
+        });
+        expect(res.status).toBe(429);
+        const body = (await res.json()) as { error: string; next_retry_at: string };
+        expect(body.error).toBe('gmail_rate_limit_active');
+        expect(typeof body.next_retry_at).toBe('string');
+        expect(new Date(body.next_retry_at).getTime()).toBeGreaterThan(Date.now());
+        // System cooldown gates ALL retries, regardless of per-draft last_retry_at
+        // — confirm no n8n call was made (last_retry_at unchanged from seed=NULL)
+        const r = await pool.query<{ last_retry_at: string | null }>(
+          `SELECT last_retry_at FROM mailbox.drafts WHERE id = $1`,
+          [seed.draftId],
+        );
+        expect(r.rows[0]?.last_retry_at).toBeNull();
+      } finally {
+        // Clear system cooldown so other tests aren't gated.
+        await pool.query(
+          `UPDATE mailbox.system_state SET gmail_rate_limit_until = NULL, gmail_rate_limit_set_at = NULL WHERE id = 1`,
+        );
+        await deleteSeededDraft(seed);
+      }
+    });
+
     it('returns 429 with next_retry_at when within 5-minute cooldown (STAQPRO-227)', async () => {
       const seed = await seedDraft({ status: 'approved' });
       try {

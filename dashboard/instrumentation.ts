@@ -19,5 +19,7 @@ export async function register(): Promise<void> {
     if (process.env.NEXT_PHASE === 'phase-production-build') return;
     const { startClassifySweeper } = await import('./lib/jobs/classify-sweeper');
     startClassifySweeper();
+    const { startGmailRatelimitSweeper } = await import('./lib/jobs/gmail-ratelimit-sweeper');
+    startGmailRatelimitSweeper();
   }
 }

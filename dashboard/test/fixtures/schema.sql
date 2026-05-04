@@ -893,6 +893,19 @@ $$ LANGUAGE plpgsql;
 ALTER TABLE mailbox.drafts
   ADD COLUMN IF NOT EXISTS last_retry_at TIMESTAMPTZ NULL;
 
+-- ── STAQPRO-227 stretch (migration 018): system-wide Gmail cooldown ───
+-- Hand-applied to fixture pending next pg_dump refresh. Singleton table for
+-- system flags — first column is gmail_rate_limit_until, written by
+-- lib/jobs/gmail-ratelimit-sweeper.ts and read by /retry + future MailBOX
+-- cycle gates so the schedule trigger doesn't self-perpetuate probation.
+CREATE TABLE IF NOT EXISTS mailbox.system_state (
+  id                          INT PRIMARY KEY DEFAULT 1,
+  gmail_rate_limit_until      TIMESTAMPTZ NULL,
+  gmail_rate_limit_set_at     TIMESTAMPTZ NULL,
+  CONSTRAINT system_state_singleton CHECK (id = 1)
+);
+INSERT INTO mailbox.system_state (id) VALUES (1) ON CONFLICT DO NOTHING;
+
 --
 -- PostgreSQL database dump complete
 --
