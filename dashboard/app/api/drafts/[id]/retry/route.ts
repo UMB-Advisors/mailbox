@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getKysely } from '@/lib/db';
 import { parseParams } from '@/lib/middleware/validate';
+import { getGmailCooldown } from '@/lib/queries-system-state';
 import { idParamSchema } from '@/lib/schemas/common';
 import { transitionToApprovedAndSend } from '@/lib/transitions';
 
@@ -15,7 +16,24 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const p = parseParams(params, idParamSchema);
   if (!p.ok) return p.response;
 
-  // STAQPRO-227 cooldown gate. Read last_retry_at separately from the
+  // STAQPRO-227 stretch — consult system-wide Gmail cooldown FIRST. If
+  // gmail-ratelimit-sweeper recently observed a 429 from any Gmail call
+  // (Gmail Get cycle OR a previous mailbox-send), block ALL retries until
+  // the stated retry-after passes. Single source of truth for "Gmail is
+  // angry at us right now."
+  const sysCooldown = await getGmailCooldown();
+  if (sysCooldown.isActive && sysCooldown.until) {
+    return NextResponse.json(
+      {
+        error: 'gmail_rate_limit_active',
+        message: 'Gmail is rate-limiting this account. All retries paused.',
+        next_retry_at: sysCooldown.until.toISOString(),
+      },
+      { status: 429 },
+    );
+  }
+
+  // Per-draft cooldown gate. Read last_retry_at separately from the
   // transition transaction — keeps the rate-limit check cheap (single SELECT)
   // and the response shape distinct from the 409 "wrong source state" path.
   const db = getKysely();

@@ -188,6 +188,12 @@ export interface StateTransitions {
   transitioned_at: Generated<string>;
 }
 
+export interface SystemState {
+  gmail_rate_limit_set_at: string | null;
+  gmail_rate_limit_until: string | null;
+  id: Generated<number>;
+}
+
 export interface DB {
   classification_log: ClassificationLog;
   drafts: Drafts;
@@ -199,4 +205,5 @@ export interface DB {
   rejected_history: RejectedHistory;
   sent_history: SentHistory;
   state_transitions: StateTransitions;
+  system_state: SystemState;
 }
