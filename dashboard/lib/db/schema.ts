@@ -56,6 +56,7 @@ export interface Drafts {
   inbox_message_id: number;
   input_tokens: number | null;
   kb_context_refs: Generated<Json>;
+  last_retry_at: string | null;
   message_id: string | null;
   model: string;
   original_draft_body: string | null;

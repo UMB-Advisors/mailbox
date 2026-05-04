@@ -4,6 +4,7 @@ import {
   deleteSeededDraft,
   fakeRequest,
   getDraftRow,
+  getTestPool,
   HAS_DB,
   seedDraft,
 } from '../helpers/db';
@@ -201,6 +202,49 @@ dbDescribe('drafts route handlers — real Postgres', () => {
           params: { id: String(seed.draftId) },
         });
         expect(res.status).toBe(409);
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it('returns 429 with next_retry_at when within 5-minute cooldown (STAQPRO-227)', async () => {
+      const seed = await seedDraft({ status: 'approved' });
+      try {
+        // Stamp a recent retry to trigger the cooldown.
+        const pool = getTestPool();
+        await pool.query(
+          `UPDATE mailbox.drafts SET last_retry_at = NOW() - interval '1 minute' WHERE id = $1`,
+          [seed.draftId],
+        );
+        const { POST } = await import('@/app/api/drafts/[id]/retry/route');
+        const res = await POST(fakeRequest(), {
+          params: { id: String(seed.draftId) },
+        });
+        expect(res.status).toBe(429);
+        const body = (await res.json()) as { error: string; next_retry_at: string };
+        expect(body.error).toBe('retry_cooldown');
+        expect(typeof body.next_retry_at).toBe('string');
+        // next_retry_at should be in the future
+        expect(new Date(body.next_retry_at).getTime()).toBeGreaterThan(Date.now());
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it('stamps last_retry_at on successful retry (STAQPRO-227)', async () => {
+      const seed = await seedDraft({ status: 'approved' });
+      try {
+        const { POST } = await import('@/app/api/drafts/[id]/retry/route');
+        const res = await POST(fakeRequest(), {
+          params: { id: String(seed.draftId) },
+        });
+        expect(res.status).toBe(200);
+        const pool = getTestPool();
+        const r = await pool.query<{ last_retry_at: string | null }>(
+          `SELECT last_retry_at FROM mailbox.drafts WHERE id = $1`,
+          [seed.draftId],
+        );
+        expect(r.rows[0]?.last_retry_at).not.toBeNull();
       } finally {
         await deleteSeededDraft(seed);
       }

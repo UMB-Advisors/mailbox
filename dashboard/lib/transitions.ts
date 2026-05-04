@@ -19,6 +19,11 @@ interface TransitionOptions {
   fromStatesLabel: string; // surfaced in the 409 error message
   clearError: boolean;
   routeName: string; // for log breadcrumbs
+  // STAQPRO-227 — when true, also stamps drafts.last_retry_at = NOW() in the
+  // same transaction as the status flip. Used by the retry route to record
+  // when this draft last hit the n8n send webhook so the cooldown check can
+  // gate subsequent retries. Approve doesn't set this — it's not a "retry".
+  setLastRetryAt?: boolean;
 }
 
 export async function transitionToApprovedAndSend(
@@ -42,6 +47,7 @@ export async function transitionToApprovedAndSend(
           status: 'approved',
           updated_at: sql<string>`NOW()`,
           ...(opts.clearError ? { error_message: null } : {}),
+          ...(opts.setLastRetryAt ? { last_retry_at: sql<string>`NOW()` } : {}),
         })
         .where('id', '=', id)
         .where('status', 'in', opts.fromStates as readonly string[])

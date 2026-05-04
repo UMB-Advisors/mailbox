@@ -886,6 +886,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ── STAQPRO-227 (migration 017): drafts.last_retry_at ─────────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Server-side cooldown
+-- column for the dashboard /retry route — avoids the operator-driven
+-- feedback loop that retripped Gmail probation today.
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS last_retry_at TIMESTAMPTZ NULL;
+
 --
 -- PostgreSQL database dump complete
 --
