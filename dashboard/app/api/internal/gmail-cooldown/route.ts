@@ -27,10 +27,17 @@ export const dynamic = 'force-dynamic';
 // 22:15 cycle probed at hint+0, got fresh 429, +15 min. Without buffer the
 // 5-min-probe / +15-min-ratchet loop NEVER clears.
 //
-// 20 min picked to give probation 20 min of decay between probes, > the
-// observed +15 min extension cost. If probes still fail, escalate to
-// exponential backoff (consecutive-429 counter) — filed as STAQPRO-229.
-const BUFFER_MS = 20 * 60 * 1000;
+// Originally shipped at 20 min on the theory that probation would decay
+// faster than +15 min extension cost. Live evidence 2026-05-04 23:15:19
+// (cycle 4858): 25 min past hint STILL got fresh 429 → +15 min ratchet
+// to 23:30:20. Google's hidden probation runs deeper than the hint
+// suggests when triggered by sustained abuse (12+ pre-deploy 429s).
+//
+// Bumped to 60 min as a stopgap. Probes now ~65 min apart — probation
+// has wall-clock time to actually decay. STAQPRO-229 will replace this
+// constant with exponential backoff (double buffer per consecutive 429,
+// reset on success).
+const BUFFER_MS = 60 * 60 * 1000;
 
 export async function GET(): Promise<NextResponse> {
   const cooldown = await getGmailCooldown();
