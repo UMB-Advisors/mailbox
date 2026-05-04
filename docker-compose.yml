@@ -41,7 +41,14 @@ services:
     image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
     runtime: nvidia
     environment:
-      OLLAMA_KEEP_ALIVE: 24h
+      # 5m (was 24h): let nomic-embed-text unload between RAG calls so the
+      # ~436MB GPU it holds is freed for Qwen3's working set under burst
+      # load. Mitigates STAQPRO-206 root cause #1 (llama runner OOM-killed
+      # when classify-generate + RAG-embed hit concurrently).
+      OLLAMA_KEEP_ALIVE: 5m
+      # Serialize per-model inference. Trades latency for safety on
+      # 8GB unified VRAM (STAQPRO-206 root cause #1).
+      OLLAMA_NUM_PARALLEL: 1
     volumes:
     - ollama_models:/root/.ollama
     healthcheck:
