@@ -27,7 +27,7 @@ import { getPersonaContext } from '../lib/drafting/persona';
 import { assemblePrompt } from '../lib/drafting/prompt';
 import { pickEndpoint } from '../lib/drafting/router';
 import { embedText } from '../lib/rag/embed';
-import { retrieveForDraft, type RetrievalResult } from '../lib/rag/retrieve';
+import { type RetrievalResult, retrieveForDraft } from '../lib/rag/retrieve';
 
 const OUTLIERS: ReadonlyArray<{ message_id: string; bucket: 'win' | 'loss' }> = [
   { message_id: '19bb7fe899f609ca', bucket: 'loss' },
@@ -112,13 +112,11 @@ async function loadPairs(pool: Pool): Promise<PairRow[]> {
   `;
   const res = await pool.query<PairRow>(sql, [ids]);
   const byId = new Map(res.rows.map((r) => [r.message_id, r]));
-  return OUTLIERS
-    .map((o) => {
-      const row = byId.get(o.message_id);
-      if (!row) return null;
-      return { ...row, bucket: o.bucket };
-    })
-    .filter((r): r is PairRow => r !== null);
+  return OUTLIERS.map((o) => {
+    const row = byId.get(o.message_id);
+    if (!row) return null;
+    return { ...row, bucket: o.bucket };
+  }).filter((r): r is PairRow => r !== null);
 }
 
 interface DraftPass {
@@ -142,10 +140,7 @@ interface DraftPass {
   error?: string;
 }
 
-async function runDraftPass(
-  pair: PairRow,
-  mode: 'with-rag' | 'no-rag',
-): Promise<DraftPass> {
+async function runDraftPass(pair: PairRow, mode: 'with-rag' | 'no-rag'): Promise<DraftPass> {
   if (mode === 'no-rag') {
     process.env.RAG_DISABLED = '1';
   } else {

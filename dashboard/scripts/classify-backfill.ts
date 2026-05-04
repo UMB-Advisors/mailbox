@@ -153,7 +153,9 @@ async function main() {
     );
 
     if (rows.length === 0) {
-      console.log(`[backfill] no unclassified inbox_messages in last ${LOOKBACK_HOURS}h — nothing to do`);
+      console.log(
+        `[backfill] no unclassified inbox_messages in last ${LOOKBACK_HOURS}h — nothing to do`,
+      );
       return;
     }
 

@@ -32,9 +32,12 @@ export function StuckApproved({
   const [armedId, setArmedId] = useState<number | null>(null);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (armTimerRef.current) clearTimeout(armTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (armTimerRef.current) clearTimeout(armTimerRef.current);
+    },
+    [],
+  );
 
   if (drafts.length === 0) return null;
 

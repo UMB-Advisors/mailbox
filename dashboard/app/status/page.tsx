@@ -66,10 +66,14 @@ export default async function StatusPage() {
 
   // Classify-lag tone: backlog > 0 AND oldest waiter > 15m → red, > 10m → orange.
   // Empty backlog renders neutral (no work to do, not a problem).
-  const classifyLagSeconds =
-    classificationHealth?.unclassifiedSince
-      ? Math.max(0, Math.round((Date.now() - new Date(classificationHealth.unclassifiedSince).getTime()) / 1000))
-      : null;
+  const classifyLagSeconds = classificationHealth?.unclassifiedSince
+    ? Math.max(
+        0,
+        Math.round(
+          (Date.now() - new Date(classificationHealth.unclassifiedSince).getTime()) / 1000,
+        ),
+      )
+    : null;
   const classifyTone: 'default' | 'green' | 'orange' | 'red' =
     classificationHealth === null
       ? 'default'
