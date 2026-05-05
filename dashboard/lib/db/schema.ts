@@ -194,6 +194,30 @@ export interface SystemState {
   id: Generated<number>;
 }
 
+// STAQPRO-233 — drafting telemetry views (migration 019). Read-only.
+// Day grain rollup of mailbox.drafts × draft_source × classification_category
+// × status. Powers /status "Drafting routes (last 7d)" card.
+export interface VDraftingMetrics {
+  day: string | null;
+  draft_source: string | null;
+  classification_category: string | null;
+  status: string;
+  n: Int8;
+}
+
+// STAQPRO-233 — (category × draft_source) edit/reject rate over a 14-day
+// rolling window. edit_reject_rate is null when disposed = 0 (avoid 0/0).
+// Powers STAQPRO-235's metric-driven KB nudges.
+export interface VOverrideRate {
+  classification_category: string;
+  draft_source: string | null;
+  edited: Int8;
+  rejected: Int8;
+  approved_like: Int8;
+  disposed: Int8;
+  edit_reject_rate: Numeric | null;
+}
+
 export interface DB {
   classification_log: ClassificationLog;
   drafts: Drafts;
@@ -206,4 +230,6 @@ export interface DB {
   sent_history: SentHistory;
   state_transitions: StateTransitions;
   system_state: SystemState;
+  v_drafting_metrics: VDraftingMetrics;
+  v_override_rate: VOverrideRate;
 }
