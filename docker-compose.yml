@@ -72,9 +72,9 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      N8N_HOST: mailbox.heronlabsinc.com
-      WEBHOOK_URL: https://mailbox.heronlabsinc.com/
-      N8N_EDITOR_BASE_URL: https://mailbox.heronlabsinc.com/
+      N8N_HOST: ${DOMAIN}
+      WEBHOOK_URL: https://${DOMAIN}/
+      N8N_EDITOR_BASE_URL: https://${DOMAIN}/
       N8N_PORT: 5678
       N8N_PROTOCOL: https
       N8N_SECURE_COOKIE: 'true'
