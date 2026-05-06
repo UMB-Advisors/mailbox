@@ -173,7 +173,7 @@
         "filters": {
           "q": "is:unread newer_than:2d"
         },
-        "limit": 1000,
+        "limit": 50,
         "operation": "getAll",
         "options": {},
         "simple": false

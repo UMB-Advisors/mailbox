@@ -298,6 +298,12 @@
         },
         "resource": "message"
       },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vEz5mz0uaAtlK8yz",
+          "name": "Gmail account"
+        }
+      },
       "position": [
         1088,
         240
