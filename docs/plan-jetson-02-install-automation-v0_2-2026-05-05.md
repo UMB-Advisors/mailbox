@@ -562,3 +562,94 @@ CLAUDE.md's deploy-gate one-liner held — would have caught this had we shipped
 ### Closure: appliance is live, awaiting customer
 
 Pipeline is fully operational under `https://mailbox.staqs.io/dashboard/queue` (`admin` / `0420`). Phases 13+ require customer Gmail OAuth (HUMAN-IN-LOOP) and persona configuration before live-gate flip.
+
+---
+
+## Session 2 (2026-05-06 → 2026-05-07): STAQPRO-237 templating, Phase 13 OAuth, Phase 14 persona prep, classify bug
+
+Picked up after the previous session left the appliance in a clean post-Phase-12 state. Eric committed to mock customer #2 role (`eric@staqs.io` Gmail). This session covered the templating cleanup found during Session 1, the Phase 13 OAuth flow (with multiple unrelated bugs surfacing), and Phase 14 persona pre-config — all without flipping the live-gate.
+
+### Templating + access cleanup (before customer OAuth)
+
+| Commit | Why |
+|---|---|
+| `dc0085c` | docs: split CLAUDE.md "Public surface" into M1 + M2 entries; corrected stale `192.168.1.45` IP for M1 |
+| `fd49e58` | **STAQPRO-237**: Caddyfile template for `{$DOMAIN}` + `{$CADDY_EMAIL}`; close the per-customer `sed` workaround. Validated against the project's custom `mailbox-caddy` image before deploy. M2 had a dirty Caddyfile from the Session 1 sed — stashed, pulled, dropped. M1 was clean. Both `up -d caddy` cleanly. **STAQPRO-237 closed Delivered.** |
+| `3fa569f` | n8n env var templating: `N8N_HOST` / `WEBHOOK_URL` / `N8N_EDITOR_BASE_URL` driven from `${DOMAIN}` (was hardcoded `mailbox.heronlabsinc.com`, blocked Eric's OAuth setup screen because the redirect URL was prefilled with the wrong domain and read-only). M1 unaffected (DOMAIN resolves identically). |
+| `d7745d5` | Two workflow-JSON fixes pre-OAuth: (a) `MailBOX-Send / Gmail Reply` had no credentials field — wired to credential id `vEz5mz0uaAtlK8yz`; (b) STAQPRO-226 manual workaround applied — `MailBOX / Get many messages.limit` lowered from `1000` → `50`. M1 not changed (live customer, has STAQPRO-227/228 cooldown system). |
+
+### Phase 13: Eric Gmail OAuth — three blockers we hit
+
+1. **Caddy `/` redirects to `/dashboard/queue`** (intentional per Caddyfile comment). Eric kept landing on the dashboard instead of n8n. **Workaround**: tell him to use `https://mailbox.staqs.io/setup` directly (any non-root n8n path bypasses the redirect). Worth noting in install plan §13 prose.
+2. **Caddy basic_auth blocks n8n's SPA background fetches** (`/healthz`, `/assets/InsightsDashboard-*.js`, `/rest/telemetry/*`). Browser doesn't auto-include cached basic_auth on `<link rel="preload">` and dynamic-import paths → 401 → SPA misinterprets the `/healthz` 401 as "session expired" → pops a sign-in modal in a loop, even AFTER the user is signed in. Took ~30 min of misdirection before we caught it (we tried disabling `N8N_SECURE_COOKIE`, looked for cookie issues, etc.). **Real fix**: shipped in `9c64e8a` — extend the Caddyfile `@protected` matcher to exempt `/healthz` and `/assets/*` (in addition to `/mcp-server/*`) from basic_auth, AND set `N8N_DIAGNOSTICS_ENABLED=false` to stop the rudderstack/posthog telemetry pings entirely.
+3. **Eric's password reset.** During the loop debug we suspected wrong password. Reset Eric's bcrypt hash directly via SQL with a known value (`TempStaqs2026!`) so he could rule out password issues. After the real fix landed, Eric was in. He should rotate this from Settings → Personal once he's done OAuth.
+
+### Phase 13 closure: OAuth lands cleanly
+
+Eric completed Gmail OAuth via the n8n UI ("Connect my account" on the pre-staged `gmailOAuth2` credential `vEz5mz0uaAtlK8yz`). Encrypted credential blob went from ~272 bytes (just `clientId`+`clientSecret`) to **1728 bytes** (full OAuth tokens). Tokens populated, all 4 Gmail nodes wired to that credential ID start working immediately.
+
+### Phase 14 prep (persona + live-gate verification)
+
+- `mailbox.persona` row inserted for `customer_key='default'` with operator overrides: `tone='casual, conversational, plain-spoken — short replies, first-person, no corporate hedging'`, `signoff='Cheers, Eric'`, `operator_first_name='Eric'`, `operator_brand='Staqs'`. Resolves to Eric's persona instead of the hardcoded Heron Labs fallback when the live-gate flips.
+- `mailbox.onboarding` is empty (no row), so `getOnboarding()` returns null → `stage` defaults to `pending_admin` → `/api/onboarding/live-gate` returns `{live: false}`. **Drafts will not generate even though OAuth is now complete.** Classification still fires unconditionally (per `D-49` comment in the live-gate route).
+- Verified: `MAILBOX_LIVE_GATE_BYPASS` is NOT set on M2 dashboard. No accidental drafts.
+
+### Phase 13.5: classify-output bug discovered on first 5-min tick
+
+Eric's OAuth completed → first 5-min Schedule tick fired → 20 inbox messages fetched → 15 classified — and **all 15 returned `category=unknown / confidence=0.00 / json_parse_ok=f`**. Pipeline plumbing OK; classifier output broken.
+
+Direct probe explained why:
+
+| Test | response field | thinking field | latency | tokens |
+|---|---|---|---|---|
+| `format: "json"` (production) | empty | `{"category":"follow_up","confidence":0.9}` | 7 s | 20 |
+| no format constraint | `{"category":"unknown","confidence":0.7}` | (long CoT) | 138 s | 2294 |
+| `think: false` (cleaner fix) | `{"category":"inquiry","confidence":0.95}` | empty | 7 s | 21 |
+
+**Root cause**: Ollama 0.23.0 (M2) reports Qwen3 capabilities as `completion, tools, **thinking**`. M1's older Ollama 0.20.5 reports only `completion`. With thinking-mode enabled, `format: "json"` constrains the OUTPUT to JSON — but Qwen3's thinking-mode places the JSON in the `thinking` field and leaves `response` empty. n8n's `Normalize` node read `$json.response` only.
+
+**Bandaid (deployed `0c857e2`)**: change Normalize body to `$json.response || $json.thinking || ''`. Forward-compatible (older Ollama just doesn't have a `thinking` field, falls through to response). Verified via re-import + restart on both M2 + M1. Deployed simultaneously to M1 even though M1 is silently working today (under 0.20.5) — protects against M1's eventual `:latest` pull bumping to 0.23+.
+
+**Cleaner fix not deployed**: add `"think": false` to the Ollama call body. Works on Ollama 0.21+ (older versions ignore the field). Filed as part of **STAQPRO-240** (pin Ollama image, document Qwen3 thinking-mode behavior). Tracked separately because the real story is "no `:latest` for Ollama" — pinning is the systemic fix.
+
+### Followups filed during Session 2
+
+| ID | Title | Pri | Status |
+|---|---|---|---|
+| STAQPRO-237 | Caddyfile templating — `{$DOMAIN}` + `{$CADDY_EMAIL}` | M | **Delivered** in `fd49e58` |
+| STAQPRO-238 | M1 public DNS stale — flip to **tailnet IP** (revised plan in comment, not LAN IP) | H | Backlog |
+| STAQPRO-239 | first-boot fail-fast: empty `MAILBOX_BASIC_AUTH_HASH` + `restart` vs `up -d` env reload | M | Backlog |
+| STAQPRO-240 | Pin Ollama image (no `:latest`); document Qwen3 thinking-mode | H | Backlog |
+
+Plus comment on STAQPRO-226 (Gmail bootstrap mode): manual workaround applied for M2; mock-customer #2 acceptance now technically violated (real fix still owed before customer #3).
+
+### Tailnet IP DNS pivot (separate from STAQPRO-237)
+
+Eric noted the dashboard worked from the workstation but not from his phone or his laptop off the office WiFi. Reason: `mailbox.staqs.io` resolved to M2's LAN IP (`192.168.50.11`), which is non-routable from anywhere off the LAN. Per the STAQPRO-175 design, off-LAN access is via Tailscale.
+
+**Fix (no ticket needed)**: flipped the public Cloudflare A record `mailbox.staqs.io` → `100.120.102.45` (M2 tailnet IP). Tailscale daemon recognizes CGNAT IPs and routes them through the tailnet tunnel transparently. Anyone with the Tailscale app on this tailnet can now hit the dashboard from anywhere on Earth. Off-tailnet visitors still can't (same privacy posture as before).
+
+The same approach applies to M1 — STAQPRO-238's plan is now "flip M1 A record to `100.65.9.2`" instead of "fix the LAN IP," which sidesteps the original blocker (we don't control `heronlabsinc.com` zone DNS but we can advise the owner).
+
+### Status snapshot at session end (2026-05-07 ~13:45 PT)
+
+- ✅ Phase 13: Gmail OAuth completed, credential populated with tokens, pipeline reaching Eric's inbox
+- ✅ Phase 14 partial: persona override row inserted, live-gate verified closed (drafts won't fire)
+- ⏸ Phase 15 (RAG backfill): not yet run — depends on Eric's sent corpus volume; FetchHistory webhook works but has the silent-truncation gap at >500 sent (noted earlier)
+- ⏸ Phase 16 (live-gate flip): blocked on classify quality verification (Session 3 — verify that the deployed Normalize fix actually produces real categories on next tick when Eric gets new mail)
+- ⏸ Phase 17 (constraint baseline): blocked on Phase 16
+
+### Lessons applicable to next install
+
+1. **Caddy basic_auth + n8n SPA polling = sign-in modal loop.** The Session 1 install plan didn't mention this. Now baked into the Caddyfile (`/healthz` + `/assets/*` exemptions in the `@protected` matcher). Future installs are pre-fixed.
+2. **n8n's OAuth credential setup screen prefills the redirect URL from `N8N_EDITOR_BASE_URL` and the field is read-only.** Make sure `N8N_HOST` / `WEBHOOK_URL` / `N8N_EDITOR_BASE_URL` are templated from `${DOMAIN}` BEFORE Eric (or any customer) opens the credential setup.
+3. **Caddy `redir / /dashboard/queue` traps users who try to land on n8n at `/`.** Tell the operator to use `/setup` (or any non-root n8n path) explicitly during onboarding instructions.
+4. **`OLLAMA_IMAGE: ollama/ollama:latest` is unsafe.** STAQPRO-240 owns the pin.
+5. **Workflow JSON re-imports default to `active=false`** — known footgun, hit twice in this session (MailBOX, MailBOX-Send post-d7745d5; MailBOX-Classify post-0c857e2). Activate + restart in the same SSH call.
+6. **Persona override + live-gate state** can be set BEFORE OAuth completes — pre-stages the appliance to behave correctly the moment OAuth lands. We did persona right; we should bake `mailbox.onboarding` initial-row insert into bootstrap so the live-gate's "no row" fallback isn't load-bearing.
+
+### Deferred (not in this session)
+
+- Direct verification that the Normalize fix (`response || thinking`) produces real categories — requires either fresh inbox volume or a manual Classify Sub trigger. Direct probe already proved the code path works; the live verification waits for Eric's next inbound mail.
+- Live-gate flip — explicit operator decision, not happening tonight.
+- M1 DNS A record flip per STAQPRO-238 — needs heronlabsinc.com zone access.
