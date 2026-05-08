@@ -27,7 +27,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 ### Core Technologies (live)
 | Technology | Version | Purpose | Notes |
 |------------|---------|---------|-------|
-| Ollama | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference server | JetPack 6 ARM64 CUDA image via `jetson-containers`. GPU passthrough via NVIDIA runtime. |
+| Ollama | `ollama/ollama@sha256:...` (digest-pinned per appliance — STAQPRO-240, 2026-05-08) | Local LLM inference server | Upstream ARM64 multi-arch image; works with NVIDIA runtime via `nvidia-container-toolkit` on JetPack 6.2. **Pin by digest in `.env`** (`OLLAMA_IMAGE=ollama/ollama@sha256:<digest>`), never `:latest` — `:latest` silently bumped M2 from 0.20.5 → 0.23.0 and triggered the Qwen3 thinking-mode classification regression that consumed Sessions 2+3 of the customer-#2 install (see `docs/plan-jetson-02-install-automation-v0_2-2026-05-05.md` Session 3 + `n8n/workflows/MailBOX-Classify.json` `think: false`). Live fleet 2026-05-08: M1=`sha256:662109db...` (0.20.5), M2=`sha256:5600a652...` (0.23.0). The historical `dustynv/ollama:0.18.4-r36.4-cu126-22.04` reference (jetson-containers `autotag` lineage) is documented but not in active use — both customers run upstream images. |
 | Qdrant | 1.17.1 | Vector database for RAG | Deployed but not yet wired — Phase 2 RAG. `MALLOC_CONF=narenas:1` set per ARM64 jemalloc workaround (issue #4298). |
 | n8n | **2.14.2** | Workflow runtime | Upgraded from `1.123.35` → `2.14.2` on 2026-05-01 (STAQPRO-181, supersedes DR-17). All 4 workflow JSONs (`MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`) re-import + activate cleanly in 2.x; validated against dev compose before prod cutover. **Ingress = Schedule (5 min) + Gmail Get** per DR-22 KILL of Pub/Sub push. No IMAP. |
 | Postgres | 17-alpine | Operational datastore | Schema `mailbox`. Hosts n8n's `workflow_entity` table on the same DB. |
@@ -55,7 +55,7 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 |------|---------|-------|
 | Docker (via JetsonHacks) | Container runtime | Install via JetsonHacks `install_nvidia_docker.sh` — installs whatever version is current and validated for the installed JetPack (currently 27.5.1). Do NOT use `docker-ce` from Docker Inc. — breaks NVIDIA runtime configuration paths on JetPack. Do NOT use `docker.io` directly — JetsonHacks handles NVIDIA runtime wiring automatically |
 | `nvidia-container-toolkit` | GPU passthrough to containers | Install via `apt-get install -y nvidia-container-toolkit` then `nvidia-ctk runtime configure --runtime=docker`. Required for Ollama GPU access |
-| `jetson-containers` (dusty-nv) | Validated container images | Use `autotag ollama` to get the correct JetPack-matched Ollama image. Eliminates CUDA/cuDNN version mismatch guesswork |
+| `jetson-containers` (dusty-nv) | Validated container images (historical alternative — not in active use) | The `autotag ollama` lineage produces JetPack-matched images. Live fleet uses upstream `ollama/ollama` instead — confirmed working with `nvidia-container-toolkit` on JetPack 6.2. Pin by digest, not by tag (STAQPRO-240). |
 | `docker-compose` plugin | Orchestration | Use the Docker Compose v2 plugin (`docker compose`) not standalone `docker-compose` v1 (deprecated) |
 | GHCR | OTA update registry | `ghcr.io` free for public images; multi-arch manifest push via `docker buildx` with `--platform linux/arm64` |
 | `mkcert` | Local HTTPS | Optional: LAN HTTPS for dashboard if browser camera/mic permissions needed (not required for v1) |
@@ -89,8 +89,8 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 | Auto-updating `:latest` tags in production | Silent breakage on OTA at a customer site is a support incident | Pin all service images to specific tags or digests; OTA via GHCR with controlled rollout |
 | Langchain/LlamaIndex inside n8n | Duplicates what n8n already does natively; adds Python runtime dependency | n8n built-in AI Agent + Ollama Model nodes |
 ## Stack Patterns by Variant
-- Use `jetson-containers run $(autotag ollama)` instead of `docker run ollama/ollama`
-- The `autotag` command resolves the JetPack-matched image (e.g., `r36.4.0` for JetPack 6.2)
+- Live fleet runs `ollama/ollama` upstream images, digest-pinned in `.env` per appliance (`OLLAMA_IMAGE=ollama/ollama@sha256:<digest>`). The `jetson-containers run $(autotag ollama)` / `dustynv/ollama` path is a documented alternative but not in production — `nvidia-container-toolkit` configured per the JetsonHacks install script is sufficient for upstream-image GPU passthrough on JetPack 6.2.
+- Capture the live digest before pinning: `IID=$(docker inspect mailbox-ollama-1 --format '{{.Image}}'); docker inspect "$IID" --format '{{range .RepoDigests}}{{.}}{{println}}{{end}}'`
 - Check logs for `Nvidia GPU detected via cudart` — absence means toolkit is misconfigured
 - This is a known open issue (GitHub #4298, open as of Nov 2025)
 - Workaround: set `environment: - MALLOC_CONF=narenas:1` in docker-compose
@@ -190,7 +190,7 @@ Per migration 007 (the first migration to land the standard): every migration fi
 Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain literal `$` characters. Docker Compose treats `$` as variable expansion and silently truncates values at the `$`. **Escape every `$` to `$$` in `.env`** or your hash will be empty inside the container. This bit us on the first Caddy deploy.
 
 ### n8n workflow editing
-- Sub-workflows that are invoked via `executeWorkflowTrigger` should have `active: false`. n8n's "no native trigger" activation check otherwise emits cosmetic but loud "could not activate" errors every restart.
+- **All four MailBOX workflows must be `active=true` on n8n 2.x.** `MailBOX` (parent, ScheduleTrigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` (sub-workflows invoked via `executeWorkflowTrigger`). The pre-2.x guidance — that sub-workflows should stay `active=false` to avoid cosmetic "could not activate" warnings — was retracted in n8n 2.x: now an `executeWorkflow` call to an inactive sub-workflow throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2 upgrade). The post-n8n-upgrade verification one-liner in **Deployment Target → Post-n8n-upgrade verification** is the canonical guardrail. The dashboard CLAUDE.md's STAQPRO-186 boundary contract still mentions the pre-2.x guidance — treat that as historical, the n8n 2.x reality is "all four active."
 - `n8n update:workflow --active=...` is a NO-OP at runtime unless the n8n container is restarted. The flag persists to the DB but the live runtime keeps the old activation state cached.
 - `Insert Inbox (skip dupes)` with no Gmail returns produces an empty `$json` that still fires `Run Classify Sub` once. That's why empty 5-min cycles error harmlessly at `Load Inbox Row`. Pre-existing, benign, but confusing if not explained.
 <!-- GSD:conventions-end -->
@@ -204,7 +204,7 @@ Bcrypt hashes (used by Caddy `basic_auth` for `MAILBOX_BASIC_AUTH_HASH`) contain
 |---------|-------|------|
 | `postgres` | `postgres:17-alpine` | Operational DB (`mailbox` schema) + n8n's `workflow_entity` table |
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store. Collection `email_messages` (768d / Cosine) holds inbound + outbound message embeddings for RAG retrieval (M3.5 / STAQPRO-188). Payload indexes: `message_id`, `thread_id`, `sender`, `direction`, `sent_at`, `classification_category`. Bootstrap via `docker compose --profile qdrant-bootstrap up mailbox-qdrant-bootstrap` (idempotent). |
-| `ollama` | `dustynv/ollama:0.18.4-r36.4-cu126-22.04` | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
+| `ollama` | `ollama/ollama@sha256:<per-appliance digest>` (STAQPRO-240 — pin in `.env`, never `:latest`) | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
 | `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
@@ -258,7 +258,7 @@ The Qdrant `email_messages` collection (STAQPRO-188) is populated by:
 
 - **Inbound — automatic.** `/api/internal/inbox-messages` POST (called by n8n `MailBOX > Insert Inbox` node) fires a fire-and-forget `embedText() → upsertEmailPoint()` after a successful insert (only when `created=true` to skip dedupe re-fires). Failures are logged and swallowed; n8n's response is not blocked. Latency-wise the embed runs in parallel with the response, so the 5-min poll cycle isn't extended.
 - **Outbound — explicit.** `POST /api/internal/embed` (`dashboard/app/api/internal/embed/route.ts`) is the single entry point. The `MailBOX-Send` workflow should add an HTTP node *after* `Mark Sent` that POSTs `{ message_id, sender, recipient, subject, body, sent_at, direction: 'outbound', classification_category }` to `http://mailbox-dashboard:3001/api/internal/embed`. The route is idempotent on `message_id` (deterministic Qdrant point UUID), so re-fires are safe.
-- **Backfill — one-shot.** `npm run rag:backfill` (or the `mailbox-dashboard` container `npx tsx scripts/rag-backfill.ts`) backfills from `mailbox.inbox_messages` + `mailbox.sent_history` over a configurable lookback window (`RAG_BACKFILL_LOOKBACK_DAYS`, default 90). Idempotent on point UUID. Gmail History-API backfill (pre-appliance history) is intentionally deferred — the local-row corpus is the v1 starting point.
+- **Backfill — one-shot.** `docker exec mailbox-dashboard npx tsx scripts/rag-backfill.ts` backfills from `mailbox.inbox_messages` + `mailbox.sent_history` over a configurable lookback window (env `BACKFILL_LOOKBACK_HOURS` mirrors the in-script knob; the script header documents `RAG_BACKFILL_LOOKBACK_DAYS` as a logical unit, default 90 days). Idempotent on point UUID. Gmail History-API backfill (pre-appliance history) is intentionally deferred — the local-row corpus is the v1 starting point. **Image requirement (commit `7c655e6`)**: the dashboard runtime stage now copies `/app/lib` so `tsx`'s `../lib/...` imports resolve. Pre-`7c655e6` images shipped scripts but not lib, so this command failed with `Cannot find module '../lib/rag/embed'`. Same path applies to all operator one-shots: `classify-backfill`, `qdrant-bootstrap`, `rag-eval-harness`, `gmail-history-backfill`. Verify the runtime has `/app/lib` before invoking: `docker exec mailbox-dashboard ls /app/lib/rag/embed.ts`.
 
 Failure semantics: every RAG path returns success-shaped responses on Ollama or Qdrant outage so the draft pipeline keeps running. RAG is augmentation, not gate.
 
