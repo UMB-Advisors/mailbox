@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { NextResponse } from 'next/server';
 import { getKysely } from '@/lib/db';
 import { triggerSendWebhook } from '@/lib/n8n';
+import { getGmailCooldown } from '@/lib/queries-system-state';
 import type { DraftStatus } from '@/lib/types';
 
 // Shared helper for approve/retry, which both transition a draft to
@@ -30,6 +31,30 @@ export async function transitionToApprovedAndSend(
   id: number,
   opts: TransitionOptions,
 ): Promise<NextResponse> {
+  // STAQPRO-231 — single-source-of-truth Gmail cooldown gate. Both approve
+  // and retry funnel through here; checking once here means the approve
+  // route gets the same protection retry already had. Returning 429 BEFORE
+  // the status flip keeps the row at its source state (`pending`/`edited`),
+  // so the operator can re-attempt cleanly once the cooldown clears — no
+  // stuck-at-approved cleanup needed.
+  //
+  // Today's 2026-05-08 incident (STAQPRO-271) was caused by Approve firing
+  // through this function without consulting `mailbox.system_state`, which
+  // gmail-ratelimit-sweeper had already populated for an active cooldown.
+  // Each in-cooldown send extends the penalty (Google's per-user probation),
+  // so blocking the call early is the only safe move.
+  const sysCooldown = await getGmailCooldown();
+  if (sysCooldown.isActive && sysCooldown.until) {
+    return NextResponse.json(
+      {
+        error: 'gmail_rate_limit_active',
+        message: 'Gmail is rate-limiting this account. Send paused.',
+        next_retry_at: sysCooldown.until.toISOString(),
+      },
+      { status: 429 },
+    );
+  }
+
   // Step 1: flip status to 'approved' (only from the allowed source states).
   // Wrap in a transaction so we can SET LOCAL the actor/reason GUCs that the
   // mailbox.state_transitions trigger reads (STAQPRO-185). Without these,
