@@ -316,3 +316,111 @@ Sketch only; not executable.
 - Multi-customer onboarding flows — Phase 3+
 
 </deferred_items>
+
+<scope_addendum_cpg_scrub date="2026-05-08">
+
+**Phase 2 of CPG-scrub folds into 02-08.** When this stub is promoted
+to a full v2 plan, industry/business-description capture MUST be in
+scope. Without it, every fresh appliance ships with an empty
+`business_description` until the operator (Dustin) manually populates
+`mailbox.persona.statistical_markers.business_description` post-install
+— exactly the manual step Phase 1 was meant to remove.
+
+Background: Phase 1 of CPG-scrub (commit `2bdba13`, 2026-05-08) added
+`business_description` to `PersonaContext` and templated it into both
+the classify and draft prompts. The persona FALLBACK is now industry-
+neutral; the operator override is what carries the brand framing.
+M1 + M2 had their overrides set out-of-band ahead of the deploy
+(`small-batch CPG (gummies + functional confections) operator` and
+`B2B tech / dev-tools company (Staqs builds AI agent infrastructure
+for small businesses)` respectively). Customer #3 onward should not
+require an out-of-band write — onboarding owns it.
+
+**Requirements registered against this stub:**
+
+- `ONBR-07` (new): Onboarding captures `business_description` from
+  the operator and writes it to
+  `mailbox.persona.statistical_markers.business_description` before
+  stage advances past `pending_admin`. (Add to REQUIREMENTS.md when
+  the stub is promoted.)
+
+- `ONBR-08` (new): Onboarding captures `operator_brand` (the company /
+  brand name used in draft framing — currently the `brand` field on
+  PersonaContext) at the same step. Without this, the prompt template
+  falls back to "a small business operator" / unnamed brand; we want
+  the named brand from day one.
+
+**Wizard placement:**
+
+New step between `pending_admin` (admin account creation) and
+`pending_email` (email address entry). Single screen, two text fields:
+
+1. `operator_brand` (e.g., "Heron Labs", "Staqs") — short, used in
+   prompt as `{brand}`.
+2. `business_description` (1-2 sentences, e.g., "B2B tech / dev-tools
+   company building AI agent infrastructure for small businesses")
+   — used in prompt as `{description}`.
+
+Persistence: upsert into `mailbox.persona` (already-seeded row from
+02-02-v2 migration 005). Specifically:
+- `persona.statistical_markers.operator_brand` ← `operator_brand`
+- `persona.statistical_markers.business_description` ← `business_description`
+- `persona.persona_key` stays at the existing `customer_key` value
+  (single-customer-per-appliance — no new persona rows from this).
+
+**API surface:**
+
+New route to add to the tasks outline (between current tasks 8 and 9):
+
+- `POST /api/onboarding/business`: body
+  `{ operator_brand: string (1..80 chars), business_description: string (1..400 chars) }`,
+  upserts persona row, advances onboarding stage from `pending_admin`
+  to `pending_email`. Validate via zod schema in
+  `lib/schemas/onboarding.ts`. Source-of-truth for persona writes
+  remains `lib/queries-persona.ts` (02-02-v2) — add `setBusinessFraming`
+  helper if one doesn't already exist.
+
+**State machine impact:**
+
+Two options for the new step:
+
+- (a) Insert a new stage `pending_business` between `pending_admin`
+  and `pending_email`. Adds a 7th stage to the D-16 enum + CHECK
+  constraint (migration 006 amendment).
+- (b) Roll business-framing capture into the `pending_admin` step
+  UI but keep the stage enum unchanged — admin form has 4 fields
+  (username, password, brand, description), all submitted together
+  by `POST /api/onboarding/admin`. Stage flips straight to
+  `pending_email`.
+
+**Recommendation: (b).** Reasons: keeps the D-16 enum stable (no new
+migration, no n8n / dashboard live-gate code paths to thread a 7th
+stage through); the white-glove install (D-47) means there's no
+recoverability gain from a separate stage — operator sets it all in
+one sitting. The `POST /api/onboarding/admin` schema gains two fields;
+the route's persona-write happens in the same transaction as the
+admin-creation write.
+
+**Open question for the full v2 plan author:** how does the wizard
+present "business description" — free-text? a curated dropdown of
+common verticals plus "other"? a few suggestion chips? Free-text is
+simplest and matches what Phase 1 wired (the prompt template just
+interpolates the string). Curated verticals would be premature
+without eval data — defer to Phase 4 of CPG-scrub
+(per-industry category-definition tuning) which the original handoff
+flagged as "deferred until eval data demands it."
+
+**Test additions:**
+
+- Unit: `setBusinessFraming` upserts both fields to
+  `mailbox.persona.statistical_markers.{operator_brand, business_description}`
+- Route: `POST /api/onboarding/admin` with the new fields rejects
+  empty `business_description`, accepts trimmed strings, and after
+  success `getPersonaContext` returns the supplied values
+- Integration: full onboarding smoke (task 20 of `<tasks_outline>`)
+  starts with brand+description input; verify the LIVE classify
+  prompt for the first inbound email contains the operator-supplied
+  brand and description (not the generic "a small business operator"
+  fallback)
+
+</scope_addendum_cpg_scrub>
