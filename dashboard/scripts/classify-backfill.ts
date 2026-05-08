@@ -100,19 +100,28 @@ async function classifyOne(row: InboxRow, pool: Pool): Promise<NormalizeResponse
       prompt: prompt.prompt,
       stream: false,
       format: 'json',
+      // STAQPRO-240: force non-thinking mode. Mirrors the MailBOX-Classify
+      // n8n workflow body. On Ollama < 0.21 (M1 historical) the field is
+      // ignored; on 0.23+ (M2 current, M1 post-2026-05-08 unify) it
+      // disables Qwen3 thinking-mode which otherwise puts JSON in the
+      // `thinking` field and leaves `response` empty.
+      think: false,
       options: { temperature: 0 },
     }),
   });
   if (!ollamaRes.ok) {
     throw new Error(`ollama -> HTTP ${ollamaRes.status}`);
   }
-  const ollamaJson = (await ollamaRes.json()) as { response?: string };
+  // Defensive: if a future Ollama version revives thinking-mode despite
+  // think:false, fall back to the thinking field. Same shape as the n8n
+  // Normalize node's `$json.response || $json.thinking || ''`.
+  const ollamaJson = (await ollamaRes.json()) as { response?: string; thinking?: string };
   const latency_ms = Date.now() - t0;
 
   const normalized = await postJson<NormalizeResponse>(
     `${DASHBOARD_BASE}/api/internal/classification-normalize`,
     {
-      raw: ollamaJson.response ?? '',
+      raw: ollamaJson.response || ollamaJson.thinking || '',
       from: row.from_addr ?? '',
       to: row.to_addr ?? '',
     },
