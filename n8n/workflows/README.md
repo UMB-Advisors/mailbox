@@ -20,7 +20,7 @@ The `*.json` files in this directory are the version-controlled exports of the n
 ### Export (capture current appliance state → repo)
 
 ```bash
-# Default target: jetson-tailscale (Bob, customer #1)
+# Default target: mailbox1 (Bob, customer #1)
 ./scripts/n8n-export-workflows.sh
 
 # Or another tailnet host:
@@ -77,7 +77,7 @@ The Postgres SELECT inlines `draft_id` via `{{ Number($json.body.draft_id) }}` t
 ### Smoke-test the webhook
 
 ```bash
-ssh jetson-tailscale 'docker exec -it mailbox-n8n-1 wget -qO- \
+ssh mailbox1 'docker exec -it mailbox-n8n-1 wget -qO- \
   --post-data="{\"draft_id\":999999}" \
   --header="Content-Type: application/json" \
   http://localhost:5678/webhook/mailbox-send'
@@ -92,7 +92,7 @@ Expected (clean 404 — not 500):
 If you get a 500 or the request hangs:
 - Verify the webhook is **Active** (not just saved).
 - Verify Postgres credential is linked on Load Draft / Mark Sent / Mark Failed.
-- Logs: `ssh jetson-tailscale 'docker logs mailbox-n8n-1 --tail 50'`
+- Logs: `ssh mailbox1 'docker logs mailbox-n8n-1 --tail 50'`
 
 ## Known pitfalls (n8n 1.123.35)
 

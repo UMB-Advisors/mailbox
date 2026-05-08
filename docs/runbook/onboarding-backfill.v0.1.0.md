@@ -23,7 +23,7 @@ The Gmail Sent backfill seeds the appliance's RAG corpus with the operator's rep
 
 | Item | Why | Where |
 |---|---|---|
-| Appliance reachable over SSH (`jetson` or `jetson-tailscale`) | Container exec | Direct ethernet 10.42.0.2, or tailnet `mailbox-jetson-01.tail377a9a.ts.net` |
+| Appliance reachable over SSH (`jetson` or `mailbox1`) | Container exec | Direct ethernet 10.42.0.2, or tailnet `mailbox1.tail377a9a.ts.net` |
 | `mailbox-dashboard` container running | The CLI runs inside the dashboard container | `docker compose ps mailbox-dashboard` |
 | `MailBOX-FetchHistory` n8n workflow imported + active | The backfill calls this webhook over docker DNS | `n8n/workflows/MailBOX-FetchHistory.json` |
 | Gmail OAuth credential `vEz5mz0uaAtlK8yz` valid | The webhook authenticates via this credential | n8n editor → Credentials → "Gmail account" |
@@ -54,7 +54,7 @@ The workflow takes `{ days_lookback: number, max_messages?: number }` in its bod
 From the workstation:
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e MAILBOX_OPERATOR_EMAIL=dustin@heronlabsinc.com \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \
@@ -82,7 +82,7 @@ This:
 To run embedding separately later (without re-fetching from Gmail):
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \
   -e RAG_BACKFILL_LOOKBACK_DAYS=200 \
@@ -109,7 +109,7 @@ Response: `{ ok: true, counts: { threads_seen, pairs_extracted, inbox_upserts, .
 Confirm the corpus seeded. From the workstation:
 
 ```bash
-ssh jetson 'docker compose -f ~/mailbox/docker-compose.yml exec -T postgres \
+ssh mailbox1 'docker compose -f ~/mailbox/docker-compose.yml exec -T postgres \
   psql -U mailbox -d mailbox -c "
     SELECT
       (SELECT COUNT(*) FROM mailbox.inbox_messages)         AS inbox_total,
@@ -128,7 +128,7 @@ Re-running the same `--days 180` window is a no-op against the already-seeded ro
 If you also ran with `--embed`, validate the Qdrant collection point count:
 
 ```bash
-ssh jetson 'curl -s http://localhost:6333/collections/email_messages | jq .result.points_count'
+ssh mailbox1 'curl -s http://localhost:6333/collections/email_messages | jq .result.points_count'
 ```
 
 A value of ≥1 confirms the embedding chain wrote real points. Compare to `inbox_total + sent_backfill + sent_live` from above — embedding may legitimately skip rows with empty bodies.

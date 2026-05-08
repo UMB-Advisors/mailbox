@@ -1,7 +1,7 @@
 --
 -- mailbox schema snapshot — used by CI to bootstrap the test Postgres.
 -- Captured from customer #1 production (Bob) on 2026-05-01 with:
---   ssh jetson-tailscale 'cd ~/mailbox && docker compose exec -T postgres \
+--   ssh mailbox1 'cd ~/mailbox && docker compose exec -T postgres \
 --     pg_dump -U mailbox -d mailbox -n mailbox -s --no-owner --no-privileges' \
 --     > dashboard/test/fixtures/schema.sql
 -- Refresh whenever new migrations land. The schema-invariants tests rely on

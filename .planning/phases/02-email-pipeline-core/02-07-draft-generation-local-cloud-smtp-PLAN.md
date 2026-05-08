@@ -86,7 +86,7 @@ COMMENT ON COLUMN mailbox.drafts.retry_count IS
 Run the migration on the live Jetson Postgres via the existing runner:
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose exec -T mailbox-dashboard node /app/migrations/runner.js'
+ssh mailbox1 'cd ~/mailbox && docker compose exec -T mailbox-dashboard node /app/migrations/runner.js'
 ```
 
 (Or whatever invocation `dashboard/migrations/runner.ts` exposes — check that file first.)
@@ -101,7 +101,7 @@ ssh jetson 'cd ~/mailbox && docker compose exec -T mailbox-dashboard node /app/m
 - `dashboard/migrations/011-add-retry-count-to-drafts-v1-2026-04-30.sql` exists
 - `grep -E '^ALTER TABLE mailbox\.drafts' dashboard/migrations/011-add-retry-count-to-drafts-v1-2026-04-30.sql` matches
 - `grep 'retry_count INTEGER NOT NULL DEFAULT 0' dashboard/migrations/011-add-retry-count-to-drafts-v1-2026-04-30.sql` matches
-- After running on Jetson: `ssh jetson 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -Atc "SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_schema=\'mailbox\' AND table_name=\'drafts\' AND column_name=\'retry_count\';"'` returns one row containing `retry_count|integer|0`
+- After running on Jetson: `ssh mailbox1 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -Atc "SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_schema=\'mailbox\' AND table_name=\'drafts\' AND column_name=\'retry_count\';"'` returns one row containing `retry_count|integer|0`
 </acceptance_criteria>
 </task>
 
@@ -1065,19 +1065,19 @@ Create the three new n8n workflows and update `03-classify-email-sub.json` to wi
 **Deactivate the legacy `MailBOX-Drafts` workflow:**
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose exec -T n8n n8n list:workflow' \
+ssh mailbox1 'cd ~/mailbox && docker compose exec -T n8n n8n list:workflow' \
   | grep -i 'MailBOX-Drafts'
 # Note the ID, then:
-ssh jetson 'cd ~/mailbox && docker compose exec -T n8n n8n update:workflow --id=<ID> --active=false'
+ssh mailbox1 'cd ~/mailbox && docker compose exec -T n8n n8n update:workflow --id=<ID> --active=false'
 ```
 
 Activate the four new sub-workflows after import:
 
 ```bash
-ssh jetson 'cd ~/mailbox && ./scripts/n8n-import-workflows.sh'
+ssh mailbox1 'cd ~/mailbox && ./scripts/n8n-import-workflows.sh'
 for wf in 04-draft-local-sub 05-draft-cloud-sub 10-cloud-retry-worker; do
-  ID=$(ssh jetson "docker compose exec -T n8n n8n list:workflow" | awk -v name="$wf" '$0 ~ name {print $1}')
-  ssh jetson "cd ~/mailbox && docker compose exec -T n8n n8n update:workflow --active=true --id=$ID"
+  ID=$(ssh mailbox1 "docker compose exec -T n8n n8n list:workflow" | awk -v name="$wf" '$0 ~ name {print $1}')
+  ssh mailbox1 "cd ~/mailbox && docker compose exec -T n8n n8n update:workflow --active=true --id=$ID"
 done
 ```
 
@@ -1097,7 +1097,7 @@ done
 - `n8n/workflows/03-classify-email-sub.json` modified to invoke `04-draft-local-sub` and `05-draft-cloud-sub` via Execute Workflow nodes (grep for both workflow ids/names)
 - `grep -c '"password"' n8n/workflows/04-draft-local-sub.json n8n/workflows/05-draft-cloud-sub.json n8n/workflows/10-cloud-retry-worker.json` returns `0`
 - `grep -c 'sk-ant-' n8n/workflows/*.json` returns `0`
-- After deploy: `ssh jetson 'docker compose exec -T n8n n8n list:workflow' | grep MailBOX-Drafts | grep -i ' active' | grep -i ' false'` matches (legacy workflow deactivated)
+- After deploy: `ssh mailbox1 'docker compose exec -T n8n n8n list:workflow' | grep MailBOX-Drafts | grep -i ' active' | grep -i ' false'` matches (legacy workflow deactivated)
 - After deploy: all of `04-draft-local-sub`, `05-draft-cloud-sub`, `10-cloud-retry-worker` appear in `n8n list:workflow` output
 </acceptance_criteria>
 </task>
@@ -1122,7 +1122,7 @@ ON CONFLICT (customer_key) DO UPDATE SET updated_at = now();
 **Path 1 — local Qwen3 path (reorder).** From a separate Gmail account, send a test email to the dogfood inbox: subject `"Test 02-07: reorder request"`, body `"Hey — please reorder 48 cases of SKU-AB01 by next Friday. Thanks."`. Expected within 90s:
 
 ```bash
-ssh jetson 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "
+ssh mailbox1 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "
   SELECT id, classification_category, classification_confidence, draft_source,
          (draft_original IS NOT NULL) AS has_draft,
          jsonb_typeof(rag_context_refs) AS refs_type,
@@ -1138,7 +1138,7 @@ Verify: `classification_category='reorder'`, `draft_source='local_qwen3'`, `has_
 **Path 3 — awaiting_cloud + retry recovery.** Break the API key and send another inquiry email:
 
 ```bash
-ssh jetson 'cd ~/mailbox && grep "^ANTHROPIC_API_KEY=" .env > /tmp/.key.bak && \
+ssh mailbox1 'cd ~/mailbox && grep "^ANTHROPIC_API_KEY=" .env > /tmp/.key.bak && \
   sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=sk-ant-test-broken-key|" .env && \
   docker compose up -d mailbox-dashboard'
 ```
@@ -1146,7 +1146,7 @@ ssh jetson 'cd ~/mailbox && grep "^ANTHROPIC_API_KEY=" .env > /tmp/.key.bak && \
 Send test email subject `"Test 02-07: awaiting cloud"`. Wait 90s, verify `status='awaiting_cloud'`, `draft_original IS NULL`, `retry_count >= 1`. Then restore the key:
 
 ```bash
-ssh jetson 'cd ~/mailbox && cat /tmp/.key.bak > /tmp/.key.line && \
+ssh mailbox1 'cd ~/mailbox && cat /tmp/.key.bak > /tmp/.key.line && \
   sed -i "/^ANTHROPIC_API_KEY=/d" .env && cat /tmp/.key.line >> .env && \
   rm /tmp/.key.bak /tmp/.key.line && docker compose up -d mailbox-dashboard'
 ```
@@ -1156,7 +1156,7 @@ Wait up to 6 minutes (one retry-worker tick). Verify: `status='pending'`, `draft
 **Approve path — SMTP send.** Pick the local-path drafted row from Path 1. Approve via the dashboard UI at `https://mailbox.heronlabsinc.com/dashboard/queue` (or `curl -X POST https://mailbox.heronlabsinc.com/dashboard/api/drafts/<ID>/approve`). Verify:
 
 ```bash
-ssh jetson 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "
+ssh mailbox1 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "
   SELECT COUNT(*) FROM mailbox.sent_history WHERE draft_id = <ID>;
   SELECT COUNT(*) FROM mailbox.drafts WHERE id = <ID>;
 "'
@@ -1183,7 +1183,7 @@ Expected: `sent_history` count = 1, `drafts` count = 0. Operator inbox should re
 - After approve path: `mailbox.sent_history` has the row, `mailbox.drafts` does not, AND the operator received the reply email in their original Gmail thread (visual confirmation by operator)
 - After reject path: `mailbox.rejected_history` has the row, `mailbox.drafts` does not
 - `cd dashboard && pnpm test` passes (cloud.test.ts denylist still green after all integration)
-- `ssh jetson 'docker compose exec -T n8n n8n list:workflow'` shows `MailBOX-Drafts` (legacy) as inactive
+- `ssh mailbox1 'docker compose exec -T n8n n8n list:workflow'` shows `MailBOX-Drafts` (legacy) as inactive
 </acceptance_criteria>
 </task>
 
@@ -1193,7 +1193,7 @@ Expected: `sent_history` count = 1, `drafts` count = 0. Operator inbox should re
 
 ```bash
 # 1. Schema migrated
-ssh jetson 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -Atc "
+ssh mailbox1 'docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -Atc "
   SELECT column_name FROM information_schema.columns
    WHERE table_schema=\"mailbox\" AND table_name=\"drafts\" AND column_name=\"retry_count\";
 "' | grep -q '^retry_count$'
@@ -1208,8 +1208,8 @@ curl -fsS -X POST https://mailbox.heronlabsinc.com/dashboard/api/internal/draft-
   -d '{"drafts_id": 999999}' | jq -r '.error' | grep -q 'drafts row not found'
 
 # 4. Workflows imported + active states correct
-ssh jetson 'docker compose exec -T n8n n8n list:workflow' | grep -E '04-draft-local-sub|05-draft-cloud-sub|10-cloud-retry-worker'
-ssh jetson 'docker compose exec -T n8n n8n list:workflow' | grep MailBOX-Drafts | grep -qi 'false'
+ssh mailbox1 'docker compose exec -T n8n n8n list:workflow' | grep -E '04-draft-local-sub|05-draft-cloud-sub|10-cloud-retry-worker'
+ssh mailbox1 'docker compose exec -T n8n n8n list:workflow' | grep MailBOX-Drafts | grep -qi 'false'
 
 # 5. No credentials leaked
 ! grep -rE '"password"|sk-ant-[a-zA-Z0-9]|access_token' n8n/workflows/

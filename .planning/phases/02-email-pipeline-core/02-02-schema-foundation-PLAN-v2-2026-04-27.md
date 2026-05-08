@@ -193,7 +193,7 @@ Add an npm script in `dashboard/package.json`:
 Add `tsx` as a dev dependency if not already present:
 
 ```bash
-ssh jetson 'cd ~/mailbox/dashboard && npm install --save-dev tsx'
+ssh mailbox1 'cd ~/mailbox/dashboard && npm install --save-dev tsx'
 ```
 </action>
 <read_first>
@@ -905,21 +905,21 @@ Apply all migrations on the live Jetson and verify.
 
 ```bash
 # from the workstation (or directly on the Jetson)
-ssh jetson 'cd ~/mailbox && git pull'
-ssh jetson 'cd ~/mailbox && docker compose build dashboard'
-ssh jetson 'cd ~/mailbox && docker compose up -d dashboard'
+ssh mailbox1 'cd ~/mailbox && git pull'
+ssh mailbox1 'cd ~/mailbox && docker compose build dashboard'
+ssh mailbox1 'cd ~/mailbox && docker compose up -d dashboard'
 
 # Run the migration runner inside the container so it has POSTGRES_URL.
-ssh jetson 'cd ~/mailbox && docker compose exec -T mailbox-dashboard npm run migrate'
+ssh mailbox1 'cd ~/mailbox && docker compose exec -T mailbox-dashboard npm run migrate'
 
 # Verify
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT version FROM mailbox.migrations ORDER BY version;\""
 
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT count(*) FROM information_schema.tables WHERE table_schema='mailbox';\""
 
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT stage FROM mailbox.onboarding WHERE customer_key='default';\""
 ```
 </action>
@@ -947,14 +947,14 @@ ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d m
 <verification>
 ```bash
 # 1. All 7 mailbox tables present (8 with migrations)
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT table_name FROM information_schema.tables
     WHERE table_schema='mailbox' ORDER BY table_name;\"" \
   | sort | tr '\n' ' '
 # Expected: classification_log drafts inbox_messages migrations onboarding persona rejected_history sent_history
 
 # 2. drafts has D-17 columns
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT column_name FROM information_schema.columns
     WHERE table_schema='mailbox' AND table_name='drafts'
     ORDER BY ordinal_position;\""
@@ -964,13 +964,13 @@ ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d m
 # in_reply_to, references
 
 # 3. drafts CHECKs include awaiting_cloud and the right MAIL-05 categories
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT pg_get_constraintdef(oid) FROM pg_constraint
     WHERE conrelid='mailbox.drafts'::regclass
     AND conname IN ('drafts_status_check','drafts_draft_source_check','drafts_classification_category_check');\""
 
 # 4. onboarding stages match D-16 exactly
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT pg_get_constraintdef(oid) FROM pg_constraint
     WHERE conrelid='mailbox.onboarding'::regclass
     AND conname='onboarding_stage_check';\""
@@ -978,24 +978,24 @@ ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d m
 # pending_tuning, tuning_in_progress, live
 
 # 5. drafts GIN index on rag_context_refs exists
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT indexname FROM pg_indexes
     WHERE schemaname='mailbox' AND tablename='drafts'
     AND indexname='drafts_rag_refs_gin';\""
 
 # 6. Backfill from inbox_messages worked
-ssh jetson "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
+ssh mailbox1 "cd ~/mailbox && docker compose exec -T postgres psql -U mailbox -d mailbox -Atc \
   \"SELECT
        (SELECT count(*) FROM mailbox.inbox_messages WHERE classification IS NOT NULL) AS msgs_classified,
        (SELECT count(*) FROM mailbox.classification_log) AS log_rows;\""
 # log_rows >= msgs_classified
 
 # 7. Existing dashboard queue still functional
-ssh jetson 'curl -fsS http://localhost/dashboard/api/drafts | jq "length"'
+ssh mailbox1 'curl -fsS http://localhost/dashboard/api/drafts | jq "length"'
 # Returns a number (no 500)
 
 # 8. Migration runner is idempotent
-ssh jetson 'cd ~/mailbox && docker compose exec -T mailbox-dashboard npm run migrate 2>&1' | grep -c '\[skip\]'
+ssh mailbox1 'cd ~/mailbox && docker compose exec -T mailbox-dashboard npm run migrate 2>&1' | grep -c '\[skip\]'
 # Returns 6 (one per migration)
 ```
 </verification>

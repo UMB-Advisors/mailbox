@@ -90,7 +90,7 @@ Vitest runs 44 cases via `npm test` (STAQPRO-133 v1+v2+v3 shipped 2026-05-01):
 - `test/routes/drafts.test.ts` — 13 cases covering CRUD routes
 - `test/routes/pipeline-smoke.test.ts` — 3 cases for the classify → draft → finalize chain
 
-DB-backed tests skip without `TEST_POSTGRES_URL`. CI bootstraps a postgres:17-alpine service from `test/fixtures/schema.sql` (the canonical snapshot — same path `npm run db:codegen` takes) per STAQPRO-134. Local: `ssh -L 5432:localhost:5432 jetson-tailscale -N` then `TEST_POSTGRES_URL=postgresql://mailbox:<pw>@localhost:5432/mailbox npm test`.
+DB-backed tests skip without `TEST_POSTGRES_URL`. CI bootstraps a postgres:17-alpine service from `test/fixtures/schema.sql` (the canonical snapshot — same path `npm run db:codegen` takes) per STAQPRO-134. Local: `ssh -L 5432:localhost:5432 mailbox1 -N` then `TEST_POSTGRES_URL=postgresql://mailbox:<pw>@localhost:5432/mailbox npm test`.
 
 Infrastructure smoke remains: `scripts/smoke-test.sh` (GPU/Qdrant/Postgres health) and the in-container `smoke-draft.mjs`.
 <!-- GSD:architecture-end -->

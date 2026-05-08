@@ -7,7 +7,7 @@
 # so a re-export against an unchanged appliance produces a no-op diff.
 #
 # Usage:
-#   scripts/n8n-export-workflows.sh             # default: against jetson-tailscale
+#   scripts/n8n-export-workflows.sh             # default: against mailbox1
 #   SSH_HOST=jetson-dustin ./scripts/n8n-export-workflows.sh
 #   SSH_HOST=local ./scripts/n8n-export-workflows.sh   # run on Bob itself
 #
@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUT_DIR="${REPO_ROOT}/n8n/workflows"
-SSH_HOST="${SSH_HOST:-jetson-tailscale}"
+SSH_HOST="${SSH_HOST:-mailbox1}"
 N8N_CONTAINER="${N8N_CONTAINER:-mailbox-n8n-1}"
 
 # (workflow-id, output-filename) pairs. Keep this in sync with

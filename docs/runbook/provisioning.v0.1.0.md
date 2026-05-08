@@ -25,7 +25,7 @@ Collect from the customer **before** the unit ships:
 - [ ] Google Workspace admin able to grant Gmail OAuth scopes
 - [ ] Customer GCP project ID + billing contact (only relevant if §4 is reinstated; see STALE flag)
 - [ ] Pooled UMB Anthropic API key allocation slot (Glue Co-managed)
-- [ ] Tailscale invite delivered + accepted (for `mailbox-jetson-NN` enrollment)
+- [ ] Tailscale invite delivered + accepted (for `mailboxN` enrollment)
 
 `TODO:` Lift this into a customer-onboarding form (links to STAQPRO-164 sub-task "Customer GCP/DNS pre-flight").
 
@@ -54,12 +54,12 @@ Collect from the customer **before** the unit ships:
 
 **Goal:** Appliance reachable over the `consultingfutures@gmail.com` tailnet at a predictable hostname.
 
-**Naming convention:** `mailbox-jetson-NN` (e.g. `mailbox-jetson-01` is customer #1 / Heron Labs).
+**Naming convention:** `mailboxN` (e.g. `mailbox1` is customer #1 / Heron Labs).
 
 - [ ] `curl -fsSL https://tailscale.com/install.sh | sh`
-- [ ] `sudo tailscale up --ssh --hostname=mailbox-jetson-NN`
+- [ ] `sudo tailscale up --ssh --hostname=mailboxN`
 - [ ] Approve device in admin console; assign tag `tag:mailbox-appliance`
-- [ ] Verify MagicDNS: `tailscale ping mailbox-jetson-NN.tail377a9a.ts.net` from workstation
+- [ ] Verify MagicDNS: `tailscale ping mailboxN.tail377a9a.ts.net` from workstation
 - [ ] Document local SSH alias addition for ops team
 
 `TODO:` Confirm `--ssh` (Tailscale SSH) is the standard, or whether we always copy `~/.ssh/authorized_keys` instead. Customer #1 + Dustin's box both have working sshd — picking one path.

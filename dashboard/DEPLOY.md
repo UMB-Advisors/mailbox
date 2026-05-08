@@ -5,7 +5,7 @@ existing Jetson compose stack at `/home/bob/mailbox/`. Reachable at
 `https://mailbox.heronlabsinc.com/dashboard` when done.
 
 > **Pre-reqs:** All steps run on the Jetson. Use Tailscale SSH
-> (`tailscale ssh bob@mailbox-jetson-01.tail377a9a.ts.net`) or any
+> (`tailscale ssh bob@mailbox1.tail377a9a.ts.net`) or any
 > LAN-connected SSH session as `bob`.
 
 ---

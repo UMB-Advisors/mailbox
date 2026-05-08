@@ -28,7 +28,7 @@ Methodology (locked in the issue):
 
 | Item | Why | Where |
 |---|---|---|
-| Appliance reachable over SSH (`jetson` or `jetson-tailscale`) | Container exec | Direct ethernet `10.42.0.2`, or tailnet `mailbox-jetson-01.tail377a9a.ts.net` |
+| Appliance reachable over SSH (`jetson` or `mailbox1`) | Container exec | Direct ethernet `10.42.0.2`, or tailnet `mailbox1.tail377a9a.ts.net` |
 | `mailbox-dashboard` container running | Same network for the Postgres / Ollama / Qdrant DNS the harness uses | `docker compose ps mailbox-dashboard` |
 | Onboarding backfill complete | The harness reads `sent_history` rows where `source = 'backfill'`. Empty means nothing to score. | `docs/runbook/onboarding-backfill.v0.1.0.md` (run that first if needed) |
 | Qdrant `email_messages` collection populated | Required only for the with-RAG pass. The no-rag pass short-circuits before Qdrant. | `curl http://localhost:6333/collections/email_messages \| jq .result.points_count` should be ≥ corpus size minus the empty-body skips |
@@ -48,7 +48,7 @@ The prod `mailbox-dashboard` image ships no devDeps so `tsx` is missing — run 
 From the workstation, **with-RAG pass first** (treatment):
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e POSTGRES_URL=$POSTGRES_URL \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \
@@ -59,7 +59,7 @@ ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
 **No-RAG pass second** (baseline) — same command, with `RAG_DISABLED=1` added:
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e POSTGRES_URL=$POSTGRES_URL \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \

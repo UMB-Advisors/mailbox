@@ -7,7 +7,7 @@
 // the UI to exist yet.
 //
 // Run on Bob:
-//   ssh jetson-tailscale 'cd ~/mailbox && \
+//   ssh mailbox1 'cd ~/mailbox && \
 //     docker compose --profile migrate run --rm \
 //       --entrypoint sh mailbox-migrate \
 //       -c "npm install --silent --no-audit --no-fund && npx tsx scripts/kb-smoke.ts"'

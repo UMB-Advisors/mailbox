@@ -31,7 +31,7 @@ Mode is still set by env (`RAG_DISABLED=1` for the no-RAG baseline). The judge i
 
 | Item | Why | Where |
 |---|---|---|
-| Appliance reachable over SSH (`jetson` or `jetson-tailscale`) | Container exec | Direct ethernet `10.42.0.2`, or tailnet `mailbox-jetson-01.tail377a9a.ts.net` |
+| Appliance reachable over SSH (`jetson` or `mailbox1`) | Container exec | Direct ethernet `10.42.0.2`, or tailnet `mailbox1.tail377a9a.ts.net` |
 | `mailbox-dashboard` container running | Same network for the Postgres / Ollama / Qdrant DNS the harness uses | `docker compose ps mailbox-dashboard` |
 | Onboarding backfill complete | Empty `sent_history.source='backfill'` means nothing to score | `docs/runbook/onboarding-backfill.v0.1.0.md` |
 | Qdrant `email_messages` collection populated | Required only for the with-RAG cosine pass | `curl http://localhost:6333/collections/email_messages \| jq .result.points_count` |
@@ -48,7 +48,7 @@ Mode is still set by env (`RAG_DISABLED=1` for the no-RAG baseline). The judge i
 ### Cosine-only (unchanged from v0.2.0)
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e POSTGRES_URL=$POSTGRES_URL \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \
@@ -61,7 +61,7 @@ ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
 ### Cosine + judge (Haiku 4.5 — Anthropic)
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e POSTGRES_URL=$POSTGRES_URL \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \
@@ -73,7 +73,7 @@ ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
 ### Cosine + judge (gpt-oss:120b — Ollama Cloud)
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e POSTGRES_URL=$POSTGRES_URL \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e QDRANT_URL=http://qdrant:6333 \
@@ -87,7 +87,7 @@ ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
 Use case: the cosine numbers are already known (v0.2.0 baseline) and you only need the judge axis on the same corpus. Skips the Qwen3 draft + nomic embed loop entirely (~30-60 min saved per pass), but still runs the drafter to produce the candidate the judge scores against — there's no draft persisted on `sent_history`, so the harness has to generate one to judge it. The flag's value is "skip embed", not "skip everything except judge".
 
 ```bash
-ssh jetson 'cd ~/mailbox && docker compose --profile migrate run --rm \
+ssh mailbox1 'cd ~/mailbox && docker compose --profile migrate run --rm \
   -e POSTGRES_URL=$POSTGRES_URL \
   -e OLLAMA_BASE_URL=http://ollama:11434 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \

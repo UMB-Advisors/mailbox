@@ -32,7 +32,7 @@ Each criterion has a measurement command, a target, and a pass/fail evaluation.
 **Target**: ≥ 10 drafts in `status='approved'` or `status='sent'` over the 7-day evaluation window (T+72h to T+10 days).
 
 ```sh
-ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
+ssh mailbox2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
   SELECT
     COUNT(*) FILTER (WHERE status = '\''approved'\'') AS approved,
     COUNT(*) FILTER (WHERE status = '\''sent'\'') AS sent,
@@ -55,7 +55,7 @@ ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox 
 **Target**: classify p95 < 30s, draft p95 (local) < 30s, draft p95 (cloud) < 60s — measured over the 7-day evaluation window.
 
 ```sh
-ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
+ssh mailbox2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
   SELECT
     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (classified_at - received_at))) AS classify_p95_s,
     COUNT(*) AS classifications
@@ -64,7 +64,7 @@ ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox 
 ```
 
 ```sh
-ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
+ssh mailbox2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
   SELECT
     draft_source,
     PERCENTILE_CONT(0.95) WITHIN GROUP (
@@ -89,13 +89,13 @@ ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox 
 **Target**: zero OOM-killer hits in `dmesg` between T+72h and T+10 days.
 
 ```sh
-ssh jetson-customer2 'sudo dmesg -T | grep -iE "oom|killed process" | grep -v "$(date -d '\''-7 days'\'' '\''+%b'\'')" | wc -l'
+ssh mailbox2 'sudo dmesg -T | grep -iE "oom|killed process" | grep -v "$(date -d '\''-7 days'\'' '\''+%b'\'')" | wc -l'
 ```
 
 (Filter approximation — also eyeball the raw output for any hits dated within the window.)
 
 ```sh
-ssh jetson-customer2 'sudo dmesg -T | grep -iE "oom|killed process" | tail -20'
+ssh mailbox2 'sudo dmesg -T | grep -iE "oom|killed process" | tail -20'
 ```
 
 | Result | Verdict |
@@ -110,7 +110,7 @@ ssh jetson-customer2 'sudo dmesg -T | grep -iE "oom|killed process" | tail -20'
 **Target**: zero `error` rows in `execution_entity` for `MailBOX*` workflows over the 7-day evaluation window.
 
 ```sh
-ssh jetson-customer2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
+ssh mailbox2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -c "
   SELECT \"workflowId\", status, COUNT(*)
   FROM execution_entity
   WHERE \"startedAt\" BETWEEN NOW() - INTERVAL '\''7 days'\'' AND NOW()
@@ -156,7 +156,7 @@ echo | openssl s_client -servername mailbox.<customer-domain> -connect mailbox.<
 ```
 
 ```sh
-ssh jetson-customer2 'docker logs mailbox-caddy-1 2>&1 | grep -iE "obtain|renew|certificate|error" | tail -50'
+ssh mailbox2 'docker logs mailbox-caddy-1 2>&1 | grep -iE "obtain|renew|certificate|error" | tail -50'
 ```
 
 | Result | Verdict |

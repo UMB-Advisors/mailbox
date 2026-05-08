@@ -9,7 +9,7 @@ import { KB_DOC_STATUSES } from '../lib/types';
 // the 2026-05-01 docs sync (status state machine + draft_source values).
 //
 // Requires a Postgres reachable via TEST_POSTGRES_URL or POSTGRES_URL.
-// Locally: SSH-tunnel to Bob with `ssh -L 5432:localhost:5432 jetson-tailscale -N`,
+// Locally: SSH-tunnel to Bob with `ssh -L 5432:localhost:5432 mailbox1 -N`,
 // then `TEST_POSTGRES_URL=postgresql://mailbox:<pw>@localhost:5432/mailbox npm test`.
 // In CI: provided by the workflow (STAQPRO-134).
 //
@@ -56,7 +56,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
     if (!DB_URL) {
       console.warn(
         '[schema-invariants] no TEST_POSTGRES_URL or POSTGRES_URL — skipping DB-backed cases.\n' +
-          '  Tunnel: ssh -L 5432:localhost:5432 jetson-tailscale -N\n' +
+          '  Tunnel: ssh -L 5432:localhost:5432 mailbox1 -N\n' +
           '  Run:    TEST_POSTGRES_URL=postgresql://mailbox:<pw>@localhost:5432/mailbox npm test',
       );
       return;

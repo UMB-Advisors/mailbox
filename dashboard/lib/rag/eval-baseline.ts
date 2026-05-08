@@ -11,7 +11,7 @@
 // Capture protocol (one-time, BEFORE STAQPRO-191 deploys to the appliance):
 //
 //   1. SSH to the appliance:
-//        ssh jetson 'cd ~/mailbox && docker compose exec postgres \
+//        ssh mailbox1 'cd ~/mailbox && docker compose exec postgres \
 //          psql -U mailbox -d mailbox -c "
 //            SELECT
 //              ROUND(
