@@ -211,6 +211,26 @@ Rotation flow that works:
 
 Then store the new plaintext in 1Password (see "Credentials" below).
 
+### Gmail rate-limit cooldown — retries during cooldown extend the penalty (2026-05-08, STAQPRO-271)
+When n8n's `Gmail Reply` (or any Gmail call) returns `User-rate limit exceeded. Retry after <ts>`, **do not retry until the stated `<ts>` AND ideally well past it**. Each retry during the cooldown window pushes the deadline further out — the second incident (2026-05-08) saw 4 retries push the cooldown by `+1h 44min` over the original 15-min stated retry-after, and a retry **46 min past the stated deadline** still 429'd and re-extended the penalty by another 61 min.
+
+Empirical lessons confirmed:
+- **Stated `Retry-After` is a soft minimum, not a guarantee.** The real cooldown can be hours-to-day (per STAQPRO-232 forensics) and grows with each in-cooldown attempt.
+- **Read and send quotas are independent buckets.** During a send-side cooldown, `MailBOX` parent's `Gmail Get` keeps polling fine — don't disable the parent workflow on a send-side 429.
+- **n8n's webhook returns an empty body when the `Gmail Reply` node throws** (the `Respond Success`/`Respond Failure` terminal nodes are never reached). Dashboard's `JSON.parse('')` then throws `Unexpected end of JSON input` and returns 502. Treat any 502 with that error string as a Gmail send failure, fetch the actual cause from `execution_data.data` of the latest errored `MailBOX-Send` execution.
+
+How to inspect a stuck send:
+
+    EXEC=$(ssh mailbox1 "docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -tAc \\
+      \"SELECT id FROM execution_entity WHERE \\\"workflowId\\\"=(SELECT id FROM workflow_entity \\
+      WHERE name='MailBOX-Send') AND status='error' ORDER BY \\\"startedAt\\\" DESC LIMIT 1;\"")
+    ssh mailbox1 "docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -tAc \\
+      \"SELECT data FROM execution_data WHERE \\\"executionId\\\"=$EXEC;\"" \
+      | grep -oE '\"User-rate limit[^\"]+\"'
+    # → "User-rate limit exceeded.  Retry after 2026-05-08T19:08:18.719Z"
+
+Until STAQPRO-231 lands a circuit-breaker, the manual cooldown SLO is: **don't fire `MailBOX-Send` again until `now > stated_retry_after + 1 hour`**, and on subsequent failures double the wait. If the operator escalates ("we need to send NOW"), the only safe path is sending the reply manually from the underlying Gmail account.
+
 ### n8n workflow editing
 - **All four MailBOX workflows must be `active=true` on n8n 2.x.** `MailBOX` (parent, ScheduleTrigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` (sub-workflows invoked via `executeWorkflowTrigger`). The pre-2.x guidance — that sub-workflows should stay `active=false` to avoid cosmetic "could not activate" warnings — was retracted in n8n 2.x: now an `executeWorkflow` call to an inactive sub-workflow throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2 upgrade). The post-n8n-upgrade verification one-liner in **Deployment Target → Post-n8n-upgrade verification** is the canonical guardrail. The dashboard CLAUDE.md's STAQPRO-186 boundary contract still mentions the pre-2.x guidance — treat that as historical, the n8n 2.x reality is "all four active."
 - `n8n update:workflow --active=...` is a NO-OP at runtime unless the n8n container is restarted. The flag persists to the DB but the live runtime keeps the old activation state cached.
