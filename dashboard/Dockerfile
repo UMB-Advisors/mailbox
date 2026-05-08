@@ -49,6 +49,17 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # already traced into the standalone node_modules.
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 
+# Operator scripts import from `../lib/...` (e.g. lib/rag/embed,
+# lib/rag/qdrant, lib/rag/excerpt). Next.js standalone bundles these
+# into the route handlers but doesn't ship them as standalone files —
+# we have to copy the lib/ source separately for tsx to resolve.
+# Fixed in this commit; before it, `docker exec ... npx tsx scripts/rag-backfill.ts`
+# died with "Cannot find module '../lib/rag/embed'" (gap surfaced
+# 2026-05-08 during M2 Phase 13.5 follow-up).
+# Lib code is already trusted (it's what server.js runs); copying the
+# TypeScript source adds ~few-MB image bloat and zero runtime risk.
+COPY --from=builder --chown=nextjs:nodejs /app/lib ./lib
+
 # STAQPRO-148 — pre-create the KB upload dir with nextjs:nodejs ownership so
 # the named volume (mailbox_kb_uploads in compose) inherits the right owner
 # on first mount. Docker initializes empty named volumes from the image's
