@@ -653,3 +653,84 @@ The same approach applies to M1 — STAQPRO-238's plan is now "flip M1 A record 
 - Direct verification that the Normalize fix (`response || thinking`) produces real categories — requires either fresh inbox volume or a manual Classify Sub trigger. Direct probe already proved the code path works; the live verification waits for Eric's next inbound mail.
 - Live-gate flip — explicit operator decision, not happening tonight.
 - M1 DNS A record flip per STAQPRO-238 — needs heronlabsinc.com zone access.
+
+## Session 3 (2026-05-07 ~23:45 PT): Phase 13.5 closure — `think: false` deployed
+
+Picked up the Phase 13.5 thread to verify the deferred verification gate ("does the Normalize fix produce real categories on next live tick?"). Direct execution-data inspection on M2 confirmed the Normalize bandaid was working correctly — the `thinking` field was being read when `response` was empty. The bug shape had shifted: not a plumbing failure, but **classification quality regression** under thinking-mode + format:json on signature-laden bodies.
+
+### Diagnosis: divergence vs M1 confirmed
+
+Replayed an M1-known-correct inquiry email (`saul@adallennutrition.com` "Re: Introduction – Monk Fruit & Stevia Solutions for Heron Labs", 4331-char body with full corporate signature) on M2's classifier:
+
+| Appliance | Ollama version | Qwen3 caps | Result on M1-shape inquiry |
+|-----------|---------------|------------|---------------------------|
+| **M1** (live) | 0.20.5 | `completion` only | `inquiry: 0.9` ✓ |
+| **M2** (pre-fix, thinking active) | 0.23.0 | `completion, tools, thinking` | thinking-field `unknown: 0.1` (model anchored on signature noise) |
+| **M2** (post-fix, `think: false`) | 0.23.0 | (think disabled in call) | `inquiry: 0.95` ✓ |
+
+M1's last 15 classifications all correct (`internal:1.0` for heron labs, `inquiry:0.9` for prospects, `follow_up:0.9` for thread continuations, `spam_marketing:0.95` for newsletters, `scheduling:0.9` for calendar logistics) — all with full signatures. **M1 is the proof-of-concept that Qwen3 in non-thinking-mode handles signature-laden emails correctly.** No fix was needed on M1 in Session 2 because thinking-mode wasn't a thing on 0.20.5.
+
+The dustin@umbadvisors.com "We are looking to have a website for UMB Advisors made" still classifies as `unknown:0.2` post-fix — but that's correct behavior (web-design ask is genuinely off-domain for a CPG operator's classifier; routes to cloud safety net via `confidence < 0.75` → `cloud_categories`).
+
+### Fix deployed
+
+**Repo change** (commit `da0e9e3`): `n8n/workflows/MailBOX-Classify.json` — added `"think": false` to the `Call Ollama` node's `jsonBody` alongside the existing `"format": "json"` and `"options": { "temperature": 0 }`. One-line JSON change.
+
+**Deploy chain (both appliances, identical workflow JSON)**:
+
+```bash
+# Workstation
+git push origin master                         # da0e9e3 lands on origin
+
+# M2 (thinking-mode active — the actual regression target)
+ssh mailbox2 'cd ~/mailbox && git pull --ff-only'
+ssh mailbox2 'docker cp n8n/workflows/MailBOX-Classify.json mailbox-n8n-1:/tmp/c.json && \
+              docker exec mailbox-n8n-1 n8n import:workflow --input=/tmp/c.json && \
+              docker exec mailbox-n8n-1 n8n update:workflow --active=true --id=MlbxClsfySub0001 && \
+              cd ~/mailbox && docker compose restart n8n'
+# Verify all 5 workflow_entity rows show active=t post-restart
+ssh mailbox2 "docker exec mailbox-postgres-1 psql -U \$(grep ^POSTGRES_USER /home/mailbox/mailbox/.env | cut -d= -f2-) \
+              -d \$(grep ^POSTGRES_DB /home/mailbox/mailbox/.env | cut -d= -f2-) \
+              -c \"SELECT name, active, \\\"updatedAt\\\" FROM workflow_entity WHERE name LIKE 'MailBOX%' ORDER BY name;\""
+
+# M1 (forward-compat — Ollama 0.20.5 ignores think: false; same JSON, no behavioral change)
+ssh mailbox1 'cd ~/mailbox && git pull --ff-only'
+ssh mailbox1 'docker cp n8n/workflows/MailBOX-Classify.json mailbox-n8n-1:/tmp/c.json && \
+              docker exec mailbox-n8n-1 n8n import:workflow --input=/tmp/c.json && \
+              docker exec mailbox-n8n-1 n8n update:workflow --active=true --id=MlbxClsfySub0001 && \
+              cd ~/mailbox && docker compose restart n8n'
+```
+
+Both appliances: 4 production workflows + sub-workflows all `active=t` post-restart. M1 forward-compat probe with `think: false` returned valid classification (`follow_up: 0.9` on the same saul@adallennutrition email — slight category drift vs M1's earlier `inquiry: 0.9`, but both are `LOCAL_CATEGORIES` so routing is identical).
+
+### Status snapshot at session end (2026-05-07 ~23:50 PT)
+
+- ✅ Phase 13: Gmail OAuth (Session 2)
+- ✅ Phase 13.5: classify quality regression diagnosed + fixed (`think: false` shipped to M2 + M1)
+- ✅ Phase 14 partial: persona override + live-gate verified closed (Session 2)
+- ⏸ Phase 15 (RAG backfill): in flight at end of this session — `dashboard/scripts/rag-backfill.ts` ready to run inside `mailbox-dashboard` container; depends on Eric's sent-corpus volume; FetchHistory webhook silent-truncation gap at >500 sent still open
+- ⏸ Phase 16 (live-gate flip): unblocked on classify quality; still gated on Phase 15 complete + Eric explicit consent
+- ⏸ Phase 17 (constraint baseline): blocked on Phase 16
+
+### STAQPRO-240 status update
+
+This session resolved the immediate signature regression. The systemic fix — pinning `OLLAMA_IMAGE` to a concrete tag rather than `:latest` — is the next deliverable on STAQPRO-240. M2 is currently 0.23.0 (with thinking-mode mitigated by `think: false`); M1 is 0.20.5 (no thinking-mode). Pin strategy options:
+
+- **A. Per-box pin to current version**: M1 stays 0.20.5, M2 stays 0.23.0. Safest no-op; freezes the divergence; leaves a 2-track fleet.
+- **B. Unify on M2's 0.23.0**: M1 needs upgrade. Since `think: false` is already deployed defensively, the upgrade should be safe.
+- **C. Unify on M1's 0.20.5**: M2 downgrades. Risk: re-pull of qwen3 model files; possibly different bug surface on older Ollama.
+
+Recommend **A as the defensive pin** (capture current state, prevent further drift), then plan a coordinated upgrade as a separate ticket once both appliances are stable.
+
+### Lessons for next install (additions to v0.2's earlier list)
+
+7. **Verify deferred verification gates are still correct hypotheses before re-deploying.** Session 2 deferred "does the Normalize fix produce real categories" assuming the fix was the only blocker. Session 3 found a *second* layer of regression (model quality under thinking-mode) that was masked by the first. Always re-probe end-to-end after a fix lands, not just the immediate symptom.
+8. **`docker exec mailbox-ollama-1 ollama show <model>` is the canonical way to read Qwen3 capabilities.** This is the diagnostic that distinguishes "thinking-mode active" from "thinking-mode not a thing on this version." Bake this into the post-deploy verification step.
+9. **n8n execution_data is queryable.** `SELECT data FROM execution_data WHERE "executionId"=N` returns a deduplicated string array. Indexing by position lets you reconstruct exactly what each node received and emitted. Worth knowing for any future "what did the live workflow actually do" investigation.
+
+### Deferred (not in this session)
+
+- **STAQPRO-240 pin work** — proposed strategy A above; needs `.env.example` + `docker-compose.yml` edit + deploy.
+- **Phase 15 RAG backfill on M2** — running next.
+- **Phase 16 live-gate flip** — after Phase 15.
+- **M1 DNS A record flip per STAQPRO-238** — still needs heronlabsinc.com zone access.
