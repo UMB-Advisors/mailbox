@@ -16,17 +16,32 @@ export interface PersonaContext {
   signoff: string;
   operator_first_name: string;
   operator_brand: string;
+  /**
+   * What the operator's business actually does — captured during onboarding
+   * (e.g., "small-batch CPG operator", "B2B tech / dev tools company",
+   * "veterinary clinic", "freelance illustrator"). Templated into both
+   * classification and drafting prompts so the LLM gets industry-grounded
+   * framing instead of a hardcoded vertical.
+   *
+   * Empty string means onboarding hasn't populated it yet; prompt builders
+   * fall back to a generic "small business operator" framing.
+   */
+  business_description: string;
 }
 
-// Hardcoded fallback — same values the 2026-04-30 stub shipped with. These
-// remain the customer-#1 baseline until either the extraction populates
-// mailbox.persona (STAQPRO-153) or the operator sets explicit overrides via
-// the settings UI (STAQPRO-149).
+// Industry-neutral hardcoded fallback (Phase 1 of the CPG-scrub, 2026-05-08).
+// Pre-2026-05-08 the FALLBACK was Heron Labs / small-batch CPG specific —
+// fine for customer #1, wrong for any non-CPG appliance (M2 = Staqs.io tech
+// dev). New boxes ship with neutral defaults; the operator sets overrides
+// during onboarding via the persona settings UI (STAQPRO-149) or via direct
+// SQL during install. Live-gate flip should be blocked until at least
+// `business_description` is populated, but that gate is owned by 02-08.
 const FALLBACK: PersonaContext = {
   tone: 'concise, direct, warm — short paragraphs, no corporate hedging',
-  signoff: '— Heron Labs',
-  operator_first_name: 'Heron Labs team',
-  operator_brand: 'Heron Labs (small-batch CPG)',
+  signoff: 'Best,\n[operator name]',
+  operator_first_name: 'the operator',
+  operator_brand: "the operator's business",
+  business_description: '',
 };
 
 export async function getPersonaContext(customerKey = 'default'): Promise<PersonaContext> {
@@ -45,6 +60,7 @@ export function resolvePersonaContext(markers: Record<string, unknown>): Persona
     signoff: stringOr(markers.signoff, firstNonEmpty(markers.sign_off_top) ?? FALLBACK.signoff),
     operator_first_name: stringOr(markers.operator_first_name, FALLBACK.operator_first_name),
     operator_brand: stringOr(markers.operator_brand, FALLBACK.operator_brand),
+    business_description: stringOr(markers.business_description, FALLBACK.business_description),
   };
 }
 

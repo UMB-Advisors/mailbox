@@ -41,13 +41,21 @@ export interface ClassifierInput {
 
 // /no_think directive per D-05 — keeps classification under p95 5s (MAIL-06).
 // Fallback to `unknown` on parse failure is enforced in normalize.ts (D-06).
-export function buildPrompt(input: ClassifierInput): string {
+//
+// `businessFraming` is the operator-business descriptor — populated during
+// onboarding via the persona resolver and forwarded by the route handler.
+// Empty / unset → falls back to a generic "small business operator" framing
+// (CPG-scrub Phase 1, 2026-05-08; replaces the prior hardcoded "small CPG
+// brand operator" anchor that biased Qwen3 against non-CPG mail on M2).
+export function buildPrompt(input: ClassifierInput, businessFraming?: string): string {
   const catLines = CATEGORIES.map((c) => `  - ${c}: ${CATEGORY_DESCRIPTIONS[c]}`).join('\n');
 
   const safeBody = (input.body ?? '').slice(0, 4000);
 
+  const framing = (businessFraming ?? '').trim() || 'a small business operator';
+
   return `/no_think
-You are an email classifier for a small CPG brand operator.
+You are an email classifier for ${framing}.
 Classify the email into exactly one of these 8 categories:
 
 ${catLines}

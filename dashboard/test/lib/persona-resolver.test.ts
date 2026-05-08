@@ -6,12 +6,13 @@ import { resolvePersonaContext } from '@/lib/drafting/persona';
 // tests; the resolver IS the interesting logic here.
 
 describe('resolvePersonaContext', () => {
-  it('returns hardcoded fallback for empty markers', () => {
+  it('returns industry-neutral fallback for empty markers (CPG-scrub Phase 1)', () => {
     const r = resolvePersonaContext({});
     expect(r.tone).toMatch(/concise, direct, warm/);
-    expect(r.signoff).toBe('— Heron Labs');
-    expect(r.operator_first_name).toBe('Heron Labs team');
-    expect(r.operator_brand).toBe('Heron Labs (small-batch CPG)');
+    expect(r.signoff).toBe('Best,\n[operator name]');
+    expect(r.operator_first_name).toBe('the operator');
+    expect(r.operator_brand).toBe("the operator's business");
+    expect(r.business_description).toBe('');
   });
 
   it('formality_score >= 0.7 derives formal tone', () => {
@@ -42,17 +43,35 @@ describe('resolvePersonaContext', () => {
 
     expect(resolvePersonaContext({ sign_off_top: ['Best,', 'Thanks,'] }).signoff).toBe('Best,');
 
-    expect(resolvePersonaContext({ sign_off_top: [] }).signoff).toBe('— Heron Labs');
-    expect(resolvePersonaContext({ sign_off_top: ['', '   '] }).signoff).toBe('— Heron Labs');
+    expect(resolvePersonaContext({ sign_off_top: [] }).signoff).toBe('Best,\n[operator name]');
+    expect(resolvePersonaContext({ sign_off_top: ['', '   '] }).signoff).toBe(
+      'Best,\n[operator name]',
+    );
   });
 
-  it('operator_first_name + operator_brand override hardcoded fallback', () => {
+  it('operator_first_name + operator_brand + business_description override fallback', () => {
     const r = resolvePersonaContext({
       operator_first_name: 'Sarah',
-      operator_brand: 'EnerGemz Gummies',
+      operator_brand: 'EnerGemz',
+      business_description: 'small-batch functional gummy CPG',
     });
     expect(r.operator_first_name).toBe('Sarah');
-    expect(r.operator_brand).toBe('EnerGemz Gummies');
+    expect(r.operator_brand).toBe('EnerGemz');
+    expect(r.business_description).toBe('small-batch functional gummy CPG');
+  });
+
+  it('business_description independent of brand — Staqs-style tech-dev override', () => {
+    const r = resolvePersonaContext({
+      operator_first_name: 'Eric',
+      operator_brand: 'Staqs',
+      business_description: 'B2B tech / dev tools company',
+      tone: 'casual, conversational, plain-spoken',
+      signoff: 'Cheers, Eric',
+    });
+    expect(r.operator_brand).toBe('Staqs');
+    expect(r.business_description).toBe('B2B tech / dev tools company');
+    expect(r.tone).toBe('casual, conversational, plain-spoken');
+    expect(r.signoff).toBe('Cheers, Eric');
   });
 
   it('non-string / non-finite values fall through cleanly', () => {
@@ -62,6 +81,6 @@ describe('resolvePersonaContext', () => {
       formality_score: 'NaN' as unknown as number,
     });
     expect(r.tone).toMatch(/concise, direct, warm/); // FALLBACK kicks in
-    expect(r.signoff).toBe('— Heron Labs');
+    expect(r.signoff).toBe('Best,\n[operator name]');
   });
 });

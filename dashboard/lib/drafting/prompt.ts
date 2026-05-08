@@ -78,8 +78,18 @@ export function buildSystemPrompt(persona: PersonaContext): string {
   // mimics concrete examples reliably. Worth the extra prompt tokens.
   const tone = persona.tone ?? 'concise, direct, warm';
   const signoff = persona.signoff ?? `— ${persona.operator_first_name ?? 'the operator'}`;
+  // CPG-scrub Phase 1 (2026-05-08) — framing is now persona-derived, not
+  // hardcoded. business_description comes from operator override set during
+  // onboarding (e.g., "small-batch CPG operator", "B2B tech / dev tools
+  // company"). Falls back to a generic descriptor when empty.
+  const operatorName = persona.operator_first_name?.trim() || 'the operator';
+  const operatorBrand = persona.operator_brand?.trim() || "the operator's business";
+  const businessDesc = persona.business_description?.trim();
+  const businessFraming = businessDesc
+    ? `${operatorName} at ${operatorBrand} — a ${businessDesc}`
+    : `${operatorName}, ${operatorBrand}`;
   return [
-    `You are an email assistant for a small CPG brand operator (${persona.operator_first_name ?? 'the operator'}, ${persona.operator_brand ?? 'their brand'}).`,
+    `You are an email assistant for ${businessFraming}.`,
     `You draft replies in their voice: ${tone}.`,
     `You are NOT a chatbot. The operator reviews every draft before it sends, so be specific, useful, and short.`,
     `Sign off with: ${signoff}`,
