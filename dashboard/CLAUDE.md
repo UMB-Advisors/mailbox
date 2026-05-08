@@ -184,7 +184,7 @@ n8n's encrypted credential store lives in the `credentials_entity` Postgres tabl
 ### Schedule + cron
 
 - **Parent workflow `MailBOX`**: `n8n-nodes-base.scheduleTrigger` at 5-minute interval (`minutesInterval: 5`). This is the **only** schedule trigger in the system.
-- **Sub-workflows** (`MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`): no triggers — invoked via `executeWorkflowTrigger` from upstream nodes. Their `active` flag should be `false` to avoid n8n's "no native trigger" cosmetic-but-loud activation errors on every restart (root CLAUDE.md gotcha).
+- **Sub-workflows** (`MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`): no triggers — invoked via `executeWorkflowTrigger` from upstream nodes. **On n8n 2.x they MUST be `active=true`** — an `executeWorkflow` call to an inactive sub-workflow throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2 upgrade). The pre-2.x guidance to keep them `active=false` (avoiding cosmetic "no native trigger" warnings) was retracted by the n8n 2.x upgrade — see root CLAUDE.md "Post-n8n-upgrade verification" for the deploy-gate one-liner.
 - **`MailBOX-FetchHistory`**: webhook trigger only (`/webhook/mailbox-fetch-history`).
 - **No cron jobs run inside n8n.** The dashboard's `/api/system/status` aggregator is a pull-pattern (operator views the page), not a push.
 
