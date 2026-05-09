@@ -5,8 +5,14 @@
 // (see ./preclass.ts). When the sender's address/domain identifies the
 // operator, override the LLM verdict to `internal`. The original LLM
 // output is preserved in raw_output for forensics.
+//
+// STAQPRO-260 — additionally apply a noreply preclass that drops obviously
+// automated senders (notifications@*, noreply@*, mailer-daemon@*, etc.)
+// to `spam_marketing` so `routeFor` short-circuits to `drop` without ever
+// generating a draft. Noreply is checked BEFORE operator-domain so a
+// noreply address that happens to live on the operator domain still drops.
 
-import { type PreclassContext, precheck } from './preclass';
+import { type PreclassContext, precheck, precheckNoReply } from './preclass';
 import { CATEGORIES, type Category } from './prompt';
 
 export interface ClassificationResult {
@@ -16,7 +22,7 @@ export interface ClassificationResult {
   think_stripped: boolean;
   raw_output: string;
   preclass_applied: boolean;
-  preclass_source: 'operator-domain' | 'operator-allowlist' | null;
+  preclass_source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern' | null;
 }
 
 const THINK_BLOCK = /<think>[\s\S]*?<\/think>/gi;
@@ -103,7 +109,9 @@ function fallback(raw: string, think_stripped: boolean): ClassificationResult {
 }
 
 function applyPreclass(result: ClassificationResult, ctx: PreclassContext): ClassificationResult {
-  const hit = precheck(ctx);
+  // Noreply check runs first: a notifications@operator.com address still
+  // belongs in `spam_marketing`, not `internal`.
+  const hit = precheckNoReply(ctx) ?? precheck(ctx);
   if (!hit) return result;
   return {
     ...result,
