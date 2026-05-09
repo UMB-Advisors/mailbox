@@ -200,9 +200,13 @@ export async function runStuckStubSweeperTick(): Promise<SweeperResult> {
   if (!lock.rows[0]?.acquired) return result;
 
   try {
+    // Cast EXTRACT/60 to int4 — Postgres `numeric` types come back as JS
+    // strings via the dashboard's pg type-parser convention (preserved by
+    // setTypeParser overrides in lib/db.ts). int4 round-trips as a real
+    // number which we need for .toFixed() in the log lines below.
     const queryResult = await sql<StuckRow>`
       SELECT id,
-             EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS age_minutes
+             (EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_minutes
         FROM mailbox.drafts
        WHERE status = 'pending'
          AND model = 'pending'
@@ -213,36 +217,35 @@ export async function runStuckStubSweeperTick(): Promise<SweeperResult> {
 
     result.checked = queryResult.rows.length;
     for (const row of queryResult.rows) {
-      if (row.age_minutes >= HARD_FAIL_AGE_MIN) {
+      const age = Number(row.age_minutes); // defense in depth — coerce even if pg parser changes
+      if (age >= HARD_FAIL_AGE_MIN) {
         try {
           await rejectAsUnrecoverable(row.id);
-          result.hard_failed += 1;
-          console.log(
-            `[stuck-stub-sweeper] id=${row.id} hard-failed (age=${row.age_minutes.toFixed(1)}m)`,
-          );
         } catch (e) {
           result.retry_failed += 1;
           console.error(
             `[stuck-stub-sweeper] id=${row.id} hard-fail update failed:`,
             e instanceof Error ? e.message : String(e),
           );
+          continue;
         }
+        result.hard_failed += 1;
+        console.log(`[stuck-stub-sweeper] id=${row.id} hard-failed (age=${age.toFixed(1)}m)`);
         continue;
       }
 
       try {
         await recoverDraft(row.id);
-        result.recovered += 1;
-        console.log(
-          `[stuck-stub-sweeper] id=${row.id} recovered (age=${row.age_minutes.toFixed(1)}m)`,
-        );
       } catch (e) {
         result.retry_failed += 1;
         console.error(
-          `[stuck-stub-sweeper] id=${row.id} recovery failed (age=${row.age_minutes.toFixed(1)}m):`,
+          `[stuck-stub-sweeper] id=${row.id} recovery failed (age=${age.toFixed(1)}m):`,
           e instanceof Error ? e.message : String(e),
         );
+        continue;
       }
+      result.recovered += 1;
+      console.log(`[stuck-stub-sweeper] id=${row.id} recovered (age=${age.toFixed(1)}m)`);
     }
   } finally {
     await sql`SELECT pg_advisory_unlock(${LOCK_KEY})`.execute(db);
