@@ -53,7 +53,56 @@ export interface PreclassContext {
 export interface PreclassResult {
   category: Category;
   confidence: number;
-  source: 'operator-domain' | 'operator-allowlist';
+  source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern';
+}
+
+// STAQPRO-260 — deterministic noreply preclass.
+//
+// Many automated senders (notifications@github.com, noreply@stripe.com,
+// mailer-daemon@*, etc.) generate emails that the LLM classifier
+// occasionally routes to internal/unknown/inquiry, which produces useless
+// drafts in the operator queue. Catch them at the boundary by sender
+// pattern and force `spam_marketing` — `routeFor` already drops that.
+//
+// Patterns are anchored to the local-part start (e.g. `^noreply@`) to avoid
+// matching legitimate addresses like `john.notifications@gmail.com`.
+//
+// Configuration:
+//   NOREPLY_PATTERNS         = comma-separated extra regexes appended to defaults
+//                              (case-insensitive, evaluated after the bake-ins)
+//   NOREPLY_PRECLASS_DISABLE = '1' to short-circuit the entire check
+const NOREPLY_DEFAULTS: ReadonlyArray<RegExp> = [
+  // Local-part starts with a noreply marker
+  /^(no-?reply|do-?not-?reply|donotreply|notifications?|mailer-daemon|postmaster|bounces)@/i,
+  // Domain explicitly carries a noreply/notifications subdomain
+  /@(noreply|notifications?)\./i,
+  /\.noreply\./i,
+];
+
+function compileExtraPatterns(raw: string | undefined): ReadonlyArray<RegExp> {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((src) => {
+      try {
+        return new RegExp(src, 'i');
+      } catch {
+        // Bad regex in env shouldn't crash the classifier — skip and log.
+        console.warn(`[preclass] invalid NOREPLY_PATTERNS entry skipped: ${src}`);
+        return null;
+      }
+    })
+    .filter((r): r is RegExp => r !== null);
+}
+
+const NOREPLY_EXTRA: ReadonlyArray<RegExp> = compileExtraPatterns(process.env.NOREPLY_PATTERNS);
+
+export const NOREPLY_PATTERNS: ReadonlyArray<RegExp> = [...NOREPLY_DEFAULTS, ...NOREPLY_EXTRA];
+
+function noreplyPreclassEnabled(): boolean {
+  return process.env.NOREPLY_PRECLASS_DISABLE !== '1';
 }
 
 function extractAddress(raw: string | undefined): string {
@@ -86,6 +135,26 @@ export function precheck(ctx: PreclassContext): PreclassResult | null {
   const domain = extractDomain(fromAddr);
   if (domain && OPERATOR_DOMAINS.includes(domain)) {
     return { category: 'internal', confidence: 1, source: 'operator-domain' };
+  }
+
+  return null;
+}
+
+// STAQPRO-260 — drop emails from automated senders before they reach the
+// LLM classifier. Returns `null` when no pattern matches OR when the
+// kill-switch env is set OR when the sender is on the operator allowlist
+// (allowlist beats noreply, in case an operator legitimately uses a
+// noreply-shaped address — unlikely but cheap insurance).
+export function precheckNoReply(ctx: PreclassContext): PreclassResult | null {
+  if (!noreplyPreclassEnabled()) return null;
+
+  const fromAddr = extractAddress(ctx.from);
+  if (!fromAddr) return null;
+
+  if (OPERATOR_ALLOWLIST.includes(fromAddr)) return null;
+
+  if (NOREPLY_PATTERNS.some((re) => re.test(fromAddr))) {
+    return { category: 'spam_marketing', confidence: 1, source: 'noreply-pattern' };
   }
 
   return null;

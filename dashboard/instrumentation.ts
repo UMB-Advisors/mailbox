@@ -21,5 +21,7 @@ export async function register(): Promise<void> {
     startClassifySweeper();
     const { startGmailRatelimitSweeper } = await import('./lib/jobs/gmail-ratelimit-sweeper');
     startGmailRatelimitSweeper();
+    const { startStuckStubSweeper } = await import('./lib/jobs/stuck-stub-sweeper');
+    startStuckStubSweeper();
   }
 }
