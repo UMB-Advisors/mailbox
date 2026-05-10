@@ -395,6 +395,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
 
     const score = await scorePair(pair, {
@@ -430,6 +432,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
 
     const score = await scorePair(pair, {
@@ -461,6 +465,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
 
     const score = await scorePair(pair, {
@@ -501,6 +507,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
 
     const score = await scorePair(pair, {
@@ -532,6 +540,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
     const judgeMock = vi.fn(async () => ({
       status: 'ok' as const,
@@ -583,6 +593,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
     const judgeMock = vi.fn(async () => ({
       status: 'ok' as const,
@@ -628,6 +640,8 @@ describe('scorePair — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
     const judgeMock = vi.fn(async () => ({
       status: 'call_failed' as const,
@@ -682,6 +696,8 @@ describe('generateDraft — STAQPRO-198', () => {
       signoff: '— Heron Labs',
       operator_first_name: 'Heron Labs team',
       operator_brand: 'Heron Labs',
+      business_description: '',
+      appointment_url: '',
     }));
 
     const out = await generateDraft(pair, {

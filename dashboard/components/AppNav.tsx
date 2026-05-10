@@ -15,6 +15,12 @@ const NAV: { slug: Slug; href: string; label: string }[] = [
   { slug: 'settings', href: '/settings/persona', label: 'Settings' },
 ];
 
+// STAQPRO-296 Phase 2 — external link to Google Calendar's appointment
+// management UI so the operator can manage their booking schedules
+// without leaving the workspace. Deeper read-side integration (calendar
+// widget, free-slot proposals in drafts) tracked in STAQPRO-295.
+const GOOGLE_CALENDAR_URL = 'https://calendar.google.com/calendar/u/0/r';
+
 export function AppNav({ active }: { active: Slug }) {
   return (
     <nav className="flex items-center gap-1 font-mono text-[11px]">
@@ -33,6 +39,15 @@ export function AppNav({ active }: { active: Slug }) {
           </a>
         );
       })}
+      <a
+        href={GOOGLE_CALENDAR_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="rounded px-2 py-1 text-ink-muted transition-colors hover:bg-bg-deep hover:text-ink"
+        title="Manage your Google Calendar (incl. Appointment Schedules) — opens in a new tab"
+      >
+        Calendar ↗
+      </a>
     </nav>
   );
 }

@@ -27,6 +27,17 @@ export interface PersonaContext {
    * fall back to a generic "small business operator" framing.
    */
   business_description: string;
+  /**
+   * Public booking link the operator wants the AI to share for scheduling
+   * emails — Calendly URL, Google Appointment Schedules link
+   * (calendar.app.google/...), Cal.com, whatever the operator uses.
+   *
+   * When set, the drafting system prompt includes an instruction telling the
+   * model to share this link if the inbound email is asking to schedule.
+   * Empty string ⇒ no link injected; the model proposes scheduling in prose
+   * but doesn't fabricate a URL.
+   */
+  appointment_url: string;
 }
 
 // Industry-neutral hardcoded fallback (Phase 1 of the CPG-scrub, 2026-05-08).
@@ -42,6 +53,7 @@ const FALLBACK: PersonaContext = {
   operator_first_name: 'the operator',
   operator_brand: "the operator's business",
   business_description: '',
+  appointment_url: '',
 };
 
 export async function getPersonaContext(customerKey = 'default'): Promise<PersonaContext> {
@@ -61,6 +73,7 @@ export function resolvePersonaContext(markers: Record<string, unknown>): Persona
     operator_first_name: stringOr(markers.operator_first_name, FALLBACK.operator_first_name),
     operator_brand: stringOr(markers.operator_brand, FALLBACK.operator_brand),
     business_description: stringOr(markers.business_description, FALLBACK.business_description),
+    appointment_url: stringOr(markers.appointment_url, FALLBACK.appointment_url),
   };
 }
 

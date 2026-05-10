@@ -19,6 +19,16 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
   const [toast, setToast] = useState<ToastMsg>(null);
   const [persona, setPersona] = useState(initial);
 
+  // STAQPRO-296 Phase 2 — friendly form for the operator-set fields that
+  // live inside statistical_markers. Each friendly field stays in sync with
+  // the JSON editor below (single source of truth = `statistical` JSON).
+  // When the user types here, we re-serialize the JSON; when they paste
+  // raw JSON below, we re-derive the friendly value.
+  const friendlyValues = readFriendly(statistical);
+  const setFriendly = (key: keyof FriendlyFields, value: string) => {
+    setStatistical((prev) => writeFriendlyToJson(prev, key, value));
+  };
+
   async function onRefreshFromHistory() {
     setRefreshing(true);
     try {
@@ -119,6 +129,45 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
             )}
           </section>
 
+          {/* Friendly settings — STAQPRO-296 Phase 2 */}
+          <section className="rounded border border-border bg-bg-panel p-4">
+            <h2 className="mb-1 font-sans text-sm font-semibold">Friendly settings</h2>
+            <p className="mb-4 text-xs text-ink-muted">
+              Operator-facing fields. Saved into <code>statistical_markers</code> below — edit
+              either here or in the JSON.
+            </p>
+            <div className="space-y-4">
+              <FriendlyField
+                label="Booking link"
+                placeholder="https://calendar.app.google/…  or  https://calendly.com/you"
+                help="Public scheduling URL the AI should share when an inbound asks to schedule. Leave blank to disable. Google Calendar's free Appointment Schedules feature replaces Calendly natively (calendar.google.com → + Create → Appointment schedule)."
+                value={friendlyValues.appointment_url}
+                onChange={(v) => setFriendly('appointment_url', v)}
+              />
+              <FriendlyField
+                label="Operator first name"
+                placeholder="Dustin"
+                help="Used in draft signoffs."
+                value={friendlyValues.operator_first_name}
+                onChange={(v) => setFriendly('operator_first_name', v)}
+              />
+              <FriendlyField
+                label="Operator brand"
+                placeholder="Heron Labs"
+                help="Company name templated into the system prompt."
+                value={friendlyValues.operator_brand}
+                onChange={(v) => setFriendly('operator_brand', v)}
+              />
+              <FriendlyField
+                label="Business description"
+                placeholder="small-batch CPG operator"
+                help="One-phrase description (e.g. &quot;B2B tech / dev tools company&quot;) for the system prompt's industry framing."
+                value={friendlyValues.business_description}
+                onChange={(v) => setFriendly('business_description', v)}
+              />
+            </div>
+          </section>
+
           {/* Statistical markers editor */}
           <Editor
             label="statistical_markers"
@@ -209,4 +258,89 @@ function formatJson(obj: Record<string, unknown>): string {
   } catch {
     return '{}';
   }
+}
+
+interface FriendlyFields {
+  appointment_url: string;
+  operator_first_name: string;
+  operator_brand: string;
+  business_description: string;
+}
+
+const FRIENDLY_KEYS: ReadonlyArray<keyof FriendlyFields> = [
+  'appointment_url',
+  'operator_first_name',
+  'operator_brand',
+  'business_description',
+] as const;
+
+function readFriendly(json: string): FriendlyFields {
+  let parsed: Record<string, unknown> = {};
+  try {
+    const v = JSON.parse(json);
+    if (v && typeof v === 'object' && !Array.isArray(v)) parsed = v as Record<string, unknown>;
+  } catch {
+    // invalid JSON — fall through to empty defaults; the JSON editor will surface the error
+  }
+  const out: FriendlyFields = {
+    appointment_url: '',
+    operator_first_name: '',
+    operator_brand: '',
+    business_description: '',
+  };
+  for (const k of FRIENDLY_KEYS) {
+    const v = parsed[k];
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
+// Surgical merge so we don't clobber other markers (formality_score,
+// sign_off_top, etc. populated by extraction) and we preserve key ordering
+// when possible. Empty value ⇒ delete the key so resolvePersonaContext
+// falls back to extraction-derived or hardcoded fallback.
+function writeFriendlyToJson(json: string, key: keyof FriendlyFields, value: string): string {
+  let parsed: Record<string, unknown>;
+  try {
+    const v = JSON.parse(json);
+    parsed = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    parsed = {};
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    delete parsed[key];
+  } else {
+    parsed[key] = trimmed;
+  }
+  return formatJson(parsed);
+}
+
+function FriendlyField({
+  label,
+  placeholder,
+  help,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  help: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1 font-sans text-xs font-medium text-ink">{label}</div>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        className="w-full rounded border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink focus:border-accent-orange/60 focus:outline-none"
+      />
+      <p className="mt-1 text-[11px] text-ink-muted">{help}</p>
+    </label>
+  );
 }

@@ -112,6 +112,16 @@ export function buildSystemPrompt(persona: PersonaContext): string {
     '',
     'If the customer gave you the fact in their email (e.g. "3-week lead time works for us"),',
     'restate it instead of using a placeholder — that is confirmation, not invention.',
+    // STAQPRO-296 Phase 2 — operator-set scheduling link. Conditional so we
+    // never inject a fabricated URL when the operator hasn't configured one;
+    // empty appointment_url ⇒ entire block is omitted.
+    ...(persona.appointment_url?.trim()
+      ? [
+          '',
+          `If the customer is asking to schedule a meeting, share this booking link verbatim: ${persona.appointment_url.trim()}`,
+          'Do not invent times yourself unless the customer proposed specific times you are confirming.',
+        ]
+      : []),
   ].join('\n');
 }
 
