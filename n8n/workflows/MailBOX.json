@@ -29,7 +29,7 @@
         [
           {
             "index": 0,
-            "node": "Get many messages",
+            "node": "Bootstrap Check",
             "type": "main"
           }
         ]
@@ -52,6 +52,11 @@
           {
             "index": 0,
             "node": "Extract Fields",
+            "type": "main"
+          },
+          {
+            "index": 0,
+            "node": "Cycle Stats",
             "type": "main"
           }
         ]
@@ -78,6 +83,28 @@
           }
         ],
         []
+      ]
+    },
+    "Bootstrap Check": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Get many messages",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Cycle Stats": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Cycle Complete",
+            "type": "main"
+          }
+        ]
       ]
     }
   },
@@ -173,7 +200,7 @@
         "filters": {
           "q": "is:unread newer_than:2d"
         },
-        "limit": 50,
+        "limit": "={{ $('Bootstrap Check').item.json.gmail_get_limit }}",
         "operation": "getAll",
         "options": {},
         "simple": false
@@ -333,6 +360,54 @@
           "combinator": "and"
         },
         "options": {}
+      }
+    },
+    {
+      "name": "Bootstrap Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://mailbox-dashboard:3001/dashboard/api/internal/gmail-bootstrap",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "name": "Cycle Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { messages_returned: items.length } }];"
+      }
+    },
+    {
+      "name": "Cycle Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://mailbox-dashboard:3001/dashboard/api/internal/gmail-cycle-complete",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messages_returned\": {{ $json.messages_returned }}\n}",
+        "options": {
+          "timeout": 5000
+        }
       }
     }
   ],

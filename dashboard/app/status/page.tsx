@@ -23,6 +23,7 @@ import {
   getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
+import { getBootstrapState } from '@/lib/queries-system-state';
 import { buildRagEvalSnapshot, type RagEvalSnapshot } from '@/lib/rag/eval-baseline';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,7 @@ export default async function StatusPage() {
     qdrantCollection,
     classificationHealth,
     draftingMetrics,
+    bootstrapState,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -66,6 +68,8 @@ export default async function StatusPage() {
     getClassificationHealth().catch(() => null),
     // STAQPRO-233 — drafting telemetry (Phase 0 of KB plan).
     getDraftingMetrics(7).catch(() => null),
+    // STAQPRO-226 — Gmail bootstrap mode (first-install rate limiting).
+    getBootstrapState().catch(() => null),
   ]);
 
   // Classify-lag tone: backlog > 0 AND oldest waiter > 15m → red, > 10m → orange.
@@ -137,6 +141,25 @@ export default async function StatusPage() {
                   <AlertBanner key={a.code} alert={a} />
                 ))}
               </ul>
+            </section>
+          )}
+
+          {bootstrapState && !bootstrapState.complete && (
+            <section className="mb-6 rounded border border-accent-blue/40 bg-accent-blue/10 p-4">
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+                  Bootstrap in progress
+                </h2>
+                <span className="font-mono text-xs text-ink-dim">STAQPRO-226</span>
+              </div>
+              <p className="mt-2 text-sm text-ink">
+                <span className="font-mono tabular-nums">{bootstrapState.messagesSeen}</span>{' '}
+                messages indexed since{' '}
+                {bootstrapState.startedAt
+                  ? formatRelative(bootstrapState.startedAt.toISOString())
+                  : 'first cycle'}
+                . Gmail Get is throttled until the first cycle returns a partial batch.
+              </p>
             </section>
           )}
 

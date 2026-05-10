@@ -191,6 +191,9 @@ export interface StateTransitions {
 }
 
 export interface SystemState {
+  bootstrap_complete: Generated<boolean>;
+  bootstrap_messages_seen: Generated<number>;
+  bootstrap_started_at: string | null;
   gmail_rate_limit_set_at: string | null;
   gmail_rate_limit_until: string | null;
   id: Generated<number>;

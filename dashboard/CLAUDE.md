@@ -170,6 +170,18 @@ All routes live on `http://mailbox-dashboard:3001/...` over the docker network. 
 - **Response**: `{ live: boolean, stage: string, bypass: boolean }`. `live=false` halts processing for the cycle. `bypass=true` when `MAILBOX_LIVE_GATE_BYPASS=1` is set (dogfood escape hatch). On error: returns `{ live: false, stage: 'error', bypass: false, error }` with status `500` — **fail closed**, never accidentally allow drafting because the gate errored.
 - **Side effects**: read-only
 
+#### `GET /api/internal/gmail-bootstrap` — STAQPRO-226 first-install rate-limit gate
+- **Caller**: `MailBOX` parent workflow, `Bootstrap Check` HTTP node (between `Cooldown Active?` false branch and `Get many messages`). **Note: GET not POST.**
+- **Response**: `{ bootstrap_complete: boolean, gmail_get_limit: number, messages_seen: number, started_at: string | null }`. n8n binds `Get many messages.limit` to `={{ $('Bootstrap Check').item.json.gmail_get_limit }}` so the cap toggles between `GMAIL_GET_LIMIT_BOOTSTRAP` (25) and `GMAIL_GET_LIMIT_STEADY` (50) without a workflow edit.
+- **Side effects**: read-only
+
+#### `POST /api/internal/gmail-cycle-complete` — STAQPRO-226 advance bootstrap state
+- **Caller**: `MailBOX` parent workflow, `Cycle Complete` HTTP node, fed by `Cycle Stats` Code node (run-once-for-all-items, emits `{ messages_returned: items.length }`) on a parallel branch off `Get many messages`.
+- **Schema**: `gmailCycleCompleteBodySchema` — `{ messages_returned: number ≥ 0 }`
+- **Response**: `{ bootstrap_complete: boolean, bootstrap_messages_seen: number, flipped_this_cycle: boolean }`
+- **Side effects**: while `bootstrap_complete=false`, increments `mailbox.system_state.bootstrap_messages_seen`, sets `bootstrap_started_at` on first call, and flips `bootstrap_complete=true` when the cycle returned **fewer** than `GMAIL_GET_LIMIT_BOOTSTRAP` messages (didn't fill the bucket → backlog drained). Once complete, the route is a no-op.
+- **Limitation**: empty cycles (`Get many messages` returns 0 items) do NOT fire this route under the current n8n topology — the `Cycle Stats` Code node only fires when the upstream produced ≥1 item. The flip path therefore relies on the first partial-batch cycle, which happens at the tail of any non-empty backlog drain. A fresh install with a permanently empty inbox stays in bootstrap forever (cosmetic only — the throttled `limit=25` causes no harm with no traffic).
+
 ### Credentials n8n owns
 
 n8n's encrypted credential store lives in the `credentials_entity` Postgres table on the same Postgres instance as `mailbox.*`. The encryption key is `N8N_ENCRYPTION_KEY` (env var, generated once via `openssl rand -hex 32`). **If the key is lost, every stored credential is unrecoverable** — operator must re-authorize Gmail OAuth and re-enter the Postgres credential.

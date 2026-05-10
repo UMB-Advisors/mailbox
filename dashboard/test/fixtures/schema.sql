@@ -906,6 +906,15 @@ CREATE TABLE IF NOT EXISTS mailbox.system_state (
 );
 INSERT INTO mailbox.system_state (id) VALUES (1) ON CONFLICT DO NOTHING;
 
+-- ── STAQPRO-226 (migration 022): Gmail bootstrap mode for first-install ──
+-- Hand-applied to fixture pending next pg_dump refresh. Throttles Gmail Get
+-- on a fresh appliance so the first-install backlog doesn't trip Google's
+-- 250 unit/sec per-user quota.
+ALTER TABLE mailbox.system_state
+  ADD COLUMN IF NOT EXISTS bootstrap_complete BOOL NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS bootstrap_started_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS bootstrap_messages_seen INT NOT NULL DEFAULT 0;
+
 -- ── STAQPRO-234 (migration 020): drafts.exemplar_refs sibling column ───
 -- Hand-applied to fixture pending next pg_dump refresh. Few-shot exemplars
 -- from sent_history (Phase 1 of KB plan).

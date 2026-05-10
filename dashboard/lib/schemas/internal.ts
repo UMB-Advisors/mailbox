@@ -83,3 +83,13 @@ export const onboardingAdvanceBodySchema = z.object({
 });
 
 export type OnboardingAdvanceBody = z.infer<typeof onboardingAdvanceBodySchema>;
+
+// POST /api/internal/gmail-cycle-complete — STAQPRO-226. Reports the size of
+// the Gmail Get batch n8n just pulled so the dashboard can advance bootstrap
+// state. `messages_returned` is non-negative; 0 is the steady-state empty
+// poll case and is what flips bootstrap_complete=true on first install.
+export const gmailCycleCompleteBodySchema = z.object({
+  messages_returned: z.coerce.number().int().nonnegative(),
+});
+
+export type GmailCycleCompleteBody = z.infer<typeof gmailCycleCompleteBodySchema>;
