@@ -119,8 +119,33 @@ export interface InboxMessage {
   draft_id: number | null;
 }
 
+// ── Thread history types (conversation context in DraftDetail) ──────────────
+
+export interface ThreadMessageInbound {
+  direction: 'inbound';
+  id: number;                 // inbox_messages.id
+  from_addr: string | null;
+  to_addr: string | null;
+  subject: string | null;
+  body: string | null;
+  at: string;                 // received_at (string per pg type-parser override)
+}
+
+export interface ThreadMessageOutbound {
+  direction: 'outbound';
+  id: number;                 // sent_history.id (Int8 in DB; Number() cast is safe — thread <= ~14 rows)
+  from_addr: string;
+  to_addr: string;
+  subject: string | null;
+  body: string | null;        // sourced from sent_history.body_text
+  at: string;                 // sent_at
+}
+
+export type ThreadMessage = ThreadMessageInbound | ThreadMessageOutbound;
+
 export interface DraftWithMessage extends Draft {
   message: InboxMessage;
+  thread_history?: ThreadMessage[];
 }
 
 export interface ClassificationLog {

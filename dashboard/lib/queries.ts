@@ -1,6 +1,7 @@
 import { jsonBuildObject } from 'kysely/helpers/postgres';
 import { getKysely, normalizeDraftBody } from '@/lib/db';
 import type { DraftStatus, DraftWithMessage } from '@/lib/types';
+import { getThreadHistory } from '@/lib/queries-thread';
 
 // Re-exported for callers that previously imported VALID_STATUSES from here.
 // STAQPRO-137 moved the canonical const to lib/types.ts so all consumers
@@ -45,10 +46,17 @@ export async function listDrafts(
     .orderBy('d.created_at', 'desc')
     .limit(safeLimit)
     .execute();
-  return rows.map((row) => {
+  const drafts = rows.map((row) => {
     const r = row as unknown as DraftWithMessage;
     return { ...r, draft_body: normalizeDraftBody(r.draft_body) };
   });
+  const withHistory = await Promise.all(
+    drafts.map(async (d) => ({
+      ...d,
+      thread_history: await getThreadHistory(d.message.thread_id, d.message.id),
+    })),
+  );
+  return withHistory;
 }
 
 export async function getDraft(id: number): Promise<DraftWithMessage | null> {
@@ -80,5 +88,6 @@ export async function getDraft(id: number): Promise<DraftWithMessage | null> {
     .executeTakeFirst();
   if (!row) return null;
   const r = row as unknown as DraftWithMessage;
-  return { ...r, draft_body: normalizeDraftBody(r.draft_body) };
+  const thread_history = await getThreadHistory(r.message.thread_id, r.message.id);
+  return { ...r, draft_body: normalizeDraftBody(r.draft_body), thread_history };
 }
