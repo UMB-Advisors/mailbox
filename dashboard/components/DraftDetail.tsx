@@ -61,7 +61,7 @@ export function DraftDetail({
         </p>
       </div>
       <div className="border-t border-border px-5 py-3">
-        <EmailContext message={draft.message} />
+        <EmailContext message={draft.message} history={draft.thread_history} />
       </div>
     </article>
   );

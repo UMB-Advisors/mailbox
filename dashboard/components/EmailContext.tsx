@@ -1,7 +1,14 @@
 import { formatEmailBody } from '@/lib/format-body';
-import type { InboxMessage } from '@/lib/types';
+import type { InboxMessage, ThreadMessage } from '@/lib/types';
+import { ThreadHistory } from './ThreadHistory';
 
-export function EmailContext({ message }: { message: InboxMessage }) {
+export function EmailContext({
+  message,
+  history = [],
+}: {
+  message: InboxMessage;
+  history?: ThreadMessage[];
+}) {
   return (
     <div className="space-y-2">
       <dl className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1 font-mono text-xs">
@@ -12,6 +19,7 @@ export function EmailContext({ message }: { message: InboxMessage }) {
           <Row label="Received" value={formatTimestamp(message.received_at)} muted />
         )}
       </dl>
+      <ThreadHistory messages={history} />
       {message.body && (
         // STAQPRO-148-followup (Delphi UX pass) — inbound body is reference
         // material, not the primary task. Collapsed by default so the action
