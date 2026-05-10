@@ -151,6 +151,7 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260502-rk0 | Scaffold onboarding wizard GUI (STAQPRO-152) + customer onboarding docs templates (STAQPRO-132) | 2026-05-03 | c1d66f9 | [260502-rk0-scaffold-onboarding-wizard-gui-staqpro-1](./quick/260502-rk0-scaffold-onboarding-wizard-gui-staqpro-1/) |
+| 260510-7sp | Add conversation history view to dashboard draft detail | 2026-05-10 | a4bc170 | [260510-7sp-add-conversation-history-view-to-dashboa](./quick/260510-7sp-add-conversation-history-view-to-dashboa/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
