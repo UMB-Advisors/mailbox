@@ -17,7 +17,9 @@ import { isCloudRetrievalEnabled, retrieveForDraft } from '@/lib/rag/retrieve';
 const baseInput = {
   from_addr: 'cust@example.com',
   subject: 'Re: order',
-  body_text: 'Confirming the order details.',
+  // STAQPRO-221 (H4) — kept >= 40 chars so the thin-inbound gate doesn't
+  // pre-empt these STAQPRO-191 retrieval contract assertions.
+  body_text: 'Confirming the order details for the Q3 shipment we discussed.',
   // STAQPRO-191 — single-persona appliances seed 'default'. The retrieval
   // call always carries a persona_key now (multi-persona future-proofing).
   persona_key: 'default',

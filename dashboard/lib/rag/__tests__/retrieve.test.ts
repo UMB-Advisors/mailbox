@@ -17,10 +17,13 @@ import { retrieveForDraft } from '../retrieve';
 const INBOUND_MESSAGE_ID = '19c813bde357dc32'; // one of the STAQPRO-207 outliers
 const SELF_POINT_ID = pointIdFromMessageId(INBOUND_MESSAGE_ID);
 
+// Body kept >= 40 chars so the STAQPRO-221 (H4) thin-inbound gate doesn't
+// pre-empt these STAQPRO-219 self-filter assertions. Both pieces test
+// orthogonal contracts.
 const baseInput = {
   from_addr: 'cust@example.com',
   subject: 'Re: order',
-  body_text: 'Confirming the order details.',
+  body_text: 'Confirming the order details for the Q3 shipment we discussed.',
   persona_key: 'default',
   message_id: INBOUND_MESSAGE_ID,
 };
@@ -183,7 +186,7 @@ describe('retrieveForDraft self-filter — STAQPRO-219', () => {
     const inputWithoutMessageId = {
       from_addr: 'cust@example.com',
       subject: 'Re: order',
-      body_text: 'Confirming the order details.',
+      body_text: 'Confirming the order details for the Q3 shipment we discussed.',
       persona_key: 'default',
       draft_source: 'local' as const,
     };
@@ -191,5 +194,338 @@ describe('retrieveForDraft self-filter — STAQPRO-219', () => {
 
     const body = captured.value as { filter?: { must_not?: unknown } } | null;
     expect(body?.filter?.must_not).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// STAQPRO-221 — H2 (outbound voice priming) + H4 (thin-inbound gate)
+// =============================================================================
+
+// Per-request capture: every email_messages/points/search call gets recorded
+// so multi-search tests (H2 outbound + inbound) can assert filter shapes on
+// each call independently.
+function mockMultiSearch(opts: {
+  hitsBySearch: Array<{
+    filterFingerprint: (filter: unknown) => boolean;
+    hits: Array<{ id: string; score: number; payload: Record<string, unknown> }>;
+  }>;
+  capturedBodies?: Array<unknown>;
+}) {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/api/embeddings')) {
+      return new Response(JSON.stringify({ embedding: new Array(768).fill(0.01) }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.includes('/collections/email_messages/points/search')) {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (opts.capturedBodies) opts.capturedBodies.push(body);
+      const matched = opts.hitsBySearch.find((s) => s.filterFingerprint(body?.filter));
+      const hits = matched?.hits ?? [];
+      return new Response(JSON.stringify({ result: hits }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.includes('/collections/kb_documents/points/search')) {
+      return new Response(JSON.stringify({ result: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as unknown as typeof fetch;
+}
+
+// Helpers — read the must filter clauses regardless of order.
+function hasMustField(filter: unknown, key: string, value: string): boolean {
+  const f = filter as { must?: Array<{ key?: string; match?: { value?: string } }> } | null;
+  if (!Array.isArray(f?.must)) return false;
+  return f.must.some((m) => m.key === key && m.match?.value === value);
+}
+function hasNoMustField(filter: unknown, key: string): boolean {
+  const f = filter as { must?: Array<{ key?: string }> } | null;
+  if (!Array.isArray(f?.must)) return true;
+  return !f.must.some((m) => m.key === key);
+}
+
+const baseInputForH2 = {
+  from_addr: 'cust@example.com',
+  subject: 'Re: order',
+  body_text: 'Confirming the order details for the Q3 shipment we discussed.',
+  persona_key: 'default',
+  message_id: INBOUND_MESSAGE_ID,
+};
+
+describe('retrieveForDraft H2 — outbound voice priming (STAQPRO-221)', () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => {
+    process.env.OLLAMA_BASE_URL = 'http://test-ollama:11434';
+    process.env.QDRANT_URL = 'http://test-qdrant:6333';
+    delete process.env.RAG_DISABLED;
+    delete process.env.RAG_CLOUD_ROUTE_ENABLED;
+    delete process.env.RAG_RETRIEVE_TOP_K_OUTBOUND;
+    delete process.env.RAG_RETRIEVE_TOP_K_INBOUND;
+    delete process.env.RAG_RETRIEVE_TOP_K;
+    delete process.env.RAG_MIN_INBOUND_CHARS;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+    delete process.env.MAILBOX_OPERATOR_EMAIL;
+  });
+
+  it('runs two Qdrant searches (inbound + outbound) when MAILBOX_OPERATOR_EMAIL set', async () => {
+    process.env.MAILBOX_OPERATOR_EMAIL = 'op@heronlabsinc.com';
+    const captured: unknown[] = [];
+    mockMultiSearch({
+      hitsBySearch: [
+        // Inbound arm — filters on sender == counterparty.
+        {
+          filterFingerprint: (f) => hasMustField(f, 'sender', 'cust@example.com'),
+          hits: [
+            {
+              id: 'pid-inbound-1',
+              score: 0.7,
+              payload: {
+                message_id: 'm-inbound-1',
+                sender: 'cust@example.com',
+                recipient: 'op@heronlabsinc.com',
+                subject: 'They asked about Q2',
+                body_excerpt: 'Q2 shipment timing question',
+                sent_at: '2026-03-01T10:00:00Z',
+                direction: 'inbound',
+              },
+            },
+          ],
+        },
+        // Outbound arm — filters on sender == operator AND recipient == counterparty.
+        {
+          filterFingerprint: (f) =>
+            hasMustField(f, 'sender', 'op@heronlabsinc.com') &&
+            hasMustField(f, 'recipient', 'cust@example.com'),
+          hits: [
+            {
+              id: 'pid-outbound-1',
+              score: 0.65,
+              payload: {
+                message_id: 'm-outbound-1',
+                sender: 'op@heronlabsinc.com',
+                recipient: 'cust@example.com',
+                subject: 'Our reply',
+                body_excerpt: 'Confirmed your Q2 timing — we ship Friday.',
+                sent_at: '2026-03-01T11:00:00Z',
+                direction: 'outbound',
+              },
+            },
+          ],
+        },
+      ],
+      capturedBodies: captured,
+    });
+
+    const r = await retrieveForDraft({ ...baseInputForH2, draft_source: 'local' });
+
+    expect(r.reason).toBe('ok');
+    // Both arms' refs should show up; outbound is the H2 win.
+    const ids = r.refs.map((x) => x.point_id);
+    expect(ids).toContain('pid-inbound-1');
+    expect(ids).toContain('pid-outbound-1');
+    // The outbound search MUST have been issued — flunked test means the
+    // MAILBOX_OPERATOR_EMAIL→outbound wiring regressed.
+    expect(captured.length).toBe(2);
+  });
+
+  it('honors RAG_RETRIEVE_TOP_K as the merged sanity ceiling', async () => {
+    process.env.MAILBOX_OPERATOR_EMAIL = 'op@heronlabsinc.com';
+    process.env.RAG_RETRIEVE_TOP_K = '2';
+    process.env.RAG_RETRIEVE_TOP_K_INBOUND = '3';
+    process.env.RAG_RETRIEVE_TOP_K_OUTBOUND = '3';
+    mockMultiSearch({
+      hitsBySearch: [
+        {
+          filterFingerprint: (f) => hasMustField(f, 'sender', 'cust@example.com'),
+          hits: Array.from({ length: 3 }, (_, i) => ({
+            id: `pid-in-${i}`,
+            score: 0.5 + i * 0.05,
+            payload: {
+              message_id: `m-in-${i}`,
+              sender: 'cust@example.com',
+              recipient: 'op@heronlabsinc.com',
+              subject: 's',
+              body_excerpt: 'x',
+              sent_at: '2026-03-01T10:00:00Z',
+              direction: 'inbound',
+            },
+          })),
+        },
+        {
+          filterFingerprint: (f) => hasMustField(f, 'recipient', 'cust@example.com'),
+          hits: Array.from({ length: 3 }, (_, i) => ({
+            id: `pid-out-${i}`,
+            score: 0.9 - i * 0.05,
+            payload: {
+              message_id: `m-out-${i}`,
+              sender: 'op@heronlabsinc.com',
+              recipient: 'cust@example.com',
+              subject: 's',
+              body_excerpt: 'x',
+              sent_at: '2026-03-01T10:00:00Z',
+              direction: 'outbound',
+            },
+          })),
+        },
+      ],
+    });
+
+    const r = await retrieveForDraft({ ...baseInputForH2, draft_source: 'local' });
+    expect(r.reason).toBe('ok');
+    // 6 candidates, capped at 2 by RAG_RETRIEVE_TOP_K. Top-scoring outbound
+    // wins (0.90 > 0.85 inbound), second slot goes to next-best (0.85
+    // outbound), not the next inbound (0.60).
+    expect(r.refs.length).toBe(2);
+    expect(r.refs.every((x) => x.score >= 0.5)).toBe(true);
+    // Highest score first.
+    expect(r.refs[0].score).toBeGreaterThan(r.refs[1].score);
+  });
+
+  it('falls back to inbound-only when MAILBOX_OPERATOR_EMAIL is unset', async () => {
+    delete process.env.MAILBOX_OPERATOR_EMAIL;
+    const captured: unknown[] = [];
+    mockMultiSearch({
+      hitsBySearch: [
+        {
+          filterFingerprint: (f) => hasMustField(f, 'sender', 'cust@example.com'),
+          hits: [
+            {
+              id: 'pid-inbound-1',
+              score: 0.7,
+              payload: {
+                message_id: 'm-inbound-1',
+                sender: 'cust@example.com',
+                recipient: 'op@heronlabsinc.com',
+                subject: 'Inbound only',
+                body_excerpt: 'x',
+                sent_at: '2026-03-01T10:00:00Z',
+                direction: 'inbound',
+              },
+            },
+          ],
+        },
+      ],
+      capturedBodies: captured,
+    });
+
+    // Suppress the warn nag in test output.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const r = await retrieveForDraft({ ...baseInputForH2, draft_source: 'local' });
+
+    expect(r.reason).toBe('ok');
+    expect(r.refs.map((x) => x.point_id)).toEqual(['pid-inbound-1']);
+    // Only ONE Qdrant search — the inbound arm.
+    expect(captured.length).toBe(1);
+    // The single search must NOT have a recipient filter (that's the
+    // outbound arm's territory).
+    expect(hasNoMustField(captured[0], 'recipient')).toBe(true);
+    warnSpy.mockRestore();
+  });
+});
+
+describe('retrieveForDraft H4 — thin-inbound gate (STAQPRO-221)', () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => {
+    process.env.OLLAMA_BASE_URL = 'http://test-ollama:11434';
+    process.env.QDRANT_URL = 'http://test-qdrant:6333';
+    delete process.env.RAG_DISABLED;
+    delete process.env.RAG_CLOUD_ROUTE_ENABLED;
+    delete process.env.RAG_MIN_INBOUND_CHARS;
+    delete process.env.MAILBOX_OPERATOR_EMAIL;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("returns reason='inbound_too_thin' when stripped body is under the floor", async () => {
+    // Phase-B outlier 19b0ed17519285b1 shape — fresh reply 'ok' over quote chain.
+    const thinBody = `ok
+
+On Mon, Apr 28, 2026 at 9:00 AM Sender <s@x.com> wrote:
+> Long thread...`;
+    // No fetch should fire — gate short-circuits before embed.
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('should not be called — thin-inbound gate must short-circuit');
+    }) as unknown as typeof fetch;
+
+    const r = await retrieveForDraft({
+      from_addr: 'cust@example.com',
+      subject: 'Re: order',
+      body_text: thinBody,
+      persona_key: 'default',
+      message_id: 'm1',
+      draft_source: 'local',
+    });
+
+    expect(r.reason).toBe('inbound_too_thin');
+    expect(r.refs).toEqual([]);
+  });
+
+  it("returns reason='inbound_too_thin' on a 100%-quoted body", async () => {
+    const allQuoted = `On Mon, Apr 28, 2026 at 9:00 AM Sender <s@x.com> wrote:
+> The whole message
+> is quote chain`;
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('should not be called');
+    }) as unknown as typeof fetch;
+
+    const r = await retrieveForDraft({
+      from_addr: 'cust@example.com',
+      subject: 'Re: order',
+      body_text: allQuoted,
+      persona_key: 'default',
+      message_id: 'm1',
+      draft_source: 'local',
+    });
+
+    expect(r.reason).toBe('inbound_too_thin');
+  });
+
+  it('respects RAG_MIN_INBOUND_CHARS override', async () => {
+    process.env.RAG_MIN_INBOUND_CHARS = '2';
+    // Same 'ok' body as the previous test — at floor=2 this should NOT be
+    // gated. Mock the rest so the call proceeds to success.
+    mockEmbedAndSearch({ hits: [] });
+
+    const r = await retrieveForDraft({
+      from_addr: 'cust@example.com',
+      subject: 'Re: order',
+      body_text: `ok
+
+On Mon, Apr 28, 2026 wrote:
+> chain`,
+      persona_key: 'default',
+      message_id: 'm1',
+      draft_source: 'local',
+    });
+    // Empty hits → no_hits, NOT inbound_too_thin — the gate passed.
+    expect(r.reason).toBe('no_hits');
+  });
+
+  it('passes the gate when body is substantive enough', async () => {
+    mockEmbedAndSearch({ hits: [] });
+    const r = await retrieveForDraft({
+      from_addr: 'cust@example.com',
+      subject: 'Re: order',
+      body_text: 'Could you confirm the Q3 shipment timing? Our warehouse needs to plan for it.',
+      persona_key: 'default',
+      message_id: 'm1',
+      draft_source: 'local',
+    });
+    // Substantive body → embed + search runs → returns no_hits (empty mock),
+    // NOT the thin-inbound gate.
+    expect(r.reason).toBe('no_hits');
   });
 });
