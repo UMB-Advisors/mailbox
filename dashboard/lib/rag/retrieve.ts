@@ -42,7 +42,7 @@
 // per the issue's acceptance criterion ("RAG is augmentation, not gate").
 
 import { embedText } from './embed';
-import { buildBodyExcerpt, buildEmbeddingInput } from './excerpt';
+import { buildBodyExcerpt, buildEmbeddingInput, stripQuotedHistory } from './excerpt';
 import { searchKb } from './kb-qdrant';
 import { normalizeSender, pointIdFromMessageId, searchByVector } from './qdrant';
 
@@ -76,7 +76,14 @@ export type EmailRetrievalReason =
   // STAQPRO-198 — set when `RAG_DISABLED=1` short-circuits retrieveForDraft
   // before any embed / Qdrant call. Used by the eval harness's no-rag pass
   // to run a baseline draft without persona-stub vs RAG noise.
-  | 'disabled';
+  | 'disabled'
+  // STAQPRO-221 (H4) — set when the inbound body, after quote-history strip,
+  // is too short to produce a meaningful embedding. Phase-B inspection found
+  // packets with 2-char substantive content (`19b0ed17519285b1`) whose embeds
+  // degenerated and pulled noise refs. Threshold via RAG_MIN_INBOUND_CHARS,
+  // default 40. App-side enum — no DB CHECK constraint per migration 013's
+  // explicit "Enum stays application-side" note.
+  | 'inbound_too_thin';
 
 // Distinct from EmailRetrievalReason on the cloud-gated value
 // ('kb_cloud_gated' vs 'cloud_gated') so the eval surface can tell them
@@ -129,6 +136,39 @@ export interface RetrievalInput {
 
 function topK(): number {
   return Number(process.env.RAG_RETRIEVE_TOP_K ?? 3);
+}
+
+// STAQPRO-221 (H2) — voice-priming split. Outbound (operator → counterparty)
+// supplies "how do they write to this person"; inbound (counterparty →
+// operator) supplies "what have they said historically." Tunable per-arm so
+// operators can rebalance without code change. Total cap stays at topK() —
+// the merge step trims to that ceiling.
+function topKOutbound(): number {
+  return Number(process.env.RAG_RETRIEVE_TOP_K_OUTBOUND ?? 2);
+}
+function topKInbound(): number {
+  return Number(process.env.RAG_RETRIEVE_TOP_K_INBOUND ?? 1);
+}
+
+// STAQPRO-221 (H4) — substantivity gate. Inbound bodies under this length
+// AFTER quoted-history strip produce degenerate embeddings (Phase-B outlier
+// 19b0ed17519285b1 was 2 chars of fresh content under 4kb of quote chain).
+function minInboundChars(): number {
+  return Number(process.env.RAG_MIN_INBOUND_CHARS ?? 40);
+}
+
+// STAQPRO-221 (H2) — single-tenant operator email source. Read at call time
+// (not module load) so an .env rotation + container restart picks up the new
+// value. Returns '' when unset; retrieve.ts then falls back to inbound-only
+// retrieval with a console warning rather than failing the draft path.
+//
+// Multi-tenant migration path: replace this with a per-persona lookup keyed
+// on RetrievalInput.persona_key (today the persona is single-tenant 'default'
+// per the appliance contract). Likely lands on `mailbox.persona.operator_email`
+// — the column doesn't exist yet, would be added in a future migration when
+// multi-persona is in scope.
+function operatorEmail(): string {
+  return normalizeSender(process.env.MAILBOX_OPERATOR_EMAIL ?? '');
 }
 function kbTopK(): number {
   return Number(process.env.KB_RETRIEVE_TOP_K ?? 3);
@@ -203,7 +243,26 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
     return { refs: [], reason: 'no_hits', kb_refs: [], kb_reason: 'none' };
   }
 
-  const embedInput = buildEmbeddingInput(input.subject, buildBodyExcerpt(input.body_text));
+  // STAQPRO-221 (H4) — strip quoted history BEFORE the substantivity gate AND
+  // before embed-input construction so the embed vector reflects only the
+  // substantive part. The gate guards against degenerate embeds on packets
+  // that are 99% quoted-history (19b853053d10bd18) or near-empty fresh-reply
+  // (19b0ed17519285b1).
+  const strippedBody = stripQuotedHistory(input.body_text);
+  // Whitespace-stripped length for gate eval — a body of "      \n\n   " is
+  // visually empty even at 12 chars. The embed builder also collapses
+  // whitespace, so this matches what would have gone into the vector.
+  const substantiveLength = strippedBody.replace(/\s+/g, ' ').trim().length;
+  if (substantiveLength < minInboundChars()) {
+    return {
+      refs: [],
+      reason: 'inbound_too_thin',
+      kb_refs: [],
+      kb_reason: 'none',
+    };
+  }
+
+  const embedInput = buildEmbeddingInput(input.subject, buildBodyExcerpt(strippedBody));
   if (!embedInput.trim()) {
     return { refs: [], reason: 'no_hits', kb_refs: [], kb_reason: 'none' };
   }
@@ -228,16 +287,48 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
   // so we can compute it locally without a Qdrant lookup. Only applies when
   // a message_id was supplied — eval harness and legacy callers without a
   // message_id retain pre-219 behavior (self-match contamination + all).
+  //
+  // STAQPRO-221 (H2) — voice priming. Run two email searches in parallel:
+  //   - inbound: what the counterparty has historically said
+  //   - outbound: what the operator has historically said TO the counterparty
+  // Merge by score, cap at topK() as the absolute ceiling. Without the
+  // outbound arm, retrieval surfaces 100% inbound refs (Phase-B inspection)
+  // so the drafter never sees how the operator actually writes — voice
+  // transfer fails. When MAILBOX_OPERATOR_EMAIL is unset, fall back to inbound-only
+  // (single Qdrant call, console warning logged once-ish per process).
   const selfPointId = input.message_id ? pointIdFromMessageId(input.message_id) : undefined;
-  const [emailSearch, kbSearch] = await Promise.all([
-    searchByVector(vector, {
-      limit: topK(),
-      senderFilter: normalizedSender,
-      personaKey: input.persona_key,
-      excludePointId: selfPointId,
-    }),
+  const operatorAddr = operatorEmail();
+  const outboundSearchEnabled = operatorAddr.length > 0;
+  if (!outboundSearchEnabled) {
+    // The warning is a once-ish nag — process-lifetime cooldown via the
+    // module-level flag below. Drafts still work; voice priming silently
+    // falls back to inbound-only.
+    warnOperatorEmailMissing();
+  }
+
+  const inboundSearchP = searchByVector(vector, {
+    limit: topKInbound(),
+    senderFilter: normalizedSender,
+    personaKey: input.persona_key,
+    excludePointId: selfPointId,
+  });
+  const outboundSearchP = outboundSearchEnabled
+    ? searchByVector(vector, {
+        limit: topKOutbound(),
+        senderFilter: operatorAddr,
+        recipientFilter: normalizedSender,
+        personaKey: input.persona_key,
+        excludePointId: selfPointId,
+      })
+    : Promise.resolve(null);
+
+  const [inboundSearch, outboundSearch, kbSearch] = await Promise.all([
+    inboundSearchP,
+    outboundSearchP,
     searchKb(vector, { limit: kbTopK() }),
   ]);
+
+  const emailSearch = mergeEmailSearches(inboundSearch, outboundSearch, topK());
 
   // Email refs.
   let emailReason: EmailRetrievalReason;
@@ -287,4 +378,65 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
   }
 
   return { refs, reason: emailReason, kb_refs, kb_reason: kbReason };
+}
+
+// STAQPRO-221 (H2) helpers.
+
+// Merge inbound + outbound Qdrant search results into a single SearchResult-
+// shaped object for the existing downstream `refs` mapping. Strategy:
+//
+//   1. If both succeeded — concat hits, sort by score desc, take top `cap`.
+//      Deduplicate on point id (defensive: a single point should never appear
+//      in both inbound and outbound, but the merge is cheap).
+//   2. If only one succeeded — use that one's hits (cap-trimmed).
+//   3. If outbound was skipped (Promise.resolve(null) — MAILBOX_OPERATOR_EMAIL unset)
+//      — same as case 2 with outbound=null.
+//   4. If both failed — return ok:false; the existing downstream qdrant_
+//      unavailable path fires.
+//
+// We keep the SearchResult shape so the existing reason-resolution code below
+// the merge stays untouched.
+import type { SearchResult } from './qdrant';
+
+function mergeEmailSearches(
+  inbound: SearchResult,
+  outbound: SearchResult | null,
+  cap: number,
+): SearchResult {
+  const inboundOk = inbound.ok;
+  const outboundOk = outbound?.ok === true;
+
+  if (!inboundOk && !outboundOk) {
+    // Prefer the inbound reason for the downstream message — inbound is the
+    // always-on arm, so its failure is more diagnostic of the actual issue.
+    return { ok: false, hits: [], reason: inbound.reason };
+  }
+
+  const all = [
+    ...(inboundOk ? inbound.hits : []),
+    ...(outboundOk && outbound ? outbound.hits : []),
+  ];
+  // Dedup on id (defensive); preserve the higher-scoring copy.
+  const byId = new Map<string, (typeof all)[number]>();
+  for (const h of all) {
+    const prev = byId.get(h.id);
+    if (!prev || h.score > prev.score) byId.set(h.id, h);
+  }
+  const merged = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, cap);
+  return { ok: true, hits: merged };
+}
+
+// Module-level so the warning isn't logged on every cycle. 30 min cooldown
+// means an operator who never sets MAILBOX_OPERATOR_EMAIL sees the nag at most
+// ~50/day, not 100K/day.
+let lastOperatorEmailWarningAt = 0;
+const OPERATOR_EMAIL_WARN_COOLDOWN_MS = 30 * 60 * 1000;
+function warnOperatorEmailMissing(): void {
+  const now = Date.now();
+  if (now - lastOperatorEmailWarningAt < OPERATOR_EMAIL_WARN_COOLDOWN_MS) return;
+  lastOperatorEmailWarningAt = now;
+  console.warn(
+    '[rag/retrieve] MAILBOX_OPERATOR_EMAIL unset — voice-priming (H2) disabled; falling back to inbound-only retrieval. ' +
+      'Set MAILBOX_OPERATOR_EMAIL in .env to enable outbound voice-priming refs.',
+  );
 }

@@ -140,6 +140,13 @@ export interface SearchResult {
 export interface SearchOptions {
   limit?: number;
   senderFilter?: string;
+  // STAQPRO-221 — recipient filter for the outbound-voice-priming half of
+  // the two-pass retrieval (H2). Used together with senderFilter to scope
+  // outbound history to messages from the operator TO the current
+  // counterparty (we wrote X to them); without it, outbound search would
+  // return everything the operator ever sent, washing the topical signal.
+  // ANDed with senderFilter when both are set.
+  recipientFilter?: string;
   // STAQPRO-191 — persona scoping. When set, ANDed with senderFilter so a
   // multi-persona appliance only retrieves history from the persona that
   // owns the in-flight draft. When unset, no persona filter is applied
@@ -164,6 +171,10 @@ export async function searchByVector(
   const limit = opts.limit ?? 5;
   const must: Array<{ key: string; match: { value: string } }> = [];
   if (opts.senderFilter) must.push({ key: 'sender', match: { value: opts.senderFilter } });
+  // STAQPRO-221 — recipient filter is normalized at the call site (same
+  // normalizeSender() flow); we just pass through here. Lowercase /
+  // angle-bracket stripping has already happened.
+  if (opts.recipientFilter) must.push({ key: 'recipient', match: { value: opts.recipientFilter } });
   if (opts.personaKey) must.push({ key: 'persona_key', match: { value: opts.personaKey } });
   // STAQPRO-219 — must_not.has_id drops the inbound's own UUID from results.
   const must_not: Array<{ has_id: string[] }> = [];

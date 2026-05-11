@@ -150,6 +150,11 @@ services:
       # dashboard container env was empty; only local route ever worked.
       OLLAMA_CLOUD_API_KEY: ${OLLAMA_CLOUD_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # STAQPRO-221 — operator email for H2 voice-priming. Empty/unset = the
+      # dashboard logs a once-per-30-min warning and falls back to inbound-only
+      # retrieval (the existing pre-221 path). All other RAG_RETRIEVE_TOP_K_*
+      # and RAG_MIN_INBOUND_CHARS tunables fall through to retrieve.ts defaults.
+      MAILBOX_OPERATOR_EMAIL: ${MAILBOX_OPERATOR_EMAIL:-}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:

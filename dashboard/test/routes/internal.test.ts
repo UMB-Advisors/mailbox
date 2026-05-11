@@ -102,12 +102,25 @@ dbDescribe('internal route handlers — real Postgres', () => {
     // those rows from the comparison.
     describe('rag retrieval + writeback', () => {
       const originalFetch = globalThis.fetch;
+      const originalMinInbound = process.env.RAG_MIN_INBOUND_CHARS;
       beforeEach(() => {
         process.env.OLLAMA_BASE_URL = 'http://test-ollama:11434';
         process.env.QDRANT_URL = 'http://test-qdrant:6333';
+        // STAQPRO-221 H4 introduced a thin-inbound substantivity gate
+        // (RAG_MIN_INBOUND_CHARS, default 40). The shared seedDraft helper
+        // uses a 17-char body that trips the gate before embed runs, so the
+        // happy/degraded paths never reach the mocked fetch. Disable the
+        // gate for these route-level assertions; rag-retrieve.test.ts owns
+        // the gate's own coverage.
+        process.env.RAG_MIN_INBOUND_CHARS = '0';
       });
       afterEach(() => {
         globalThis.fetch = originalFetch;
+        if (originalMinInbound === undefined) {
+          delete process.env.RAG_MIN_INBOUND_CHARS;
+        } else {
+          process.env.RAG_MIN_INBOUND_CHARS = originalMinInbound;
+        }
         vi.restoreAllMocks();
       });
 
