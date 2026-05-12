@@ -176,7 +176,17 @@ export async function getTopEditRateCategories(
       .groupBy('classification_category')
       .execute();
 
+    // The v_override_rate view filters out `classification_category IS NULL`
+    // rows at the SQL level (see migration 019), so the value is never null
+    // at runtime. kysely-codegen still emits `string | null` because it
+    // infers from the underlying `drafts.classification_category` column.
+    // Narrow defensively here so the TopEditRateCategory.classification_category
+    // contract holds without a type cast.
     const ranked = rows
+      .filter(
+        (r): r is typeof r & { classification_category: string } =>
+          r.classification_category !== null,
+      )
       .map((r) => {
         const edited = Number(r.edited ?? 0);
         const rejected = Number(r.rejected ?? 0);
