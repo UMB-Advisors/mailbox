@@ -12,6 +12,7 @@ import { EmptyState } from './EmptyState';
 import { type CooldownState, GmailCooldownBanner } from './GmailCooldownBanner';
 import { NewDraftsBanner } from './NewDraftsBanner';
 import type { RejectPayload } from './RejectPopover';
+import { ShortcutsHelp } from './ShortcutsHelp';
 import { StuckApproved } from './StuckApproved';
 import { Toast } from './Toast';
 
@@ -55,6 +56,9 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
   // STAQPRO-331 #1 — controlled popover state so the 'x' keyboard shortcut
   // can open it without reaching into DraftDetail's DOM.
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
+  // STAQPRO-331 #7 — '?' toggles a keyboard-shortcut cheatsheet overlay.
+  // Discoverability for the operator who didn't read the docs.
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   const knownIds = useRef<Set<number>>(new Set(initialActive.map((d) => d.id)));
 
@@ -329,7 +333,26 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (editing !== null) return;
+      // STAQPRO-331 #7 — Escape closes the help overlay even when the
+      // popover is also open; let the help close first so the operator
+      // can re-orient before the popover steals focus.
+      if (e.key === 'Escape' && shortcutsHelpOpen) {
+        e.preventDefault();
+        setShortcutsHelpOpen(false);
+        return;
+      }
+      // When the reject popover is open, swallow nav/action keys —
+      // RejectPopover owns Escape itself.
+      if (rejectPopoverOpen) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      // STAQPRO-331 #7 — '?' (Shift+/) toggles the shortcuts cheatsheet.
+      // No selection / view guard — the overlay should always be available.
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsHelpOpen((o) => !o);
+        return;
+      }
 
       const currentList = view === 'pending' ? visibleActive : sent;
       const currentIndex =
@@ -350,6 +373,10 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
           if (prevDraft) setSelectedId(prevDraft.id);
           return;
         }
+        // STAQPRO-331 #7 — Enter is now an explicit approve alias per
+        // the sandbox action-bar hint. The popover swallows Enter when
+        // open (we guard above on rejectPopoverOpen).
+        case 'Enter':
         case 'a': {
           if (!selected || view === 'sent' || busy) return;
           e.preventDefault();
@@ -362,11 +389,13 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
           setEditing(selected);
           return;
         }
+        // STAQPRO-331 #7 — `r` is an alias for `x` (reject-popover open).
+        // The original 'NOT r' constraint targeted Cmd+R refresh muscle-
+        // memory; the modifier-key bail above means a plain `r` is a
+        // deliberate keystroke, and the popover still requires the
+        // operator to pick a reason and click Reject (no auto-fire).
+        case 'r':
         case 'x': {
-          // STAQPRO-331 #1 — `x` now OPENS the reject popover so the
-          // operator picks a reason; submitting fires the API call. This
-          // preserves the prior 'no accidental Cmd+R reject' property
-          // (popover requires explicit reason + Reject click).
           if (!selected || view === 'sent' || busy) return;
           e.preventDefault();
           setRejectPopoverOpen(true);
@@ -401,6 +430,17 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
             </span>
           )}
         </div>
+        {/* STAQPRO-331 #7 — discovery hint for the keyboard shortcut help.
+            Clicking also opens the overlay so it's not exclusively keyboard. */}
+        <button
+          type="button"
+          onClick={() => setShortcutsHelpOpen(true)}
+          className="flex items-center gap-1.5 rounded border border-border bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-ink-dim hover:text-ink"
+          title="Show keyboard shortcuts"
+        >
+          <kbd className="font-mono text-[11px]">?</kbd>
+          <span>shortcuts</span>
+        </button>
       </header>
 
       {/* STAQPRO-331 #5 — system-wide Gmail cooldown banner. Spans the
@@ -518,6 +558,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
       {editing && (
         <EditModal draft={editing} onSave={onEditSave} onClose={() => setEditing(null)} />
       )}
+      {shortcutsHelpOpen && <ShortcutsHelp onClose={() => setShortcutsHelpOpen(false)} />}
       {toast && <Toast {...toast} onDismiss={dismissToast} />}
     </main>
   );
