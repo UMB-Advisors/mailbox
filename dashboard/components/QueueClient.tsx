@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '@/lib/api';
-import type { DraftWithMessage } from '@/lib/types';
+import { type DraftWithMessage, REJECT_REASON_LABELS } from '@/lib/types';
 import type { ActionKind } from './ActionButtons';
 import { AppNav } from './AppNav';
 import { DraftCard } from './DraftCard';
@@ -18,7 +18,14 @@ const POLL_INTERVAL_MS = 30_000;
 const STUCK_APPROVED_THRESHOLD_MS = 5 * 60 * 1000;
 
 type Busy = { draftId: number; kind: ActionKind | 'retry' } | null;
-type ToastMsg = { kind: 'success' | 'error'; text: string } | null;
+// STAQPRO-331 #9 — widened to carry an optional action (Undo button) and a
+// per-message duration override (Undo lingers 5s vs the 4s default).
+type ToastMsg = {
+  kind: 'success' | 'error';
+  text: string;
+  action?: { label: string; onClick: () => void };
+  durationMs?: number;
+} | null;
 type View = 'pending' | 'sent';
 
 interface Props {
@@ -76,9 +83,28 @@ export function QueueClient({ initialActive, initialSent }: Props) {
     }
   }, []);
 
+  // STAQPRO-331 #11 — visibility-aware polling. Skip ticks when the tab is
+  // hidden (no point spending battery + n8n CPU when nobody is watching) and
+  // fire an immediate refetch on visibility return so an operator coming
+  // back from another tab sees the queue caught up without waiting for the
+  // next 30s tick. AbortController per-fetch is intentionally deferred —
+  // fetchData uses two parallel cache:'no-store' fetches without
+  // cancellation, and the last-write-wins setActive/setSent pattern is
+  // already idempotent under in-flight overlap.
   useEffect(() => {
-    const interval = setInterval(() => fetchData(false), POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    function tick() {
+      if (document.visibilityState !== 'visible') return;
+      fetchData(false);
+    }
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+    function onVisibility() {
+      if (document.visibilityState === 'visible') fetchData(false);
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [fetchData]);
 
   const dismissToast = () => setToast(null);
@@ -131,8 +157,88 @@ export function QueueClient({ initialActive, initialSent }: Props) {
     }
   }
 
-  function fireReject(payload: RejectPayload, draft: DraftWithMessage) {
-    return fireAction('reject', draft, payload);
+  // STAQPRO-331 #9 — reject success path now surfaces an UNDO toast carrying
+  // the reason label. Implemented inline (not via fireAction) so the toast
+  // can hold a reference to the just-rejected draft id without racing the
+  // auto-advance state update. Approve stays on fireAction with no UNDO —
+  // approve fires a Gmail Reply at the n8n side and is not safely reversible
+  // once the webhook returns.
+  async function fireReject(payload: RejectPayload, draft: DraftWithMessage) {
+    setBusy({ draftId: draft.id, kind: 'reject' });
+    try {
+      const res = await fetch(apiUrl(`/api/drafts/${draft.id}/reject`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `reject failed (${res.status})`);
+
+      setRemoved((s) => {
+        const next = new Set(s);
+        next.add(draft.id);
+        return next;
+      });
+      // Auto-advance to the next visible draft (matches fireAction).
+      const oldVisible = view === 'pending' ? active.filter((d) => !removed.has(d.id)) : sent;
+      const idx = oldVisible.findIndex((d) => d.id === draft.id);
+      const newVisible = oldVisible.filter((_, i) => i !== idx);
+      const next = newVisible[idx] ?? newVisible[idx - 1] ?? null;
+      setSelectedId(next?.id ?? null);
+
+      const reasonLabel = REJECT_REASON_LABELS[payload.reason_code];
+      setToast({
+        kind: 'success',
+        text: `Rejected · ${reasonLabel}`,
+        durationMs: 5000,
+        action: {
+          label: 'Undo',
+          onClick: () => fireUndoReject(draft.id),
+        },
+      });
+      fetchData(true);
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'reject failed',
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // STAQPRO-331 #9 — undo a reject within the 5s toast window. Drops the
+  // local `removed` mark so the draft reappears in visibleActive once
+  // fetchData repopulates it. 409 = window expired or already-undone; surface
+  // as an error toast and bail without local state surgery.
+  async function fireUndoReject(draftId: number) {
+    try {
+      const res = await fetch(apiUrl(`/api/drafts/${draftId}/undo-reject`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setToast({
+          kind: 'error',
+          text: data?.error ?? `Undo failed (${res.status})`,
+        });
+        return;
+      }
+      setRemoved((s) => {
+        const next = new Set(s);
+        next.delete(draftId);
+        return next;
+      });
+      setToast({ kind: 'success', text: 'Reject undone' });
+      fetchData(true);
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'Undo failed',
+      });
+    }
   }
 
   async function fireRetry(draft: DraftWithMessage) {

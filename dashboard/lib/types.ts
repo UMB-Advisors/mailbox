@@ -99,6 +99,20 @@ export const REJECT_REASON_CODES = [
 
 export type RejectReasonCode = (typeof REJECT_REASON_CODES)[number];
 
+// Human-readable labels for REJECT_REASON_CODES — single SoT for any UI
+// surface that needs to display the reason (toast confirmations after reject,
+// future analytics/report tooling, etc). RejectPopover's REJECT_REASONS hint
+// list is a richer UI affordance and stays local to that component; both must
+// stay in sync with REJECT_REASON_CODES.
+export const REJECT_REASON_LABELS: Record<RejectReasonCode, string> = {
+  wrong_tone: 'Wrong tone',
+  factually_inaccurate: 'Factually inaccurate',
+  missing_context: 'Missing context',
+  should_reply_myself: 'Reply myself',
+  dont_reply: "Don't reply",
+  other: 'Other',
+};
+
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
 export interface Draft {

@@ -369,10 +369,9 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       try {
         // First reject so we have a row in draft_feedback to remove.
         const { POST: rejectPOST } = await import('@/app/api/drafts/[id]/reject/route');
-        const rejectRes = await rejectPOST(
-          fakeRequest({ body: { reason_code: 'wrong_tone' } }),
-          { params: { id: String(seed.draftId) } },
-        );
+        const rejectRes = await rejectPOST(fakeRequest({ body: { reason_code: 'wrong_tone' } }), {
+          params: { id: String(seed.draftId) },
+        });
         expect(rejectRes.status).toBe(200);
         const afterReject = await getDraftRow(seed.draftId);
         expect(afterReject?.status).toBe('rejected');
