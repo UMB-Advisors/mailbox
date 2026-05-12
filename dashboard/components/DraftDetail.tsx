@@ -3,6 +3,7 @@ import type { DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
 import { EmailContext } from './EmailContext';
 import type { RejectPayload } from './RejectPopover';
+import { SourcesUsedPanel } from './SourcesUsedPanel';
 import { TimeAgo } from './TimeAgo';
 
 export function DraftDetail({
@@ -74,6 +75,13 @@ export function DraftDetail({
             </>
           )}
         </p>
+        {/* STAQPRO-331 #2 — RAG attribution panel. Lazy-loads the
+            rag_context_refs resolution on first expand. `key={draft.id}`
+            forces a remount when the operator switches drafts so all local
+            state (open / cached data) resets without an explicit effect. */}
+        <div className="mt-3">
+          <SourcesUsedPanel key={draft.id} draftId={draft.id} />
+        </div>
       </div>
       <div className="border-t border-border px-5 py-3">
         <EmailContext message={draft.message} history={draft.thread_history} />

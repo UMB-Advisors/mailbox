@@ -213,3 +213,42 @@ export async function searchByVector(
     };
   }
 }
+
+// STAQPRO-331 #2 — fetch points by their UUIDs (e.g., the UUIDs stored in
+// drafts.rag_context_refs). Used to reverse the one-way
+// pointIdFromMessageId hash for the RAG-attribution UI: given a draft's
+// retrieved refs, get back the source messages' payloads so we can render
+// sender / subject / snippet to the operator.
+export interface GetPointsResult {
+  ok: boolean;
+  points: Array<{ id: string; payload: EmailPointPayload }>;
+  reason?: string;
+}
+
+export async function getPointsByIds(ids: readonly string[]): Promise<GetPointsResult> {
+  if (ids.length === 0) return { ok: true, points: [] };
+  try {
+    const r = await qdrantRequest('POST', `/collections/${COLLECTION}/points`, {
+      ids: [...ids],
+      with_payload: true,
+    });
+    if (r.status !== 200) {
+      return { ok: false, points: [], reason: `HTTP ${r.status}` };
+    }
+    const result = r.json?.result;
+    if (!Array.isArray(result)) {
+      return { ok: false, points: [], reason: 'unexpected response shape' };
+    }
+    const points = result.map((p) => {
+      const point = p as { id: string; payload: EmailPointPayload };
+      return { id: point.id, payload: point.payload };
+    });
+    return { ok: true, points };
+  } catch (error) {
+    return {
+      ok: false,
+      points: [],
+      reason: error instanceof Error ? error.message : 'unknown',
+    };
+  }
+}
