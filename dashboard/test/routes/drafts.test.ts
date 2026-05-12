@@ -91,17 +91,64 @@ dbDescribe('drafts route handlers — real Postgres', () => {
   });
 
   describe('POST /api/drafts/[id]/reject', () => {
-    it('flips pending → rejected and persists trimmed reason', async () => {
+    // STAQPRO-331 #1 — reject route now writes mailbox.draft_feedback with
+    // structured reason_code + optional free_text. error_message is NO LONGER
+    // written here (it's send-side per CLAUDE.md state machine).
+    it('flips pending → rejected and inserts draft_feedback row', async () => {
       const seed = await seedDraft({ status: 'pending' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/reject/route');
-        const res = await POST(fakeRequest({ body: { reason: '  not on brand  ' } }), {
-          params: { id: String(seed.draftId) },
-        });
+        const res = await POST(
+          fakeRequest({
+            body: { reason_code: 'wrong_tone', free_text: '  too formal  ' },
+          }),
+          { params: { id: String(seed.draftId) } },
+        );
         expect(res.status).toBe(200);
         const row = await getDraftRow(seed.draftId);
         expect(row?.status).toBe('rejected');
-        expect(row?.error_message).toBe('not on brand');
+        // error_message is reserved for send-side failures now (Gmail Reply
+        // 429 etc) — reject must not touch it.
+        expect(row?.error_message).toBeNull();
+
+        // Feedback row written in the same transaction.
+        const { getKysely } = await import('@/lib/db');
+        const fb = await getKysely()
+          .selectFrom('draft_feedback')
+          .selectAll()
+          .where('draft_id', '=', seed.draftId)
+          .execute();
+        expect(fb).toHaveLength(1);
+        expect(fb[0].reason_code).toBe('wrong_tone');
+        expect(fb[0].free_text).toBe('too formal');
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it("requires free_text when reason_code is 'other'", async () => {
+      const seed = await seedDraft({ status: 'pending' });
+      try {
+        const { POST } = await import('@/app/api/drafts/[id]/reject/route');
+        const res = await POST(fakeRequest({ body: { reason_code: 'other' } }), {
+          params: { id: String(seed.draftId) },
+        });
+        expect(res.status).toBe(400);
+        const row = await getDraftRow(seed.draftId);
+        expect(row?.status).toBe('pending');
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it('rejects body without reason_code with 400', async () => {
+      const seed = await seedDraft({ status: 'pending' });
+      try {
+        const { POST } = await import('@/app/api/drafts/[id]/reject/route');
+        const res = await POST(fakeRequest({ body: {} }), {
+          params: { id: String(seed.draftId) },
+        });
+        expect(res.status).toBe(400);
       } finally {
         await deleteSeededDraft(seed);
       }
@@ -111,7 +158,7 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       const seed = await seedDraft({ status: 'approved' });
       try {
         const { POST } = await import('@/app/api/drafts/[id]/reject/route');
-        const res = await POST(fakeRequest({ body: {} }), {
+        const res = await POST(fakeRequest({ body: { reason_code: 'wrong_tone' } }), {
           params: { id: String(seed.draftId) },
         });
         expect(res.status).toBe(409);

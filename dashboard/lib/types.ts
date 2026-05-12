@@ -17,6 +17,7 @@
 import type { Selectable } from 'kysely';
 import type {
   ClassificationLog as ClassificationLogRow_,
+  DraftFeedback as DraftFeedbackRow_,
   Drafts as DraftsRow_,
   InboxMessages as InboxMessagesRow_,
   KbDocuments as KbDocumentsRow_,
@@ -82,6 +83,21 @@ export type OnboardingStage = (typeof ONBOARDING_STAGES)[number];
 export const KB_DOC_STATUSES = ['processing', 'ready', 'failed'] as const;
 
 export type KbDocStatus = (typeof KB_DOC_STATUSES)[number];
+
+// draft_feedback.reason_code enum (STAQPRO-331 #1). Mirrored against the
+// CHECK constraint in migrations/023-create-draft-feedback-v1-2026-05-12.sql;
+// the schema-invariants test asserts they stay in sync. Order matches the
+// REJECT_REASONS UI list in components/RejectPopover.tsx (top-to-bottom).
+export const REJECT_REASON_CODES = [
+  'wrong_tone',
+  'factually_inaccurate',
+  'missing_context',
+  'should_reply_myself',
+  'dont_reply',
+  'other',
+] as const;
+
+export type RejectReasonCode = (typeof REJECT_REASON_CODES)[number];
 
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
@@ -251,3 +267,4 @@ export type RejectedHistoryRow = Selectable<RejectedHistoryRow_>;
 export type PersonaRow = Selectable<PersonaRow_>;
 export type OnboardingRow = Selectable<OnboardingRow_>;
 export type KbDocumentRow = Selectable<KbDocumentsRow_>;
+export type DraftFeedbackRow = Selectable<DraftFeedbackRow_>;

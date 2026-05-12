@@ -38,6 +38,15 @@ export interface ClassificationLog {
   think_stripped: Generated<boolean>;
 }
 
+export interface DraftFeedback {
+  draft_id: number;
+  free_text: string | null;
+  id: Generated<number>;
+  operator_id: string | null;
+  reason_code: string;
+  rejected_at: Generated<string>;
+}
+
 export interface Drafts {
   approved_at: string | null;
   auto_send_blocked: Generated<boolean>;
@@ -199,32 +208,27 @@ export interface SystemState {
   id: Generated<number>;
 }
 
-// STAQPRO-233 — drafting telemetry views (migration 019). Read-only.
-// Day grain rollup of mailbox.drafts × draft_source × classification_category
-// × status. Powers /status "Drafting routes (last 7d)" card.
 export interface VDraftingMetrics {
+  classification_category: string | null;
   day: string | null;
   draft_source: string | null;
-  classification_category: string | null;
-  status: string;
-  n: Int8;
+  n: Int8 | null;
+  status: string | null;
 }
 
-// STAQPRO-233 — (category × draft_source) edit/reject rate over a 14-day
-// rolling window. edit_reject_rate is null when disposed = 0 (avoid 0/0).
-// Powers STAQPRO-235's metric-driven KB nudges.
 export interface VOverrideRate {
-  classification_category: string;
+  approved_like: Int8 | null;
+  classification_category: string | null;
+  disposed: Int8 | null;
   draft_source: string | null;
-  edited: Int8;
-  rejected: Int8;
-  approved_like: Int8;
-  disposed: Int8;
   edit_reject_rate: Numeric | null;
+  edited: Int8 | null;
+  rejected: Int8 | null;
 }
 
 export interface DB {
   classification_log: ClassificationLog;
+  draft_feedback: DraftFeedback;
   drafts: Drafts;
   inbox_messages: InboxMessages;
   kb_documents: KbDocuments;

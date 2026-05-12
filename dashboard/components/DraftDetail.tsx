@@ -2,6 +2,7 @@ import { Check, Send, X } from 'lucide-react';
 import type { DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
 import { EmailContext } from './EmailContext';
+import type { RejectPayload } from './RejectPopover';
 import { TimeAgo } from './TimeAgo';
 
 export function DraftDetail({
@@ -11,13 +12,20 @@ export function DraftDetail({
   onApprove,
   onEdit,
   onReject,
+  rejectPopoverOpen,
+  onRejectPopoverChange,
 }: {
   draft: DraftWithMessage;
   busy: ActionKind | null;
   readOnly?: boolean;
   onApprove: () => void;
   onEdit: () => void;
-  onReject: () => void;
+  // STAQPRO-331 #1 — reject now carries structured feedback.
+  onReject: (payload: RejectPayload) => void;
+  // Optional controlled-popover hooks from QueueClient (lets the 'x'
+  // keyboard shortcut open the popover instead of firing reject directly).
+  rejectPopoverOpen?: boolean;
+  onRejectPopoverChange?: (open: boolean) => void;
 }) {
   return (
     // STAQPRO-148-followup (Delphi UX pass) — restructured top-to-bottom so
@@ -29,7 +37,14 @@ export function DraftDetail({
         {readOnly ? (
           <StatusBanner draft={draft} />
         ) : (
-          <ActionButtons busy={busy} onApprove={onApprove} onEdit={onEdit} onReject={onReject} />
+          <ActionButtons
+            busy={busy}
+            onApprove={onApprove}
+            onEdit={onEdit}
+            onReject={onReject}
+            rejectPopoverOpen={rejectPopoverOpen}
+            onRejectPopoverChange={onRejectPopoverChange}
+          />
         )}
       </div>
       <div className="px-5 py-4">

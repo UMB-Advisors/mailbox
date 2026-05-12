@@ -957,6 +957,35 @@ WHERE d.created_at > NOW() - INTERVAL '14 days'
   AND d.classification_category IS NOT NULL
 GROUP BY 1, 2;
 
+-- ── STAQPRO-331 #1 (migration 023): draft_feedback table ──────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Structured reject
+-- reasons feeding the learning loop (persona, RAG, classifier signals).
+CREATE TABLE IF NOT EXISTS mailbox.draft_feedback (
+  id           SERIAL PRIMARY KEY,
+  draft_id     INTEGER NOT NULL REFERENCES mailbox.drafts(id) ON DELETE CASCADE,
+  reason_code  TEXT NOT NULL,
+  free_text    TEXT,
+  operator_id  TEXT,
+  rejected_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT draft_feedback_reason_code_check CHECK (
+    reason_code IN (
+      'wrong_tone',
+      'factually_inaccurate',
+      'missing_context',
+      'should_reply_myself',
+      'dont_reply',
+      'other'
+    )
+  ),
+  CONSTRAINT draft_feedback_other_requires_text CHECK (
+    reason_code <> 'other' OR (free_text IS NOT NULL AND length(trim(free_text)) > 0)
+  )
+);
+CREATE INDEX IF NOT EXISTS draft_feedback_draft_id_idx
+  ON mailbox.draft_feedback(draft_id);
+CREATE INDEX IF NOT EXISTS draft_feedback_reason_code_idx
+  ON mailbox.draft_feedback(reason_code);
+
 --
 -- PostgreSQL database dump complete
 --

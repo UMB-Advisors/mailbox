@@ -10,6 +10,7 @@ import { DraftDetail } from './DraftDetail';
 import { EditModal } from './EditModal';
 import { EmptyState } from './EmptyState';
 import { NewDraftsBanner } from './NewDraftsBanner';
+import type { RejectPayload } from './RejectPopover';
 import { StuckApproved } from './StuckApproved';
 import { Toast } from './Toast';
 
@@ -38,6 +39,9 @@ export function QueueClient({ initialActive, initialSent }: Props) {
     initialActive.length > 0 ? initialActive[0].id : null,
   );
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  // STAQPRO-331 #1 — controlled popover state so the 'x' keyboard shortcut
+  // can open it without reaching into DraftDetail's DOM.
+  const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
 
   const knownIds = useRef<Set<number>>(new Set(initialActive.map((d) => d.id)));
 
@@ -80,13 +84,16 @@ export function QueueClient({ initialActive, initialSent }: Props) {
   const dismissToast = () => setToast(null);
   const dismissNewDrafts = () => setNewCount(0);
 
-  async function fireAction(kind: 'approve' | 'reject', draft: DraftWithMessage) {
+  // STAQPRO-331 #1 — fireAction now takes an optional `body` so reject can
+  // ship the structured `{ reason_code, free_text }` payload while approve
+  // keeps its empty-body shape. Auto-advance + toast logic stays shared.
+  async function fireAction(kind: 'approve' | 'reject', draft: DraftWithMessage, body?: object) {
     setBusy({ draftId: draft.id, kind });
     try {
       const res = await fetch(apiUrl(`/api/drafts/${draft.id}/${kind}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify(body ?? {}),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? `${kind} failed (${res.status})`);
@@ -122,6 +129,10 @@ export function QueueClient({ initialActive, initialSent }: Props) {
     } finally {
       setBusy(null);
     }
+  }
+
+  function fireReject(payload: RejectPayload, draft: DraftWithMessage) {
+    return fireAction('reject', draft, payload);
   }
 
   async function fireRetry(draft: DraftWithMessage) {
@@ -231,9 +242,13 @@ export function QueueClient({ initialActive, initialSent }: Props) {
           return;
         }
         case 'x': {
+          // STAQPRO-331 #1 — `x` now OPENS the reject popover so the
+          // operator picks a reason; submitting fires the API call. This
+          // preserves the prior 'no accidental Cmd+R reject' property
+          // (popover requires explicit reason + Reject click).
           if (!selected || view === 'sent' || busy) return;
           e.preventDefault();
-          fireAction('reject', selected);
+          setRejectPopoverOpen(true);
           return;
         }
       }
@@ -351,7 +366,9 @@ export function QueueClient({ initialActive, initialSent }: Props) {
                   readOnly={view === 'sent'}
                   onApprove={() => fireAction('approve', selected)}
                   onEdit={() => setEditing(selected)}
-                  onReject={() => fireAction('reject', selected)}
+                  onReject={(payload) => fireReject(payload, selected)}
+                  rejectPopoverOpen={rejectPopoverOpen}
+                  onRejectPopoverChange={setRejectPopoverOpen}
                 />
               </div>
             </>

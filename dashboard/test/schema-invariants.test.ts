@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
-import { KB_DOC_STATUSES } from '../lib/types';
+import { KB_DOC_STATUSES, REJECT_REASON_CODES } from '../lib/types';
 
 // Highest-leverage test for STAQPRO-133. Asserts that the live Postgres
 // CHECK constraints match (or are compatible with) the TS-side constants.
@@ -109,9 +109,27 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
     },
   );
 
+  it.skipIf(!DB_URL)(
+    'draft_feedback.reason_code CHECK matches REJECT_REASON_CODES (STAQPRO-331 #1, migration 023)',
+    async () => {
+      const allowed = await getCheckValues(
+        pool!,
+        'draft_feedback',
+        'draft_feedback_reason_code_check',
+      );
+      const expected = [...REJECT_REASON_CODES];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
   it('KB_DOC_STATUSES from lib/types.ts has no duplicates and is non-empty', () => {
     expect(KB_DOC_STATUSES.length).toBeGreaterThan(0);
     expect(new Set(KB_DOC_STATUSES).size).toBe(KB_DOC_STATUSES.length);
+  });
+
+  it('REJECT_REASON_CODES from lib/types.ts has no duplicates and is non-empty', () => {
+    expect(REJECT_REASON_CODES.length).toBeGreaterThan(0);
+    expect(new Set(REJECT_REASON_CODES).size).toBe(REJECT_REASON_CODES.length);
   });
 
   // Pure code-level invariant — does not need DB.

@@ -1,6 +1,8 @@
 'use client';
 
 import { Check, Edit3, X } from 'lucide-react';
+import { useState } from 'react';
+import { type RejectPayload, RejectPopover } from './RejectPopover';
 
 export type ActionKind = 'approve' | 'edit' | 'reject';
 
@@ -9,12 +11,27 @@ export function ActionButtons({
   onApprove,
   onEdit,
   onReject,
+  rejectPopoverOpen,
+  onRejectPopoverChange,
 }: {
   busy: ActionKind | null;
   onApprove: () => void;
   onEdit: () => void;
-  onReject: () => void;
+  // STAQPRO-331 #1 — reject now carries structured feedback. Parent fires
+  // the actual API call; this component owns the popover trigger + state.
+  onReject: (payload: RejectPayload) => void;
+  // Optional controlled-popover hooks so the parent (QueueClient) can open
+  // the popover via the `x` keyboard shortcut without reaching into the
+  // button's DOM. Omit both for uncontrolled (mouse-only) behavior.
+  rejectPopoverOpen?: boolean;
+  onRejectPopoverChange?: (open: boolean) => void;
 }) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = rejectPopoverOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (onRejectPopoverChange) onRejectPopoverChange(next);
+    else setUncontrolledOpen(next);
+  };
   const disabled = busy !== null;
   return (
     <div>
@@ -37,15 +54,32 @@ export function ActionButtons({
           <Edit3 size={16} />
           {busy === 'edit' ? 'Saving…' : 'Edit'}
         </button>
-        <button
-          type="button"
-          onClick={onReject}
-          disabled={disabled}
-          className="ml-auto inline-flex items-center gap-1.5 rounded border border-accent-red/40 px-3 py-2 font-sans text-sm text-accent-red/80 transition-colors hover:border-accent-red/70 hover:text-accent-red disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <X size={16} />
-          {busy === 'reject' ? 'Rejecting…' : 'Reject'}
-        </button>
+        <div className="relative ml-auto">
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            disabled={disabled}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            className={`inline-flex items-center gap-1.5 rounded border px-3 py-2 font-sans text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              open
+                ? 'border-accent-red bg-accent-red/10 text-accent-red'
+                : 'border-accent-red/40 text-accent-red/80 hover:border-accent-red/70 hover:text-accent-red'
+            }`}
+          >
+            <X size={16} />
+            {busy === 'reject' ? 'Rejecting…' : 'Reject'}
+          </button>
+          <RejectPopover
+            open={open}
+            busy={busy === 'reject'}
+            onClose={() => setOpen(false)}
+            onSubmit={(payload) => {
+              onReject(payload);
+              setOpen(false);
+            }}
+          />
+        </div>
       </div>
       {/* Keyboard hint — hidden on mobile (no kbd shortcuts there). x not r
           for reject so Cmd+R refresh slips don't accidentally reject. */}

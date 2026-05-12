@@ -81,16 +81,47 @@ describe('parseQuery (listDraftsQuerySchema)', () => {
 });
 
 describe('parseJson — drafts schemas', () => {
-  it('rejectBody accepts empty body', async () => {
+  // STAQPRO-331 #1 — reject body is now structured: { reason_code, free_text }.
+  it('rejectBody rejects empty body (reason_code now required)', async () => {
     const r = await parseJson(fakeReq({ body: {} }), rejectBodySchema);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.data.reason).toBeNull();
+    expect(r.ok).toBe(false);
   });
 
-  it('rejectBody trims and accepts reason', async () => {
-    const r = await parseJson(fakeReq({ body: { reason: '  not on brand  ' } }), rejectBodySchema);
+  it('rejectBody accepts a valid reason_code without free_text', async () => {
+    const r = await parseJson(fakeReq({ body: { reason_code: 'wrong_tone' } }), rejectBodySchema);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.data.reason).toBe('not on brand');
+    if (r.ok) {
+      expect(r.data.reason_code).toBe('wrong_tone');
+      expect(r.data.free_text).toBeNull();
+    }
+  });
+
+  it('rejectBody trims free_text and accepts non-empty', async () => {
+    const r = await parseJson(
+      fakeReq({ body: { reason_code: 'wrong_tone', free_text: '  not on brand  ' } }),
+      rejectBodySchema,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.free_text).toBe('not on brand');
+  });
+
+  it("rejectBody requires free_text when reason_code is 'other'", async () => {
+    const r = await parseJson(fakeReq({ body: { reason_code: 'other' } }), rejectBodySchema);
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejectBody 'other' with non-empty free_text passes", async () => {
+    const r = await parseJson(
+      fakeReq({ body: { reason_code: 'other', free_text: 'tone was odd' } }),
+      rejectBodySchema,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.free_text).toBe('tone was odd');
+  });
+
+  it('rejectBody rejects unknown reason_code', async () => {
+    const r = await parseJson(fakeReq({ body: { reason_code: 'gibberish' } }), rejectBodySchema);
+    expect(r.ok).toBe(false);
   });
 
   it('editBody requires non-empty draft_body', async () => {
@@ -218,7 +249,11 @@ describe('parseJson error response shape', () => {
     if (!r.ok) expect(r.response.status).toBe(400);
   });
 
-  it('treats missing JSON body as {} — schema with all-optional fields passes', async () => {
+  it('treats missing JSON body as {} — schema with required fields fails', async () => {
+    // STAQPRO-331 #1 — rejectBodySchema now requires reason_code, so an
+    // empty body should fail. Switching to listDraftsQuerySchema-shape via
+    // an inline z.object would be overkill; reuse rejectBodySchema and
+    // assert it does correctly reject the empty fallback.
     const fake = {
       url: 'http://t/x',
       json: async () => {
@@ -226,7 +261,6 @@ describe('parseJson error response shape', () => {
       },
     } as unknown as Parameters<typeof parseJson>[0];
     const r = await parseJson(fake, rejectBodySchema);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.data.reason).toBeNull();
+    expect(r.ok).toBe(false);
   });
 });
