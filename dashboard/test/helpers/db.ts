@@ -38,6 +38,11 @@ export interface SeedOpts {
   draftBody?: string;
   draftSubject?: string;
   withClassification?: boolean;
+  // STAQPRO-331 #2 — seed RAG context for rag-refs route tests.
+  // ragContextRefs: array of Qdrant point UUIDs (stored as jsonb). Default [].
+  // ragRetrievalReason: TEXT default 'none' on the column; pass 'ok' | 'no_hits' | etc to exercise empty-refs branches.
+  ragContextRefs?: readonly string[];
+  ragRetrievalReason?: string;
 }
 
 export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
@@ -46,6 +51,8 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
   const draftBody = opts.draftBody ?? 'Hi! Thanks for the order — confirming details.';
   const draftSubject = opts.draftSubject ?? 'Re: order confirmation';
   const withClassification = opts.withClassification !== false;
+  const ragContextRefs = opts.ragContextRefs ?? [];
+  const ragRetrievalReason = opts.ragRetrievalReason ?? 'none';
   const tag = `test-${Date.now()}-${++seedCounter}-${Math.random().toString(36).slice(2, 8)}`;
 
   const pool = getTestPool();
@@ -63,10 +70,12 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
     `INSERT INTO mailbox.drafts
        (inbox_message_id, draft_body, draft_subject, model, status,
         classification_category, classification_confidence,
-        from_addr, to_addr, subject, body_text)
+        from_addr, to_addr, subject, body_text,
+        rag_context_refs, rag_retrieval_reason)
      VALUES ($1, $2, $3, 'qwen3:4b-ctx4k', $4, $5, $6,
              'sender@example.com', 'op@example.com',
-             $7, 'inbound test body')
+             $7, 'inbound test body',
+             $8::jsonb, $9)
      RETURNING id`,
     [
       inboxMessageId,
@@ -76,6 +85,8 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
       withClassification ? classification : null,
       withClassification ? 0.92 : null,
       `test inbound ${tag}`,
+      JSON.stringify([...ragContextRefs]),
+      ragRetrievalReason,
     ],
   );
   return { draftId: draft.rows[0].id, inboxMessageId };

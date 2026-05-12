@@ -484,4 +484,127 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       }
     });
   });
+
+  // STAQPRO-331 #2 — surface drafts.rag_context_refs + rag_retrieval_reason as
+  // resolved source messages (sender/subject/excerpt/sent_at). Qdrant is the
+  // only place the payload lives, so the route round-trips through it; tests
+  // mock fetch to return Qdrant-shaped responses.
+  describe('GET /api/drafts/[id]/rag-refs', () => {
+    it('returns 404 for nonexistent draft', async () => {
+      const { GET } = await import('@/app/api/drafts/[id]/rag-refs/route');
+      const res = await GET(fakeRequest(), { params: { id: '999999999' } });
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBe('draft_not_found');
+    });
+
+    it('returns reason + empty refs when rag_context_refs is empty (no Qdrant call)', async () => {
+      const seed = await seedDraft({ ragContextRefs: [], ragRetrievalReason: 'no_hits' });
+      // Track fetch calls so we can assert Qdrant was NOT hit on the empty path.
+      const fetchSpy = vi.mocked(global.fetch);
+      const callsBefore = fetchSpy.mock.calls.length;
+      try {
+        const { GET } = await import('@/app/api/drafts/[id]/rag-refs/route');
+        const res = await GET(fakeRequest(), { params: { id: String(seed.draftId) } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.reason).toBe('no_hits');
+        expect(body.refs).toEqual([]);
+        // Sanity check: no Qdrant fetch issued for the empty-refs branch.
+        expect(fetchSpy.mock.calls.length).toBe(callsBefore);
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it('resolves stored point IDs to Qdrant payloads and preserves stored ORDER', async () => {
+      // Stored order in rag_context_refs is the order the drafter saw them.
+      // Qdrant batch-get does NOT guarantee response ordering — the route
+      // re-orders by stored point_id. Test that explicitly with a Qdrant
+      // mock that returns the points in reverse order.
+      const A = '11111111-1111-4111-8111-111111111111';
+      const B = '22222222-2222-4222-8222-222222222222';
+      const seed = await seedDraft({
+        ragContextRefs: [A, B], // stored order: A, B
+        ragRetrievalReason: 'ok',
+      });
+      const fetchSpy = vi.mocked(global.fetch);
+      fetchSpy.mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: [
+                // Qdrant returns B first to prove the route re-orders.
+                {
+                  id: B,
+                  payload: {
+                    message_id: 'msg-B',
+                    sender: 'b@example.com',
+                    recipient: 'op@example.com',
+                    subject: 'subject B',
+                    body_excerpt: 'body excerpt B',
+                    sent_at: '2026-05-01T12:00:00Z',
+                    direction: 'inbound',
+                    classification_category: 'reorder',
+                  },
+                },
+                {
+                  id: A,
+                  payload: {
+                    message_id: 'msg-A',
+                    sender: 'a@example.com',
+                    recipient: 'op@example.com',
+                    subject: 'subject A',
+                    body_excerpt: 'body excerpt A',
+                    sent_at: '2026-05-02T12:00:00Z',
+                    direction: 'outbound',
+                    classification_category: null,
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+      try {
+        const { GET } = await import('@/app/api/drafts/[id]/rag-refs/route');
+        const res = await GET(fakeRequest(), { params: { id: String(seed.draftId) } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.reason).toBe('ok');
+        expect(body.refs).toHaveLength(2);
+        // Stored order (A, B) wins, NOT Qdrant response order (B, A).
+        expect(body.refs[0].point_id).toBe(A);
+        expect(body.refs[0].message_id).toBe('msg-A');
+        expect(body.refs[1].point_id).toBe(B);
+        expect(body.refs[1].sender).toBe('b@example.com');
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it('returns qdrant_error + unresolved_point_ids when Qdrant is unreachable', async () => {
+      const A = '33333333-3333-4333-8333-333333333333';
+      const seed = await seedDraft({
+        ragContextRefs: [A],
+        ragRetrievalReason: 'ok',
+      });
+      const fetchSpy = vi.mocked(global.fetch);
+      fetchSpy.mockImplementationOnce(() =>
+        Promise.resolve(new Response('service unavailable', { status: 503 })),
+      );
+      try {
+        const { GET } = await import('@/app/api/drafts/[id]/rag-refs/route');
+        const res = await GET(fakeRequest(), { params: { id: String(seed.draftId) } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.refs).toEqual([]);
+        expect(body.qdrant_error).toMatch(/503/);
+        expect(body.unresolved_point_ids).toEqual([A]);
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+  });
 });
