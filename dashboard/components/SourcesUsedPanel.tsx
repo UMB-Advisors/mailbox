@@ -10,8 +10,17 @@ import { TimeAgo } from './TimeAgo';
 // the drafter saw, so an operator rejecting "factually inaccurate" or
 // "missing context" can diagnose whether retrieval pulled the right
 // counterparty history — or no history at all.
+//
+// STAQPRO-333 — widened the response surface to a discriminated SourceRef
+// union covering both email refs (drafts.rag_context_refs against the
+// `email_messages` collection) and KB refs (drafts.kb_context_refs against
+// the `kb_documents` collection). The drafter merges both retrieval arms
+// into a single prompt block; the panel mirrors that with one ordered
+// list of refs, each tagged by source, so an operator can see at-a-glance
+// whether their uploaded SOPs / price sheets influenced the draft.
 
-interface SourceRef {
+interface EmailSourceRef {
+  source: 'email';
   point_id: string;
   message_id: string;
   sender: string;
@@ -23,11 +32,28 @@ interface SourceRef {
   classification_category: string | null;
 }
 
+interface KbSourceRef {
+  source: 'kb';
+  point_id: string;
+  doc_id: number;
+  doc_title: string;
+  chunk_index: number;
+  mime_type: string;
+  excerpt: string;
+  uploaded_at: string;
+}
+
+type SourceRef = EmailSourceRef | KbSourceRef;
+
 interface RagRefsResponse {
   reason: string;
   refs: SourceRef[];
   qdrant_error?: string;
   unresolved_point_ids?: string[];
+  // STAQPRO-333 — KB-side partial-failure surface (parallel to the existing
+  // email-side qdrant_error / unresolved_point_ids).
+  kb_qdrant_error?: string;
+  kb_unresolved_point_ids?: string[];
 }
 
 interface Props {
@@ -130,6 +156,31 @@ export function SourcesUsedPanel({ draftId }: Props) {
 }
 
 function SourcesContent({ data }: { data: RagRefsResponse }) {
+  // Partial-failure warning blocks — extracted so they render in BOTH the
+  // empty-refs branch (e.g., email fully empty + KB Qdrant down) AND the
+  // non-empty branch (e.g., email refs resolved + KB Qdrant down). Without
+  // this extraction, mixed-failure cases would silently swallow the KB
+  // warning when the email branch returned refs.
+  const errorBlock = (
+    <>
+      {data.qdrant_error && data.unresolved_point_ids && data.unresolved_point_ids.length > 0 && (
+        <p className="font-sans text-xs text-accent-orange">
+          ⚠ Email Qdrant unreachable ({data.qdrant_error}); {data.unresolved_point_ids.length} email
+          ref{data.unresolved_point_ids.length === 1 ? '' : 's'} could not be resolved right now.
+        </p>
+      )}
+      {data.kb_qdrant_error &&
+        data.kb_unresolved_point_ids &&
+        data.kb_unresolved_point_ids.length > 0 && (
+          <p className="font-sans text-xs text-accent-orange">
+            ⚠ KB Qdrant unreachable ({data.kb_qdrant_error}); {data.kb_unresolved_point_ids.length}{' '}
+            KB ref
+            {data.kb_unresolved_point_ids.length === 1 ? '' : 's'} could not be resolved right now.
+          </p>
+        )}
+    </>
+  );
+
   if (data.refs.length === 0) {
     return (
       <div className="space-y-1">
@@ -140,46 +191,86 @@ function SourcesContent({ data }: { data: RagRefsResponse }) {
             <span className="ml-1 text-ink-dim">— {REASON_LABEL[data.reason]}</span>
           )}
         </p>
-        {data.qdrant_error && data.unresolved_point_ids && data.unresolved_point_ids.length > 0 && (
-          <p className="font-sans text-xs text-accent-orange">
-            ⚠ Qdrant unreachable ({data.qdrant_error}); {data.unresolved_point_ids.length} ref
-            {data.unresolved_point_ids.length === 1 ? '' : 's'} could not be resolved right now.
-          </p>
-        )}
+        {errorBlock}
       </div>
     );
   }
 
+  // STAQPRO-333 — per-source breakdown line. When both sources contribute,
+  // surface "{n} email · {m} kb" so the operator can see the split at a
+  // glance without having to scan every chip. When only one source is
+  // present, just show that count. The combined total still drives the
+  // chip count in the toggle (above).
+  const emailCount = data.refs.filter((r) => r.source === 'email').length;
+  const kbCount = data.refs.filter((r) => r.source === 'kb').length;
+  const breakdown =
+    emailCount > 0 && kbCount > 0
+      ? `${emailCount} email · ${kbCount} kb`
+      : emailCount > 0
+        ? `${emailCount} email`
+        : `${kbCount} kb`;
+
   return (
-    <ul className="space-y-2">
-      {data.refs.map((ref) => (
-        <li key={ref.point_id} className="rounded border border-border-subtle bg-bg-panel p-2">
-          <div className="mb-1 flex items-baseline gap-2">
-            <span
-              className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider ${
-                ref.direction === 'outbound'
-                  ? 'border border-accent-blue/40 bg-accent-blue/10 text-accent-blue'
-                  : 'border border-border bg-bg-deep text-ink-muted'
-              }`}
-            >
-              {ref.direction}
-            </span>
-            <span className="truncate font-mono text-xs text-ink-muted">
-              {ref.direction === 'outbound' ? `→ ${ref.recipient}` : `from ${ref.sender}`}
-            </span>
-            <span className="ml-auto whitespace-nowrap font-mono text-[11px] text-ink-dim">
-              <TimeAgo iso={ref.sent_at} />
-            </span>
-          </div>
-          {ref.subject && (
-            <p className="mb-1 truncate font-sans text-sm font-medium text-ink">{ref.subject}</p>
-          )}
-          <p className="font-sans text-xs leading-relaxed text-ink-muted">
-            {truncate(ref.body_excerpt, 240)}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-2">
+      <p className="font-sans text-[11px] uppercase tracking-wider text-ink-dim">{breakdown}</p>
+      {errorBlock}
+      <ul className="space-y-2">
+        {data.refs.map((ref) => (
+          <li key={ref.point_id} className="rounded border border-border-subtle bg-bg-panel p-2">
+            {ref.source === 'email' ? (
+              <>
+                <div className="mb-1 flex items-baseline gap-2">
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider ${
+                      ref.direction === 'outbound'
+                        ? 'border border-accent-blue/40 bg-accent-blue/10 text-accent-blue'
+                        : 'border border-border bg-bg-deep text-ink-muted'
+                    }`}
+                  >
+                    {ref.direction}
+                  </span>
+                  <span className="truncate font-mono text-xs text-ink-muted">
+                    {ref.direction === 'outbound' ? `→ ${ref.recipient}` : `from ${ref.sender}`}
+                  </span>
+                  <span className="ml-auto whitespace-nowrap font-mono text-[11px] text-ink-dim">
+                    <TimeAgo iso={ref.sent_at} />
+                  </span>
+                </div>
+                {ref.subject && (
+                  <p className="mb-1 truncate font-sans text-sm font-medium text-ink">
+                    {ref.subject}
+                  </p>
+                )}
+                <p className="font-sans text-xs leading-relaxed text-ink-muted">
+                  {truncate(ref.body_excerpt, 240)}
+                </p>
+              </>
+            ) : (
+              <>
+                {/* STAQPRO-333 — KB ref render. accent-green is the existing
+                    Tailwind palette token reserved for the third-state accent
+                    (after inbound neutral / outbound blue). It is distinct
+                    from the warning-orange and error-red used elsewhere in
+                    the panel, so a KB chip never visually collides with the
+                    "Qdrant unreachable" warning copy below. */}
+                <div className="mb-1 flex items-baseline gap-2">
+                  <span className="rounded-full border border-accent-green/40 bg-accent-green/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent-green">
+                    KB
+                  </span>
+                  <span className="truncate font-mono text-xs text-ink-muted">{ref.doc_title}</span>
+                  <span className="ml-auto whitespace-nowrap font-mono text-[11px] text-ink-dim">
+                    uploaded <TimeAgo iso={ref.uploaded_at} />
+                  </span>
+                </div>
+                <p className="font-sans text-xs leading-relaxed text-ink-muted">
+                  {truncate(ref.excerpt, 240)}
+                </p>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
