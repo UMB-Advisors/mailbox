@@ -120,6 +120,12 @@ export interface Draft {
   inbox_message_id: number;
   draft_subject: string | null;
   draft_body: string;
+  // STAQPRO-121 captures this on first edit (COALESCE in app/api/drafts/[id]/edit);
+  // STAQPRO-331 #4 surfaces it to the UI so the operator can review their own
+  // changes inline. NULL = draft has never been edited; non-null = the original
+  // LLM body before the FIRST edit (subsequent edits do not overwrite — that
+  // would discard the highest-quality training signal).
+  original_draft_body: string | null;
   model: string;
   draft_source: DraftSource;
   input_tokens: number | null;

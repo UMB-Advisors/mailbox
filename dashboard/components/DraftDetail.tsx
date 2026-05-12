@@ -1,6 +1,7 @@
 import { Check, Send, X } from 'lucide-react';
 import type { DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
+import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
 import type { RejectPayload } from './RejectPopover';
 import { RoutingBadge } from './RoutingBadge';
@@ -84,6 +85,17 @@ export function DraftDetail({
             </span>
           )}
         </div>
+        {/* STAQPRO-331 #4 — show changes between the LLM-original body and
+            the operator-edited current body. Only mounts when the draft is
+            in 'edited' status AND original_draft_body was captured by
+            STAQPRO-121 (NULL means this draft was never edited). EditDiff
+            itself is also defensive — returns null on no-op diffs — so the
+            outer guard is a fast-path, not a correctness gate. */}
+        {draft.status === 'edited' && draft.original_draft_body && (
+          <div className="mt-3">
+            <EditDiff original={draft.original_draft_body} current={draft.draft_body} />
+          </div>
+        )}
         {/* STAQPRO-331 #2 — RAG attribution panel. Lazy-loads the
             rag_context_refs resolution on first expand. `key={draft.id}`
             forces a remount when the operator switches drafts so all local
