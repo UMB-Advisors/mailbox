@@ -5,6 +5,7 @@ import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
 import type { RejectPayload } from './RejectPopover';
 import { RoutingBadge } from './RoutingBadge';
+import { SenderHistoryPanel } from './SenderHistoryPanel';
 import { SourcesUsedPanel } from './SourcesUsedPanel';
 import { TimeAgo } from './TimeAgo';
 
@@ -102,6 +103,12 @@ export function DraftDetail({
             state (open / cached data) resets without an explicit effect. */}
         <div className="mt-3">
           <SourcesUsedPanel key={draft.id} draftId={draft.id} />
+        </div>
+        {/* STAQPRO-331 #6 — per-sender acceptance stats over 30 days. Same
+            key={draft.id} remount trick so switching drafts resets the
+            lazy-fetch state without an explicit effect. */}
+        <div className="mt-2">
+          <SenderHistoryPanel key={draft.id} draftId={draft.id} />
         </div>
       </div>
       <div className="border-t border-border px-5 py-3">
