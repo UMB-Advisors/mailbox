@@ -27,7 +27,7 @@ Replace the dashboard container's nginx-only placeholder with an Express 4 + dri
 
 <must_haves>
 - `docker compose up -d dashboard` reaches `healthy` state within 30s
-- `curl http://localhost:3000/api/health` returns HTTP 200 with JSON `{"status":"ok","db":"ok"}`
+- `curl http://localhost:3000/api/health` returns HTTP 200 with JSON `{"status":"ok","db":"ok","ts":"<ISO-8601>"}` when healthy; HTTP 503 with `{"status":"degraded","db":"down","ts":"<ISO-8601>"}` when Postgres is unreachable
 - WebSocket upgrade succeeds at `ws://localhost:3000/api/ws`
 - Drizzle client can connect to `mailbox` schema from inside the dashboard container
 - `drizzle-kit` CLI is installed and `npx drizzle-kit --version` exits 0 from inside the container
@@ -41,7 +41,7 @@ Replace the dashboard container's nginx-only placeholder with an Express 4 + dri
 | `.env` at repo root | Secrets checked into git | `.env` already in `.gitignore` from Phase 1; `.env.example` contains only keys not values | Medium → mitigated |
 | DATABASE_URL in container env | Credential leak via `docker inspect` | Acceptable for single-tenant appliance; documented in SECURITY.md of container | Low |
 | WebSocket endpoint | Unauthenticated LAN access | Phase 2 inherits Phase 1 LAN-only trust boundary (no auth); Phase 4 adds admin login (DASH-02) | Medium, deferred to Phase 4 |
-| Health route leakage | Info disclosure via verbose errors | `/api/health` returns only `{status, db}` — no stack traces, no version strings | Low |
+| Health route leakage | Info disclosure via verbose errors | `/api/health` returns only `{status, db, ts}` — no stack traces, no version strings, no DB hostname | Low |
 | Express body parser | DoS via large POST | `express.json({ limit: '1mb' })`; document upload route in later plan uses streaming | Low |
 
 No HIGH-severity threats for this plan.
