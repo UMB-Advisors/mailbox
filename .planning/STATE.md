@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 02
-stopped_at: 02-01 follow-ups closed and verified end-to-end; ready to execute 02-02
-last_updated: "2026-05-12T22:00:00.000Z"
+stopped_at: 02-02 schema-foundation pushed and verified; ready for 4-wide wave (02-03/04/05/06)
+last_updated: "2026-05-13T00:00:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 4
-  percent: 36
+  completed_plans: 5
+  percent: 45
 ---
 
 ## Phase 2 review-fix changelog (2026-05-12)
@@ -47,6 +47,30 @@ docker exec <dash> sh -c 'cd /app && npm run db:push'   # drizzle-kit v0.22.8 in
 ```
 
 02-01 is now genuinely code-complete and verified.
+
+## 02-02 schema-foundation closeout (2026-05-13)
+
+All 8 phase-2 tables exist in `mailbox.*`, all 4 enums pushed, all 6 FKs in place, all required indexes present, default `onboarding` row seeded at `pending_admin`. Verified end-to-end against the plan's 5 verification queries.
+
+Deltas from plan code samples (kept; all upward fixes):
+- **Enums moved into `mailbox` namespace** via `pgSchema('mailbox').enum()` to keep all DDL inside one schema and play nicely with `schemaFilter`. The plan used bare `pgEnum()` which lands in `public`.
+- **Pre-create enums via `scripts/init-db/01-enums.sql`** — drizzle-kit 0.22.x silently omits `CREATE TYPE` when enums are declared on a non-default schema (the `mailbox` filter excludes them from emission). Pre-creation on first DB init lets the subsequent `drizzle-kit push` succeed without manual SQL.
+- **Schema pointer = compiled JS** (`./dist/backend/src/db/schema.js`) in `drizzle.config.ts`. The .ts source fails under NodeNext because drizzle-kit's CJS loader cannot resolve `./enums.js` → `enums.ts` at migration time. Always compiled (builder stage runs `tsc`) so no extra step.
+- **`strict: false`** in drizzle.config so `drizzle-kit push` runs non-interactively inside `docker compose exec -T`. Phase 4+ can re-enable with reviewer approval.
+- **Added the two missing FKs the plan code sample omitted**: `sent_history_draft_queue_fk`, `rejected_history_draft_queue_fk`. Now matches the plan's must_haves spec (6 FKs total, not 4).
+- **Plan code import bug fixed**: `sql` is from `drizzle-orm`, not `drizzle-orm/pg-core`.
+- **Plan flag bug fixed**: drizzle-kit 0.22 has no `--force`; non-interactive runs require `strict:false` in config.
+
+Verification commands (all passed):
+```
+psql -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='mailbox' AND table_name IN (...)"     -- 8
+psql -Atc "SELECT count(*) FROM pg_type WHERE typname IN (...)"                                                     -- 4
+psql -Atc "SELECT count(*) FROM information_schema.table_constraints WHERE table_schema='mailbox' AND constraint_type='FOREIGN KEY';" -- 6
+psql -Atc "SELECT count(*) FROM pg_enum WHERE enumtypid=(SELECT oid FROM pg_type WHERE typname='draft_queue_status');"    -- 6
+psql -Atc "SELECT stage FROM mailbox.onboarding WHERE customer_key='default';"                                      -- pending_admin
+```
+
+Ready for the 4-wide parallel wave: 02-03 imap-ingestion-watchdog, 02-04 classification-routing, 02-05 rag-ingest-retrieval, 02-06 persona-extract-refresh.
 
 # Project State
 
