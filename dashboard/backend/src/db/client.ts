@@ -12,6 +12,10 @@ pool.on('connect', (client) => {
   client.query('SET search_path TO mailbox, public;').catch(() => {});
 });
 
+pool.on('error', (err) => {
+  console.error('[db] idle client error:', err.message);
+});
+
 export const db = drizzle(pool);
 
 export async function pingDb(): Promise<boolean> {

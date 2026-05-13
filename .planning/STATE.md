@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 02
-stopped_at: Phase 2 plans patched with codex review fixes (02-02..02-08); ready to execute 02-02
-last_updated: "2026-05-12T00:00:00.000Z"
+stopped_at: 02-01 follow-ups closed and verified end-to-end; ready to execute 02-02
+last_updated: "2026-05-12T22:00:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 3
-  percent: 27
+  completed_plans: 4
+  percent: 36
 ---
 
 ## Phase 2 review-fix changelog (2026-05-12)
@@ -27,6 +27,26 @@ Highest-impact changes:
 - **02-08** onboarding/queue: minimal wizard UI shipped (closes Phase 2 success criterion 5); real n8n credential provisioning (no more "credentials are pasted in n8n UI separately"); shared `n8n-client.ts` replaces invented `run-by-name` endpoint; approve is SYNCHRONOUS on dispatch accept; escalate route added; tuning-sample corpus sourced from `historical_sent`.
 
 The plans now compose into a coherent end-to-end loop. Execution can begin at 02-02.
+
+## 02-01 follow-up closeout (2026-05-12 evening)
+
+The four open 02-01 follow-ups from commit 866b573 are now resolved end-to-end:
+
+- **Lockfile** — `dashboard/package-lock.json` committed; both Dockerfile stages use `npm ci` for reproducible builds.
+- **drizzle-kit PATH** — `drizzle-kit` moved to `dependencies`; runtime `npm ci --omit=dev` creates the `node_modules/.bin/` symlink. `npm run db:push` now works inside the container (verified — fails only on the not-yet-created `schema.ts`, which 02-02 will add).
+- **ANTHROPIC_API_KEY duplication** — `.env.example` collapsed to a single Phase-2 entry with the placeholder + Glue Co billing comment; the empty trailing entry that was silently clobbering the key is gone.
+- **Health-route contract drift** — the implementation correctly returns 503 on degraded and includes an ISO-8601 `ts` field; the 02-01 plan's must_haves + threat-row summary now match the task-5 code sample.
+
+Bonus fix uncovered during E2E verification: pg `Pool` had no `error` listener, so an idle-client disconnect (postgres restart) was crashing the Node process before the health route could return 503. Added a logging `pool.on('error', ...)`; verified `docker compose stop postgres` now produces `503 {"status":"degraded","db":"down"}` with the dashboard container staying Up.
+
+E2E verification commands (all passed):
+```
+curl http://localhost:3000/api/health           # 200 {status:"ok",db:"ok",ts:...}
+docker compose stop postgres && curl ...        # 503 {status:"degraded",db:"down",ts:...}
+docker exec <dash> sh -c 'cd /app && npm run db:push'   # drizzle-kit v0.22.8 invoked
+```
+
+02-01 is now genuinely code-complete and verified.
 
 # Project State
 
