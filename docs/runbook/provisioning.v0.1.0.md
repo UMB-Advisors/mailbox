@@ -62,6 +62,35 @@ Collect from the customer **before** the unit ships:
 - [ ] Verify MagicDNS: `tailscale ping mailboxN.tail377a9a.ts.net` from workstation
 - [ ] Document local SSH alias addition for ops team
 
+### 2a. DNS sanity (STAQPRO-228)
+
+**Before declaring the appliance ready for `docker compose up`**, verify public DNS works. Tailscaled takes ownership of `/etc/resolv.conf` and points it at the MagicDNS proxy (`100.100.100.100`). If the tailnet admin has not configured **Global nameservers** in [https://login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), every public-hostname lookup returns SERVFAIL — `apt update`, Docker registry pulls, n8n's `Gmail Reply` node, and Ollama Cloud all break with `EAI_AGAIN` / "Temporary failure in name resolution". The MagicDNS proxy itself works; it just has nothing to forward to.
+
+- [ ] On the appliance, verify both names resolve:
+
+      getent hosts ports.ubuntu.com
+      getent hosts www.googleapis.com
+
+  Both must return an IP. If either is empty, DNS is broken — do not proceed.
+
+- [ ] If broken, fix at the tailnet admin level (preferred — restores MagicDNS for the whole tailnet):
+
+  1. In [https://login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), add **Global nameservers** (e.g. `1.1.1.1` + `8.8.8.8`)
+  2. On the appliance: `sudo tailscale set --accept-dns=true` (or wait for the daemon to re-pull DNS config)
+  3. Re-run the `getent hosts ...` checks above
+
+- [ ] If the admin-console fix isn't an option in the moment (e.g. tailnet owner unreachable during a customer-site install), apply the **local workaround** to unblock the install — this disables MagicDNS resolution **on this appliance only**; tailnet hostnames still resolve from the operator's workstation:
+
+      sudo tailscale set --accept-dns=false
+      sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+      sudo systemctl restart systemd-resolved
+      # if docker is already up, refresh container resolvers:
+      docker compose restart n8n
+
+  After the admin-console fix lands, revert with `sudo tailscale set --accept-dns=true` and confirm `dig @100.100.100.100 ports.ubuntu.com` returns an answer.
+
+`OPEN Q:` `iptables v1.8.7 (legacy): unknown option "--restore-mark"` shows up in `journalctl -u tailscaled` on JetPack 6.2 (STAQPRO-228 side-observation). Known iptables/tailscaled mismatch; **does not** affect DNS in practice, and the daemon recovers via the legacy code path. File a follow-up issue if a customer ever traces a tailnet connectivity problem back to it — otherwise leave alone.
+
 `TODO:` Confirm `--ssh` (Tailscale SSH) is the standard, or whether we always copy `~/.ssh/authorized_keys` instead. Customer #1 + Dustin's box both have working sshd — picking one path.
 
 `OPEN Q:` ACL tags and node-key signing — does each appliance get its own ACL group, or do they all share `tag:mailbox-appliance`?
