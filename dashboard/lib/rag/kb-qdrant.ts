@@ -154,6 +154,45 @@ export async function searchKb(
   }
 }
 
+// STAQPRO-333 — fetch KB points by their UUIDs (e.g., the UUIDs stored in
+// drafts.kb_context_refs). Sibling of getPointsByIds in rag/qdrant.ts; same
+// Qdrant batch-get RPC shape, different collection. Used to reverse the
+// one-way pointIdFromChunk hash so the rag-refs route can render the
+// doc_title / excerpt / uploaded_at the drafter saw in the SourcesUsedPanel.
+export interface KbGetPointsResult {
+  ok: boolean;
+  points: Array<{ id: string; payload: KbPointPayload }>;
+  reason?: string;
+}
+
+export async function getKbPointsByIds(ids: readonly string[]): Promise<KbGetPointsResult> {
+  if (ids.length === 0) return { ok: true, points: [] };
+  try {
+    const r = await qdrantRequest('POST', `/collections/${KB_COLLECTION}/points`, {
+      ids: [...ids],
+      with_payload: true,
+    });
+    if (r.status !== 200) {
+      return { ok: false, points: [], reason: `HTTP ${r.status}` };
+    }
+    const result = r.json?.result;
+    if (!Array.isArray(result)) {
+      return { ok: false, points: [], reason: 'unexpected response shape' };
+    }
+    const points = result.map((p) => {
+      const point = p as { id: string; payload: KbPointPayload };
+      return { id: point.id, payload: point.payload };
+    });
+    return { ok: true, points };
+  } catch (error) {
+    return {
+      ok: false,
+      points: [],
+      reason: error instanceof Error ? error.message : 'unknown',
+    };
+  }
+}
+
 // Delete every point belonging to a given doc. Used by the cascade-delete
 // path in DELETE /api/kb-documents/[id]. Qdrant supports filter-based
 // deletes natively; we use the doc_id payload index for an O(matched) op.

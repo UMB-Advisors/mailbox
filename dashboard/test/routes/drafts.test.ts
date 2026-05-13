@@ -606,5 +606,165 @@ dbDescribe('drafts route handlers — real Postgres', () => {
         await deleteSeededDraft(seed);
       }
     });
+
+    // STAQPRO-333 — surface drafts.kb_context_refs as resolved KB chunks
+    // (doc_title / excerpt / uploaded_at) alongside email refs. The drafter
+    // already persists both kinds of refs; these cases prove the route
+    // resolves them against the right Qdrant collection and tags them with
+    // the correct source discriminator.
+    it('resolves KB refs against the kb_documents collection (source-tagged, kb-only draft)', async () => {
+      const KA = '44444444-4444-4444-8444-444444444444';
+      const KB = '55555555-5555-4555-8555-555555555555';
+      const seed = await seedDraft({
+        ragContextRefs: [], // no email refs
+        kbContextRefs: [KA, KB], // 2 kb refs in stored order
+        ragRetrievalReason: 'no_hits', // email side had no hits
+      });
+      const fetchSpy = vi.mocked(global.fetch);
+      // Only ONE fetch fires (KB batch-get) — email side has zero refs so skips.
+      fetchSpy.mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: [
+                {
+                  id: KA,
+                  payload: {
+                    doc_id: 101,
+                    chunk_index: 3,
+                    doc_title: 'pricing-2026.pdf',
+                    doc_sha256: 'abc',
+                    mime_type: 'application/pdf',
+                    excerpt: 'Standard rate is $0.42/unit; bulk over 1000 is $0.38/unit.',
+                    uploaded_at: '2026-05-01T09:00:00Z',
+                  },
+                },
+                {
+                  id: KB,
+                  payload: {
+                    doc_id: 102,
+                    chunk_index: 0,
+                    doc_title: 'refund-policy.md',
+                    doc_sha256: 'def',
+                    mime_type: 'text/markdown',
+                    excerpt: 'Refunds within 30 days of delivery, no questions asked.',
+                    uploaded_at: '2026-05-02T10:00:00Z',
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+      try {
+        const { GET } = await import('@/app/api/drafts/[id]/rag-refs/route');
+        const res = await GET(fakeRequest(), { params: { id: String(seed.draftId) } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.reason).toBe('no_hits'); // email reason carried through
+        expect(body.refs).toHaveLength(2);
+        expect(body.refs[0]).toMatchObject({
+          source: 'kb',
+          point_id: KA,
+          doc_id: 101,
+          doc_title: 'pricing-2026.pdf',
+          chunk_index: 3,
+        });
+        expect(body.refs[1]).toMatchObject({
+          source: 'kb',
+          point_id: KB,
+          doc_id: 102,
+          doc_title: 'refund-policy.md',
+        });
+      } finally {
+        await deleteSeededDraft(seed);
+      }
+    });
+
+    it('resolves a mixed draft (email + kb refs) with email-first stable ordering', async () => {
+      const E = '66666666-6666-4666-8666-666666666666';
+      const K = '77777777-7777-4777-8777-777777777777';
+      const seed = await seedDraft({
+        ragContextRefs: [E],
+        kbContextRefs: [K],
+        ragRetrievalReason: 'ok',
+      });
+      const fetchSpy = vi.mocked(global.fetch);
+      // Two fetches fire — order depends on Promise.all internals. Mock both
+      // with mockImplementation (sticky) so either call order works.
+      fetchSpy.mockImplementation((url: string | URL | Request) => {
+        const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+        if (u.includes('/collections/email_messages/points')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: [
+                  {
+                    id: E,
+                    payload: {
+                      message_id: 'msg-E',
+                      sender: 'e@example.com',
+                      recipient: 'op@example.com',
+                      subject: 'subject E',
+                      body_excerpt: 'body excerpt E',
+                      sent_at: '2026-05-03T12:00:00Z',
+                      direction: 'inbound',
+                      classification_category: 'inquiry',
+                    },
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (u.includes('/collections/kb_documents/points')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: [
+                  {
+                    id: K,
+                    payload: {
+                      doc_id: 200,
+                      chunk_index: 1,
+                      doc_title: 'SOP-onboarding.pdf',
+                      doc_sha256: 'xyz',
+                      mime_type: 'application/pdf',
+                      excerpt: 'Onboarding takes ~30 days from signed agreement.',
+                      uploaded_at: '2026-04-15T14:00:00Z',
+                    },
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response('unexpected URL', { status: 500 }));
+      });
+      try {
+        const { GET } = await import('@/app/api/drafts/[id]/rag-refs/route');
+        const res = await GET(fakeRequest(), { params: { id: String(seed.draftId) } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.reason).toBe('ok');
+        expect(body.refs).toHaveLength(2);
+        // Email-first ordering invariant (D-3 in the plan).
+        expect(body.refs[0].source).toBe('email');
+        expect(body.refs[0].point_id).toBe(E);
+        expect(body.refs[1].source).toBe('kb');
+        expect(body.refs[1].point_id).toBe(K);
+        expect(body.refs[1].doc_title).toBe('SOP-onboarding.pdf');
+      } finally {
+        await deleteSeededDraft(seed);
+        // Reset fetch mock back to the suite's beforeAll default for any
+        // following tests outside this describe block.
+        vi.mocked(global.fetch).mockImplementation(() =>
+          Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+        );
+      }
+    });
   });
 });

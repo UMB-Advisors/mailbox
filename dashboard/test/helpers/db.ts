@@ -43,6 +43,10 @@ export interface SeedOpts {
   // ragRetrievalReason: TEXT default 'none' on the column; pass 'ok' | 'no_hits' | etc to exercise empty-refs branches.
   ragContextRefs?: readonly string[];
   ragRetrievalReason?: string;
+  // STAQPRO-333 — seed KB refs alongside email refs so rag-refs route tests
+  // can exercise the kb-context-refs resolution path. Same jsonb shape as
+  // rag_context_refs; default [].
+  kbContextRefs?: readonly string[];
 }
 
 export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
@@ -53,6 +57,7 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
   const withClassification = opts.withClassification !== false;
   const ragContextRefs = opts.ragContextRefs ?? [];
   const ragRetrievalReason = opts.ragRetrievalReason ?? 'none';
+  const kbContextRefs = opts.kbContextRefs ?? [];
   const tag = `test-${Date.now()}-${++seedCounter}-${Math.random().toString(36).slice(2, 8)}`;
 
   const pool = getTestPool();
@@ -71,11 +76,11 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
        (inbox_message_id, draft_body, draft_subject, model, status,
         classification_category, classification_confidence,
         from_addr, to_addr, subject, body_text,
-        rag_context_refs, rag_retrieval_reason)
+        rag_context_refs, rag_retrieval_reason, kb_context_refs)
      VALUES ($1, $2, $3, 'qwen3:4b-ctx4k', $4, $5, $6,
              'sender@example.com', 'op@example.com',
              $7, 'inbound test body',
-             $8::jsonb, $9)
+             $8::jsonb, $9, $10::jsonb)
      RETURNING id`,
     [
       inboxMessageId,
@@ -87,6 +92,7 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
       `test inbound ${tag}`,
       JSON.stringify([...ragContextRefs]),
       ragRetrievalReason,
+      JSON.stringify([...kbContextRefs]),
     ],
   );
   return { draftId: draft.rows[0].id, inboxMessageId };
