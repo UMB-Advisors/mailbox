@@ -381,6 +381,7 @@ describe('scorePair — STAQPRO-198', () => {
     inbox_body: 'Hi — checking on the order I placed Monday. When does it ship?',
     inbox_classification: 'inquiry',
     inbox_confidence: 0.92,
+    inbox_thread_id: 'thread-1',
   };
 
   // Fixed unit vectors so the test asserts cosine=1 exactly without
@@ -690,6 +691,7 @@ describe('generateDraft — STAQPRO-198', () => {
       inbox_body: 'body',
       inbox_classification: 'inquiry',
       inbox_confidence: 0.9,
+      inbox_thread_id: 'thread-1',
     };
     const fetchMock = vi.fn(async () => jsonResponse({ message: { content: 'drafted' } }));
     const retrieveMock = vi.fn(async () => ({

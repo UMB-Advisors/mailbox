@@ -161,6 +161,9 @@ async function runDraftPass(pair: PairRow, mode: 'with-rag' | 'no-rag'): Promise
     // STAQPRO-219 — drop self-match from retrieval (inspect harness mirrors
     // live drafter behavior).
     message_id: pair.message_id,
+    // STAQPRO-222 (H3) — same-thread suppression, gated inside
+    // retrieveForDraft by RAG_RETRIEVE_EXCLUDE_SAME_THREAD.
+    thread_id: pair.thread_id,
   });
 
   const assembled = assemblePrompt({

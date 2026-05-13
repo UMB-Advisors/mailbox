@@ -119,7 +119,8 @@ export function buildSampleSql(limitClause: number | null): string {
       im.subject                     AS inbox_subject,
       im.body                        AS inbox_body,
       im.classification              AS inbox_classification,
-      im.confidence                  AS inbox_confidence
+      im.confidence                  AS inbox_confidence,
+      im.thread_id                   AS inbox_thread_id
     FROM mailbox.sent_history sh
     JOIN mailbox.inbox_messages im ON im.id = sh.inbox_message_id
     WHERE sh.source = 'backfill'
@@ -409,6 +410,11 @@ export interface PairRow {
   inbox_body: string;
   inbox_classification: string | null;
   inbox_confidence: number | null;
+  // STAQPRO-222 (H3) — supplied to retrieveForDraft so same-thread refs are
+  // dropped when RAG_RETRIEVE_EXCLUDE_SAME_THREAD=1. Nullable on the off
+  // chance an old backfill row didn't capture thread_id (defensive — the
+  // live ingest path sets it).
+  inbox_thread_id: string | null;
 }
 
 const DEFAULT_PERSONA_KEY = 'default';
@@ -462,6 +468,11 @@ export async function generateDraft(
     // real-prior recall, not unit-cosine self-cosine. Same path the live
     // drafter takes via /api/internal/draft-prompt.
     message_id: pair.inbox_message_id,
+    // STAQPRO-222 (H3) — same-thread refs are gated by
+    // RAG_RETRIEVE_EXCLUDE_SAME_THREAD inside retrieveForDraft. The eval
+    // pass-on-vs-off compares the with-flag run against the same baseline
+    // run; the harness just plumbs the thread_id through.
+    thread_id: pair.inbox_thread_id,
   });
   const assembled = assemblePrompt({
     from_addr: pair.inbox_from ?? '',
