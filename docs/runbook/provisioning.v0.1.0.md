@@ -133,16 +133,49 @@ If section is dropped, redirect §4 of the scope checklist into §9 (Anthropic k
 
 ## 5. Customer DNS + Cloudflare API token
 
-**Goal:** `<subdomain>.<customer>.com` resolves to the appliance's public path; Caddy can complete DNS-01 challenge.
+**Goal:** appliance hostname resolves to the appliance's LAN IP; Caddy can complete DNS-01 challenge against the parent Cloudflare zone.
 
-- [ ] Customer delegates `mailbox.<customer-domain>` (or chosen subdomain) to Cloudflare zone we control, OR keeps zone in their Cloudflare and creates a scoped token
-- [ ] Cloudflare API token scope: **Zone → DNS → Edit** for the specific zone only (not account-wide)
-- [ ] Token stored in `.env` as `CLOUDFLARE_API_TOKEN`
-- [ ] DNS A/AAAA record points at appliance's public IP (or Tailscale Funnel endpoint, TBD)
+**Two patterns are supported** (decided in NC-25 / **STAQPRO-183**, 2026-05-13):
 
-`OPEN Q:` Public surface — customer #1 uses `mailbox.heronlabsinc.com` resolving to a public IP. Is customer #2 same model, or are we moving to Tailscale Funnel for cert + public access? Major architecture branch — decide before §5 walkthrough capture.
+### Pattern A — Shared Staqs subdomain (customer 3+, default for new appliances)
 
-`TODO:` Record exact Cloudflare token-create UI clicks (token templates change; screenshot once and version).
+Hostname: `<customer-slug>.mailbox.<MAILBOX_SHARED_DOMAIN>` → appliance LAN IP. One Staqs-owned parent zone covers all appliances on this pattern; the customer never touches DNS.
+
+- [ ] On the provisioner workstation, set in `.env`:
+      - `CLOUDFLARE_API_TOKEN` — Zone → DNS → Edit on the parent zone only
+      - `CLOUDFLARE_ZONE_ID` — from CF dashboard → zone overview → right sidebar
+      - `MAILBOX_SHARED_DOMAIN` — `staqs.io` (Staqs-owned shared root, locked in for NC-25)
+- [ ] Dry-run first to confirm hostname assembly + zone-cover check:
+      ```bash
+      ./scripts/provision-customer-dns.sh --dry-run <customer-slug> <lan-ip>
+      ```
+- [ ] Create the record (idempotent — safe to re-run):
+      ```bash
+      ./scripts/provision-customer-dns.sh <customer-slug> <lan-ip>
+      ```
+- [ ] Script enforces: `proxied=false` (DNS-01 + LAN-IP requirement), TTL 60s, slug matches `^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$`. See script header for full env/exit-code docs.
+- [ ] On the appliance, set in `.env`:
+      - `DOMAIN=<customer-slug>.mailbox.<MAILBOX_SHARED_DOMAIN>` (the full hostname)
+      - `CLOUDFLARE_API_TOKEN` — same token as the provisioner (Caddy uses it for DNS-01 cert solving and renewal)
+
+### Pattern B — Customer-owned domain (M1 grandfathered)
+
+Hostname: `mailbox.<customer-domain>` (e.g. `mailbox.heronlabsinc.com`). Customer keeps their own Cloudflare zone and issues us a scoped token. Use ONLY for legacy / explicit customer-owned-domain requests; default for new appliances is Pattern A.
+
+- [ ] Customer creates `CLOUDFLARE_API_TOKEN` (Zone → DNS → Edit on their zone)
+- [ ] Customer creates the A record manually (or via the same provisioning script if they hand us zone ID + token)
+- [ ] A record points at appliance LAN IP, **proxied=off**
+
+### Common to both patterns
+
+- [ ] Cloudflare API token scope: **Zone → DNS → Edit** on the specific zone only (NEVER account-wide). One leaked appliance token must not be able to walk the whole CF account.
+- [ ] Record `proxied=false` (orange cloud OFF). Proxied mode breaks DNS-01 and hides the LAN IP.
+
+**Why DNS-01:** appliance lives behind the customer's NAT; HTTP-01 challenge would require an inbound public port (it doesn't have one). DNS-01 runs entirely against the Cloudflare API, so a LAN-only appliance can still get and renew a valid Let's Encrypt cert.
+
+`TODO:` Record exact Cloudflare token-create UI clicks for Pattern A (token templates change; screenshot once and version).
+
+`MAILBOX_SHARED_DOMAIN` is `staqs.io` — locked in for NC-25 (STAQPRO-183). Zone provisioning + scoped Cloudflare token issuance for `staqs.io` are tracked in the NC-25 live cutover follow-up issue.
 
 ---
 

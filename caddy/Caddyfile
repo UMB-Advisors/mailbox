@@ -5,7 +5,17 @@
   email {$CADDY_EMAIL}
 }
 
+# Per-customer hostname. Two flavors are supported by this template:
+#   1. Customer-owned domain (M1 / Heron Labs): DOMAIN=mailbox.heronlabsinc.com
+#   2. Shared Staqs subdomain (NC-25, customers 2+, STAQPRO-183):
+#        DOMAIN=<customer-slug>.mailbox.<staqs-shared-domain>
+#      The A record is created by scripts/provision-customer-dns.sh before
+#      first boot and points at the appliance's LAN IP. Caddy then solves
+#      the cert via DNS-01 (LAN IP works because the challenge never needs
+#      to reach the appliance from the public internet).
 {$DOMAIN} {
+  # Cloudflare DNS-01. Same CLOUDFLARE_API_TOKEN used by the provisioner;
+  # scope is Zone → DNS → Edit on the parent zone only. STAQPRO-183.
   tls {
     dns cloudflare {env.CLOUDFLARE_API_TOKEN}
   }

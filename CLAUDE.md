@@ -337,6 +337,33 @@ Failure semantics: every RAG path returns success-shaped responses on Ollama or 
 - TLS via Cloudflare DNS-01, zone owned by Eric@staqs.io's CF account; A record proxied=false (LAN IP).
 - Caddyfile currently hardcodes the M1 hostname and was hand-`sed`'d to `mailbox.staqs.io` for this install — see install plan v0.2 follow-up #6 for the templating fix that needs to land before customer #3.
 
+### Per-customer subdomain pattern (NC-25 / STAQPRO-183)
+
+**Pattern for customers 3+:** `<customer-slug>.mailbox.<staqs-shared-domain>` resolves to the appliance's LAN IP. Caddy solves TLS via Cloudflare DNS-01 (challenge happens entirely over the Cloudflare API — never traverses public internet to the appliance), so non-routable LAN IPs work fine.
+
+**Why this exists:** M1 and M2 each consumed bespoke DNS setup (customer-owned domain, customer-paid Cloudflare account). NC-25 collapses that to one Staqs-owned parent zone — customer plugs the appliance into their router, opens the HTTPS hostname, done. Customer #1 (`mailbox.heronlabsinc.com`) stays as a customer-owned exception; M2 (`mailbox.staqs.io`, Eric's personal zone) is grandfathered until/unless we re-issue.
+
+**Shared parent domain:** `staqs.io` (locked in as part of NC-25 / STAQPRO-183). `MAILBOX_SHARED_DOMAIN` is the env var the provisioning script reads; the operator sets it to `staqs.io` on shared-subdomain appliances. The Caddyfile itself only sees `{$DOMAIN}` which is the fully-resolved hostname.
+
+**Cert resolver:** Shared `CLOUDFLARE_API_TOKEN` (scope: Zone → DNS → Edit on the parent zone only). Same token serves both Caddy (cert issuance at runtime) and `scripts/provision-customer-dns.sh` (A-record creation at provision time). NEVER use an account-wide token — the blast radius of a leaked appliance token has to be one zone.
+
+**A-record provisioning:** Run from the provisioner workstation, NOT on the Jetson.
+```bash
+# .env on provisioner workstation must export:
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, MAILBOX_SHARED_DOMAIN
+./scripts/provision-customer-dns.sh <customer-slug> <appliance-LAN-IP>
+# e.g.:  ./scripts/provision-customer-dns.sh acme 192.168.50.11
+# →  acme.mailbox.staqs.io  A  192.168.50.11   (proxied=false, TTL 60s)
+```
+
+Idempotent: re-running with the same IP is a no-op; re-running with a new IP updates in place. `--dry-run` previews without API calls. See script header for full env/exit-code docs.
+
+**Caddy reads `DOMAIN` from the appliance's `.env`** — set it to the fully-resolved hostname (`acme.mailbox.staqs.io`) on the appliance. The Caddyfile's `tls { dns cloudflare {env.CLOUDFLARE_API_TOKEN} }` block is the same for shared-subdomain and customer-owned-domain appliances; only `DOMAIN` and the token's zone scope change between them.
+
+**Gotcha — proxied mode:** Cloudflare's "Proxied" (orange-cloud) mode intercepts and rewrites traffic, which both (a) hides the LAN IP from end users (defeats the LAN-only model) and (b) breaks the cert challenge. The provisioning script hardcodes `proxied=false`; if you ever create records manually in the dashboard, leave the cloud icon grey.
+
+**Runbook cross-link:** [`docs/runbook/provisioning.v0.1.0.md`](docs/runbook/provisioning.v0.1.0.md) §5 (Customer DNS + Cloudflare API token) — the runbook owns the customer-facing checklist; this section owns the architectural rationale.
+
 ### Test coverage
 
 **STAQPRO-133 (open)** — there are no Vitest tests yet. The existing `scripts/smoke-test.sh` is **infrastructure** smoke (GPU, Qdrant, Postgres) — it does not exercise the pipeline. Pipeline + schema + route tests are scheduled to land before customer #2.
