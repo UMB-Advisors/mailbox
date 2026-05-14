@@ -39,7 +39,8 @@
 // the pair's message_id and continues. Final JSON has a per-pair status
 // field so the operator can see which rows dropped out.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { Pool } from 'pg';
@@ -54,6 +55,13 @@ import {
 import { getPersonaContext } from '../lib/drafting/persona';
 import { assemblePrompt } from '../lib/drafting/prompt';
 import { pickEndpoint } from '../lib/drafting/router';
+// STAQPRO-340 — trace-set loader (offline replacement for the DB-driven path)
+import {
+  type Trace,
+  traceManifestSchema,
+  traceSchema,
+  verifyManifest,
+} from '../lib/eval/trace-set';
 import { embedText } from '../lib/rag/embed';
 import { type RetrievalResult, retrieveForDraft } from '../lib/rag/retrieve';
 
@@ -154,6 +162,14 @@ export interface PerPairScore {
   judge_length?: number;
   judge_rationale?: string;
   judge_error?: string;
+  // STAQPRO-340 — per-pair perf metrics. Populated from the Ollama /api/chat
+  // response (`prompt_eval_count`, `eval_count`, `eval_duration` in ns).
+  // Absent on draft_failed pairs (no metrics to capture). The model-bake-off
+  // (STAQPRO-342) aggregates these to enforce the DR-21 ≥ 15 t/s gate.
+  latency_ms?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  tokens_per_second?: number;
 }
 
 export interface AggregateStats {
@@ -173,6 +189,21 @@ export interface RagEvalReport {
   embed_model: string;
   sample_size_requested: number | 'all';
   sample_size_actual: number;
+  // STAQPRO-340 — run tag for the bake-off `eval-{model}-{date}` convention.
+  // Populated from `--run-tag` or derived in main(). Used for the output
+  // filename + cross-referencing the run in the addendum.
+  run_tag: string;
+  // STAQPRO-340 — trace-set provenance. Present when the run sourced its
+  // pairs from a committed trace set rather than the live DB. Lets a reader
+  // verify the run was executed against a known-good corpus.
+  trace_set?: TraceSetProvenance;
+  // STAQPRO-340 — perf aggregates. Each is over the subset of pairs that
+  // captured the metric (Ollama-shape responses on the local route). Empty
+  // aggregates (count=0) when the run had no metrics.
+  latency_ms_aggregates?: AggregateStats;
+  tokens_in_aggregates?: AggregateStats;
+  tokens_out_aggregates?: AggregateStats;
+  tokens_per_second_aggregates?: AggregateStats;
   aggregates_global: AggregateStats;
   aggregates_by_category: Record<string, AggregateStats>;
   // STAQPRO-220 — judge aggregates. Present only when judge was enabled.
@@ -235,6 +266,19 @@ function percentile(sorted: readonly number[], p: number): number {
   return sorted[lo] * (1 - frac) + sorted[hi] * frac;
 }
 
+/**
+ * STAQPRO-340 — trace-set provenance carried onto every report that sourced
+ * its pairs from a committed trace set. Lets a reader verify a result was
+ * generated against a known SHA-256-pinned corpus.
+ */
+export interface TraceSetProvenance {
+  dir: string;
+  set_version: string;
+  set_sha256: string;
+  source_appliance: string;
+  count: number;
+}
+
 export function buildReport(args: {
   mode: 'with-rag' | 'no-rag';
   drafter_model: string;
@@ -242,9 +286,22 @@ export function buildReport(args: {
   sample_size_requested: number | 'all';
   per_pair: PerPairScore[];
   judge_provider?: JudgeProvider;
+  // STAQPRO-340 — new optional inputs. Existing callers (tests) keep the
+  // same shape; both fields are optional so the report shape regression-tests
+  // unchanged when omitted.
+  run_tag?: string;
+  trace_set?: TraceSetProvenance;
 }): RagEvalReport {
-  const { mode, drafter_model, embed_model, sample_size_requested, per_pair, judge_provider } =
-    args;
+  const {
+    mode,
+    drafter_model,
+    embed_model,
+    sample_size_requested,
+    per_pair,
+    judge_provider,
+    run_tag,
+    trace_set,
+  } = args;
   const okScores = per_pair.filter((p) => p.cosine !== null).map((p) => p.cosine as number);
   const byCategory = new Map<string, number[]>();
   for (const pair of per_pair) {
@@ -311,13 +368,49 @@ export function buildReport(args: {
     if (p.judge_status === 'rate_limited') status_counts.judge_rate_limited += 1;
   }
 
+  // STAQPRO-340 — perf aggregates. Each is over the subset of pairs that
+  // captured the relevant metric. A pair is missing perf when generateDraft
+  // threw (status==='draft_failed') OR when the endpoint didn't return the
+  // Ollama-shape token counts. aggregate() returns zeros on an empty input
+  // so the JSON shape stays stable when no perf data was captured.
+  const latencies = per_pair
+    .filter((p) => typeof p.latency_ms === 'number')
+    .map((p) => p.latency_ms as number);
+  const tokens_in = per_pair
+    .filter((p) => typeof p.tokens_in === 'number')
+    .map((p) => p.tokens_in as number);
+  const tokens_out = per_pair
+    .filter((p) => typeof p.tokens_out === 'number')
+    .map((p) => p.tokens_out as number);
+  const tps = per_pair
+    .filter((p) => typeof p.tokens_per_second === 'number')
+    .map((p) => p.tokens_per_second as number);
+
+  const latency_ms_aggregates = latencies.length > 0 ? aggregate(latencies) : undefined;
+  const tokens_in_aggregates = tokens_in.length > 0 ? aggregate(tokens_in) : undefined;
+  const tokens_out_aggregates = tokens_out.length > 0 ? aggregate(tokens_out) : undefined;
+  const tokens_per_second_aggregates = tps.length > 0 ? aggregate(tps) : undefined;
+
+  // Run tag default: `eval-<drafter_model_safe>-<YYYY-MM-DD>`. Sanitize the
+  // model name by stripping `:` and `/` (filename-unsafe) and lowercasing.
+  const generated_at = new Date().toISOString();
+  const dateOnly = generated_at.slice(0, 10);
+  const safeModel = drafter_model.replace(/[:/]/g, '-').toLowerCase();
+  const derivedRunTag = `eval-${safeModel}-${dateOnly}`;
+
   return {
-    generated_at: new Date().toISOString(),
+    generated_at,
     mode,
     drafter_model,
     embed_model,
     sample_size_requested,
     sample_size_actual: per_pair.length,
+    run_tag: run_tag ?? derivedRunTag,
+    trace_set,
+    latency_ms_aggregates,
+    tokens_in_aggregates,
+    tokens_out_aggregates,
+    tokens_per_second_aggregates,
     aggregates_global: aggregate(okScores),
     aggregates_by_category,
     judge_provider,
@@ -336,6 +429,14 @@ export interface ParsedArgs {
   // 67-min Qwen3 draft + embed loop.
   judge: JudgeProvider | null;
   judge_only: boolean;
+  // STAQPRO-340 — trace-set path (offline replacement for the DB-driven
+  // sample). `null` means the existing DB path (read from sent_history).
+  // When set, the harness loads pairs from `<dir>/manifest.json` +
+  // `<dir>/*.trace.json` and ignores POSTGRES_URL.
+  trace_set: string | null;
+  // STAQPRO-340 — explicit run tag for the bake-off `eval-{model}-{date}`
+  // convention. Defaults to a derived value when omitted.
+  run_tag: string | null;
 }
 
 const JUDGE_PROVIDERS: readonly JudgeProvider[] = ['haiku', 'gpt-oss'];
@@ -354,6 +455,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let limit: number | 'all' = 'all';
   let judge: JudgeProvider | null = null;
   let judge_only = false;
+  let trace_set: string | null = null;
+  let run_tag: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') {
@@ -389,9 +492,31 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     if (a?.startsWith('--judge-only=')) {
       judge = parseJudgeValue('--judge-only', a.slice('--judge-only='.length));
       judge_only = true;
+      continue;
+    }
+    if (a === '--trace-set') {
+      const v = argv[i + 1];
+      if (v === undefined || v === '') throw new Error('--trace-set requires a value');
+      trace_set = v;
+      i++;
+      continue;
+    }
+    if (a?.startsWith('--trace-set=')) {
+      trace_set = a.slice('--trace-set='.length);
+      continue;
+    }
+    if (a === '--run-tag') {
+      const v = argv[i + 1];
+      if (v === undefined || v === '') throw new Error('--run-tag requires a value');
+      run_tag = v;
+      i++;
+      continue;
+    }
+    if (a?.startsWith('--run-tag=')) {
+      run_tag = a.slice('--run-tag='.length);
     }
   }
-  return { limit, judge, judge_only };
+  return { limit, judge, judge_only, trace_set, run_tag };
 }
 
 // =============================================================================
@@ -439,10 +564,31 @@ export interface DrafterDeps {
   resolvePersona?: typeof getPersonaContext;
 }
 
+/**
+ * STAQPRO-340 — extra Ollama response fields the harness captures for the
+ * bake-off perf metrics. Optional everywhere because (a) Ollama only emits
+ * them on the final non-streaming response object, and (b) cloud endpoints
+ * (Anthropic, Ollama Cloud) emit a different shape. Pairs without metrics
+ * just leave `latency_ms` / `tokens_*` undefined on the per-pair record.
+ */
+export interface OllamaPerfMetrics {
+  latency_ms?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  tokens_per_second?: number;
+}
+
+export interface GenerateDraftResult {
+  body: string;
+  refs_count: number;
+  reason: RetrievalResult['reason'];
+  perf: OllamaPerfMetrics;
+}
+
 export async function generateDraft(
   pair: PairRow,
   deps: DrafterDeps = {},
-): Promise<{ body: string; refs_count: number; reason: RetrievalResult['reason'] }> {
+): Promise<GenerateDraftResult> {
   const fetchFn = deps.fetchFn ?? fetch;
   const retrieve = deps.retrieve ?? retrieveForDraft;
   const resolvePersona = deps.resolvePersona ?? getPersonaContext;
@@ -489,6 +635,12 @@ export async function generateDraft(
   const url = `${endpoint.baseUrl}/api/chat`;
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (endpoint.apiKey) headers.authorization = `Bearer ${endpoint.apiKey}`;
+  // STAQPRO-340 — wall-clock latency. Captured around the fetch + json read
+  // so the number reflects what the live drafter would experience (network
+  // + Ollama queue + inference + JSON serialize). Cloud endpoints get the
+  // same measurement; tokens_per_second derived below from eval_count /
+  // eval_duration is Ollama-shape-specific and absent on non-Ollama paths.
+  const startMs = performance.now();
   const res = await fetchFn(url, {
     method: 'POST',
     headers,
@@ -505,12 +657,43 @@ export async function generateDraft(
   if (!res.ok) {
     throw new Error(`ollama /api/chat returned ${res.status}: ${await res.text()}`);
   }
-  const data = (await res.json()) as { message?: { content?: string } };
+  // Ollama /api/chat non-streaming response shape:
+  //   message.content        — draft body
+  //   prompt_eval_count      — input tokens
+  //   eval_count             — output tokens
+  //   eval_duration          — output generation duration (ns)
+  //
+  // See lib/drafting/ollama.ts for the canonical typing.
+  const data = (await res.json()) as {
+    message?: { content?: string };
+    prompt_eval_count?: number;
+    eval_count?: number;
+    eval_duration?: number;
+  };
+  const latency_ms = performance.now() - startMs;
   const content = data.message?.content ?? '';
+
+  const perf: OllamaPerfMetrics = { latency_ms };
+  if (typeof data.prompt_eval_count === 'number') {
+    perf.tokens_in = data.prompt_eval_count;
+  }
+  if (typeof data.eval_count === 'number') {
+    perf.tokens_out = data.eval_count;
+  }
+  if (
+    typeof data.eval_count === 'number' &&
+    typeof data.eval_duration === 'number' &&
+    data.eval_duration > 0
+  ) {
+    // eval_duration is in nanoseconds per Ollama API; t/s = tokens / seconds.
+    perf.tokens_per_second = data.eval_count / (data.eval_duration / 1_000_000_000);
+  }
+
   return {
     body: content,
     refs_count: retrieval.refs.length,
     reason: retrieval.reason,
+    perf,
   };
 }
 
@@ -566,11 +749,13 @@ export async function scorePair(
   let draftBody = '';
   let refs_count = 0;
   let reason: RetrievalResult['reason'] = 'no_hits';
+  let perf: OllamaPerfMetrics = {};
   try {
     const drafted = await generateDraft(pair, deps);
     draftBody = drafted.body;
     refs_count = drafted.refs_count;
     reason = drafted.reason;
+    perf = drafted.perf;
   } catch (err) {
     return { ...base, status: 'draft_failed', error: errorMessage(err) };
   }
@@ -578,6 +763,14 @@ export async function scorePair(
   base.draft_chars = draftBody.length;
   base.rag_refs_count = refs_count;
   base.rag_reason = reason;
+  // STAQPRO-340 — perf metrics are merged onto every non-draft_failed
+  // record. Undefined fields drop out of JSON serialization automatically,
+  // so cosine-only / judge-only runs keep the same JSON shape on cloud
+  // endpoints that don't emit Ollama-style metrics.
+  if (perf.latency_ms !== undefined) base.latency_ms = perf.latency_ms;
+  if (perf.tokens_in !== undefined) base.tokens_in = perf.tokens_in;
+  if (perf.tokens_out !== undefined) base.tokens_out = perf.tokens_out;
+  if (perf.tokens_per_second !== undefined) base.tokens_per_second = perf.tokens_per_second;
 
   if (!draftBody.trim() || !pair.actual_reply_body.trim()) {
     return { ...base, status: 'embed_failed', error: 'empty draft or actual reply' };
@@ -734,20 +927,165 @@ function summaryTable(report: RagEvalReport): string {
       }
     }
   }
+  // STAQPRO-340 — perf metrics block. Renders only when at least one perf
+  // aggregate is non-empty; bake-off operators read this directly to verify
+  // the DR-21 ≥ 15 t/s and ≤ 3.4 GiB gates (peak memory is captured outside
+  // the harness via `nvidia-smi --query-gpu=memory.used` polling).
+  const hasPerf =
+    report.latency_ms_aggregates ||
+    report.tokens_in_aggregates ||
+    report.tokens_out_aggregates ||
+    report.tokens_per_second_aggregates;
+  if (hasPerf) {
+    lines.push('');
+    lines.push(`Perf metrics (run_tag=${report.run_tag}):`);
+    if (report.tokens_per_second_aggregates) {
+      const t = report.tokens_per_second_aggregates;
+      lines.push(
+        `  tokens/sec       count=${String(t.count).padStart(4)}  mean=${t.mean.toFixed(2)}  median=${t.median.toFixed(2)}  p25=${t.p25.toFixed(2)}  p75=${t.p75.toFixed(2)}`,
+      );
+    }
+    if (report.latency_ms_aggregates) {
+      const l = report.latency_ms_aggregates;
+      lines.push(
+        `  latency_ms       count=${String(l.count).padStart(4)}  mean=${l.mean.toFixed(0)}  median=${l.median.toFixed(0)}  p25=${l.p25.toFixed(0)}  p75=${l.p75.toFixed(0)}`,
+      );
+    }
+    if (report.tokens_in_aggregates) {
+      const ti = report.tokens_in_aggregates;
+      lines.push(
+        `  tokens_in        count=${String(ti.count).padStart(4)}  mean=${ti.mean.toFixed(0)}  median=${ti.median.toFixed(0)}`,
+      );
+    }
+    if (report.tokens_out_aggregates) {
+      const to = report.tokens_out_aggregates;
+      lines.push(
+        `  tokens_out       count=${String(to.count).padStart(4)}  mean=${to.mean.toFixed(0)}  median=${to.median.toFixed(0)}`,
+      );
+    }
+  }
+  if (report.trace_set) {
+    lines.push('');
+    lines.push(
+      `Trace set: version=${report.trace_set.set_version} sha=${report.trace_set.set_sha256.slice(0, 16)}… appliance=${report.trace_set.source_appliance} count=${report.trace_set.count}`,
+    );
+  }
   lines.push('');
   return lines.join('\n');
 }
 
-async function main(): Promise<void> {
-  const url = process.env.POSTGRES_URL;
-  if (!url) throw new Error('POSTGRES_URL not set');
+/**
+ * STAQPRO-340 — load a trace set from disk. Returns the `PairRow[]` shape
+ * the existing scorePair / generateDraft path already consumes plus the
+ * `TraceSetProvenance` that gets carried onto the report.
+ *
+ * Failure modes:
+ *   - missing manifest.json → throw
+ *   - manifest fails zod or `verifyManifest` (set_sha256 mismatch) → throw
+ *   - a `*.trace.json` file fails zod → throw
+ *   - a trace's recomputed SHA-256 doesn't match its manifest entry → throw
+ *
+ * The harness deliberately fails LOUD on any integrity issue. RAG was the
+ * "soft-fail on infra outage" path; eval is the "must be reproducible" path.
+ */
+export async function loadTraceSet(
+  dir: string,
+): Promise<{ pairs: PairRow[]; provenance: TraceSetProvenance }> {
+  const manifestPath = path.join(dir, 'manifest.json');
+  const manifestRaw = await readFile(manifestPath, 'utf-8');
+  const manifest = traceManifestSchema.parse(JSON.parse(manifestRaw));
 
+  const verdict = verifyManifest(manifest);
+  if (!verdict.ok) {
+    throw new Error(
+      `trace-set manifest verification failed: ${verdict.reason} (expected=${verdict.expected ?? 'n/a'}, actual=${verdict.actual ?? 'n/a'})`,
+    );
+  }
+
+  // Cross-check: the directory should contain exactly the files listed in
+  // manifest.entries (modulo manifest.json itself, README, .gitignore, etc).
+  const filesOnDisk = new Set((await readdir(dir)).filter((f) => f.endsWith('.trace.json')));
+  const filesInManifest = new Set(manifest.entries.map((e) => e.filename));
+  for (const f of filesInManifest) {
+    if (!filesOnDisk.has(f)) {
+      throw new Error(`trace-set: manifest references missing file ${f}`);
+    }
+  }
+
+  const pairs: PairRow[] = [];
+  // Iterate in manifest order for deterministic run-to-run output ordering.
+  for (const entry of manifest.entries) {
+    const traceRaw = await readFile(path.join(dir, entry.filename), 'utf-8');
+    const trace = traceSchema.parse(JSON.parse(traceRaw)) satisfies Trace;
+    // The harness uses the raw on-disk bytes to compute the SHA-256, so a
+    // mismatch here means either the trace file has been edited
+    // out-of-band or the format-version regenerator changed the canonical
+    // JSON shape. Both block the run.
+    const expected = entry.trace_sha256;
+    // Re-canonicalize and re-hash to catch out-of-band edits (e.g., an
+    // editor stripped a trailing newline). Cheap insurance.
+    const recomputed = createSha256OfTraceFileBytes(traceRaw);
+    if (recomputed !== expected) {
+      throw new Error(
+        `trace-set: ${entry.filename} sha256 mismatch (expected=${expected}, actual=${recomputed})`,
+      );
+    }
+
+    pairs.push({
+      sent_history_id: trace.provenance.sent_history_id,
+      sent_message_id: trace.inbox_message_id,
+      // Treat actual_reply_body as the canonical "what we should match".
+      actual_reply_body: trace.actual_reply_body,
+      reply_sent_at: trace.reply_sent_at,
+      inbox_id: trace.provenance.inbox_id,
+      inbox_message_id: trace.inbox_message_id,
+      inbox_from: trace.inbox_from,
+      inbox_subject: trace.inbox_subject,
+      inbox_body: trace.inbox_body,
+      inbox_classification: trace.classification,
+      inbox_confidence: trace.inbox_confidence,
+      inbox_thread_id: trace.inbox_thread_id,
+    });
+  }
+
+  const provenance: TraceSetProvenance = {
+    dir,
+    set_version: manifest.set_version,
+    set_sha256: manifest.set_sha256,
+    source_appliance: manifest.source_appliance,
+    count: manifest.count,
+  };
+
+  return { pairs, provenance };
+}
+
+/**
+ * SHA-256 over the raw on-disk bytes of a trace JSON file. Matches
+ * `hashTrace` in `lib/eval/trace-set.ts` when the file was written by
+ * `traceToCanonicalJson` and hasn't been edited out-of-band. The integrity
+ * check catches editor-introduced whitespace drift, trailing-newline loss,
+ * or any other byte-level mutation that would silently break the
+ * content-addressed contract.
+ */
+function createSha256OfTraceFileBytes(bytes: string): string {
+  return createHash('sha256').update(bytes, 'utf-8').digest('hex');
+}
+
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const mode: 'with-rag' | 'no-rag' = process.env.RAG_DISABLED === '1' ? 'no-rag' : 'with-rag';
   const drafterModel = process.env.RAG_EVAL_DRAFTER_MODEL ?? 'qwen3:4b-ctx4k';
   const embedModel = process.env.EMBED_MODEL ?? 'nomic-embed-text:v1.5';
   const judgeProvider = args.judge;
   const judgeOnly = args.judge_only;
+  const useTraceSet = args.trace_set !== null;
+
+  // POSTGRES_URL is only required on the DB-driven path. Trace-set runs
+  // operate offline against the committed corpus.
+  const postgresUrl = process.env.POSTGRES_URL;
+  if (!useTraceSet && !postgresUrl) {
+    throw new Error('POSTGRES_URL not set (required unless --trace-set is used)');
+  }
 
   // STAQPRO-220 — privacy notice. The judge sees draft + actual reply bytes;
   // both go to whichever cloud the operator picked. The runbook documents
@@ -770,16 +1108,35 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[rag-eval] mode=${mode} limit=${args.limit} drafter=${drafterModel} embed=${embedModel}`,
+    `[rag-eval] mode=${mode} limit=${args.limit} drafter=${drafterModel} embed=${embedModel} source=${useTraceSet ? `trace-set:${args.trace_set}` : 'postgres'}`,
   );
 
-  const pool = new Pool({ connectionString: url, max: 2 });
-  try {
+  let pairs: PairRow[];
+  let traceProvenance: TraceSetProvenance | undefined;
+  let pool: Pool | null = null;
+
+  if (useTraceSet && args.trace_set !== null) {
+    const loaded = await loadTraceSet(args.trace_set);
+    pairs = loaded.pairs;
+    traceProvenance = loaded.provenance;
+    console.log(
+      `[rag-eval] loaded trace set version=${loaded.provenance.set_version} sha=${loaded.provenance.set_sha256.slice(0, 16)}… count=${loaded.provenance.count}`,
+    );
+    // --limit applies to trace-set runs too — useful for smoke runs against
+    // a large committed set. `all` keeps the full set.
+    if (args.limit !== 'all') {
+      pairs = pairs.slice(0, args.limit);
+    }
+  } else {
+    if (!postgresUrl) throw new Error('unreachable: postgres path without POSTGRES_URL');
+    pool = new Pool({ connectionString: postgresUrl, max: 2 });
     const sql = buildSampleSql(args.limit === 'all' ? null : args.limit);
     const r = await pool.query<PairRow>(sql);
-    const pairs = r.rows;
-    console.log(`[rag-eval] selected ${pairs.length} (inbound, reply) pairs`);
+    pairs = r.rows;
+  }
+  console.log(`[rag-eval] scoring ${pairs.length} (inbound, reply) pairs`);
 
+  try {
     const perPair: PerPairScore[] = [];
     let i = 0;
     for (const pair of pairs) {
@@ -824,6 +1181,8 @@ async function main(): Promise<void> {
       sample_size_requested: args.limit,
       per_pair: perPair,
       judge_provider: judgeProvider ?? undefined,
+      run_tag: args.run_tag ?? undefined,
+      trace_set: traceProvenance,
     });
 
     const outDir = path.resolve(process.cwd(), 'eval-results');
@@ -837,13 +1196,16 @@ async function main(): Promise<void> {
         ? `-judge-only-${judgeProvider}`
         : `-judge-${judgeProvider}`
       : '';
-    const outPath = path.join(outDir, `rag-eval-${ts}-${mode}${judgeSuffix}.json`);
+    // STAQPRO-340 — run-tag goes in the filename too so the bake-off can
+    // shell-glob `eval-${model}-*.json` for cross-model aggregation.
+    const tagSuffix = `-${report.run_tag}`;
+    const outPath = path.join(outDir, `rag-eval-${ts}-${mode}${judgeSuffix}${tagSuffix}.json`);
     await writeFile(outPath, JSON.stringify(report, null, 2), 'utf-8');
 
     console.log(summaryTable(report));
     console.log(`[rag-eval] wrote ${outPath}`);
   } finally {
-    await pool.end();
+    if (pool) await pool.end();
   }
 }
 

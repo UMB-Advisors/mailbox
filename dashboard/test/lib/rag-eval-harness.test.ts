@@ -121,9 +121,15 @@ describe('buildSampleSql — STAQPRO-198', () => {
   });
 });
 
-describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
+describe('parseArgs — STAQPRO-198 + STAQPRO-220 + STAQPRO-340', () => {
   it("defaults to limit='all' when no flag passed", () => {
-    expect(parseArgs([])).toEqual({ limit: 'all', judge: null, judge_only: false });
+    expect(parseArgs([])).toEqual({
+      limit: 'all',
+      judge: null,
+      judge_only: false,
+      trace_set: null,
+      run_tag: null,
+    });
   });
 
   it('accepts --limit all as an explicit choice', () => {
@@ -131,6 +137,8 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 'all',
       judge: null,
       judge_only: false,
+      trace_set: null,
+      run_tag: null,
     });
   });
 
@@ -139,6 +147,8 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 50,
       judge: null,
       judge_only: false,
+      trace_set: null,
+      run_tag: null,
     });
   });
 
@@ -159,6 +169,8 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 'all',
       judge: 'haiku',
       judge_only: false,
+      trace_set: null,
+      run_tag: null,
     });
   });
 
@@ -167,6 +179,8 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 'all',
       judge: 'gpt-oss',
       judge_only: false,
+      trace_set: null,
+      run_tag: null,
     });
   });
 
@@ -175,6 +189,8 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 'all',
       judge: 'haiku',
       judge_only: true,
+      trace_set: null,
+      run_tag: null,
     });
   });
 
@@ -183,6 +199,8 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 'all',
       judge: 'gpt-oss',
       judge_only: true,
+      trace_set: null,
+      run_tag: null,
     });
   });
 
@@ -201,6 +219,58 @@ describe('parseArgs — STAQPRO-198 + STAQPRO-220', () => {
       limit: 10,
       judge: 'haiku',
       judge_only: false,
+      trace_set: null,
+      run_tag: null,
+    });
+  });
+
+  // STAQPRO-340 — trace-set + run-tag flags.
+
+  it('parses --trace-set <path> as separated value', () => {
+    const parsed = parseArgs(['--trace-set', 'eval/t2-traces/v1.0']);
+    expect(parsed.trace_set).toBe('eval/t2-traces/v1.0');
+  });
+
+  it('parses --trace-set=<path> as combined value', () => {
+    const parsed = parseArgs(['--trace-set=eval/t2-traces/v1.0']);
+    expect(parsed.trace_set).toBe('eval/t2-traces/v1.0');
+  });
+
+  it('rejects --trace-set with no value', () => {
+    expect(() => parseArgs(['--trace-set'])).toThrow(/requires a value/);
+  });
+
+  it('parses --run-tag <tag> as separated value', () => {
+    const parsed = parseArgs(['--run-tag', 'eval-qwen3-4b-ctx4k-2026-05-13']);
+    expect(parsed.run_tag).toBe('eval-qwen3-4b-ctx4k-2026-05-13');
+  });
+
+  it('parses --run-tag=<tag> as combined value', () => {
+    const parsed = parseArgs(['--run-tag=eval-test-run']);
+    expect(parsed.run_tag).toBe('eval-test-run');
+  });
+
+  it('rejects --run-tag with no value', () => {
+    expect(() => parseArgs(['--run-tag'])).toThrow(/requires a value/);
+  });
+
+  it('combines --trace-set --run-tag --judge --limit', () => {
+    expect(
+      parseArgs([
+        '--trace-set',
+        'eval/t2-traces/v1.0',
+        '--run-tag',
+        'eval-test',
+        '--judge=haiku',
+        '--limit',
+        '5',
+      ]),
+    ).toEqual({
+      limit: 5,
+      judge: 'haiku',
+      judge_only: false,
+      trace_set: 'eval/t2-traces/v1.0',
+      run_tag: 'eval-test',
     });
   });
 });
@@ -732,6 +802,209 @@ describe('generateDraft — STAQPRO-198', () => {
     // model has the inbound to draft against.
     expect(body.messages[1].content).toContain('subj');
     expect(body.messages[1].content).toContain('body');
+  });
+});
+
+// =============================================================================
+// STAQPRO-340 — perf metrics + run_tag + trace_set provenance on the report.
+// =============================================================================
+
+describe('buildReport — STAQPRO-340 (perf metrics + run_tag)', () => {
+  const baseScore = (overrides: Partial<PerPairScore>): PerPairScore => ({
+    sent_history_id: 1,
+    inbox_message_id: 'm1',
+    classification: 'inquiry',
+    cosine: 0.5,
+    rag_refs_count: 0,
+    rag_reason: 'no_hits',
+    draft_chars: 100,
+    actual_chars: 120,
+    status: 'ok',
+    ...overrides,
+  });
+
+  it('derives run_tag from drafter_model + date when --run-tag omitted', () => {
+    const report = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      per_pair: [baseScore({ cosine: 0.5 })],
+    });
+    // qwen3:4b-ctx4k → qwen3-4b-ctx4k (`:` → `-`, lowercase)
+    expect(report.run_tag).toMatch(/^eval-qwen3-4b-ctx4k-\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('uses explicit run_tag verbatim when supplied', () => {
+    const report = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      per_pair: [baseScore({ cosine: 0.5 })],
+      run_tag: 'eval-my-specific-run',
+    });
+    expect(report.run_tag).toBe('eval-my-specific-run');
+  });
+
+  it('aggregates perf metrics only over pairs that captured them', () => {
+    const report = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      per_pair: [
+        baseScore({
+          sent_history_id: 1,
+          latency_ms: 1200,
+          tokens_in: 500,
+          tokens_out: 100,
+          tokens_per_second: 20,
+        }),
+        baseScore({
+          sent_history_id: 2,
+          latency_ms: 1800,
+          tokens_in: 700,
+          tokens_out: 150,
+          tokens_per_second: 15,
+        }),
+        // No perf — simulates a draft_failed pair that should be excluded.
+        baseScore({ sent_history_id: 3, cosine: null, status: 'draft_failed' }),
+      ],
+    });
+
+    expect(report.tokens_per_second_aggregates?.count).toBe(2);
+    expect(report.tokens_per_second_aggregates?.mean).toBeCloseTo(17.5, 5);
+    expect(report.latency_ms_aggregates?.count).toBe(2);
+    expect(report.latency_ms_aggregates?.mean).toBeCloseTo(1500, 5);
+    expect(report.tokens_in_aggregates?.count).toBe(2);
+    expect(report.tokens_out_aggregates?.count).toBe(2);
+  });
+
+  it('omits perf aggregate keys entirely when no pair captured perf', () => {
+    const report = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      per_pair: [baseScore({ cosine: 0.5 })],
+    });
+    expect(report.latency_ms_aggregates).toBeUndefined();
+    expect(report.tokens_per_second_aggregates).toBeUndefined();
+  });
+
+  it('carries trace_set provenance onto the report when supplied', () => {
+    const report = buildReport({
+      mode: 'with-rag',
+      drafter_model: 'qwen3:4b-ctx4k',
+      embed_model: 'nomic-embed-text:v1.5',
+      sample_size_requested: 'all',
+      per_pair: [baseScore({ cosine: 0.5 })],
+      trace_set: {
+        dir: 'eval/t2-traces/v1.0',
+        set_version: 'v1.0',
+        set_sha256: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+        source_appliance: 'mailbox1',
+        count: 50,
+      },
+    });
+    expect(report.trace_set?.set_version).toBe('v1.0');
+    expect(report.trace_set?.count).toBe(50);
+  });
+});
+
+describe('generateDraft — STAQPRO-340 (perf capture)', () => {
+  const pair: PairRow = {
+    sent_history_id: 1,
+    sent_message_id: 'reply-1',
+    actual_reply_body: 'reply',
+    reply_sent_at: '2026-04-15T10:00:00Z',
+    inbox_id: 1,
+    inbox_message_id: 'inbound-1',
+    inbox_from: 'cust@example.com',
+    inbox_subject: 'subj',
+    inbox_body: 'body',
+    inbox_classification: 'inquiry',
+    inbox_confidence: 0.9,
+    inbox_thread_id: 'thread-1',
+  };
+
+  const persona = {
+    tone: 'concise',
+    signoff: '— Heron Labs',
+    operator_first_name: 'Heron Labs team',
+    operator_brand: 'Heron Labs',
+    business_description: '',
+  };
+
+  it('captures tokens_in / tokens_out / tokens_per_second when Ollama returns metric fields', async () => {
+    // eval_duration in ns: 5s of generation for 100 output tokens = 20 t/s.
+    const ollamaResp = {
+      message: { content: 'draft text' },
+      prompt_eval_count: 500,
+      eval_count: 100,
+      eval_duration: 5_000_000_000,
+    };
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(ollamaResp), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
+    const personaMock = vi.fn(async () => persona);
+
+    const result = await generateDraft(pair, {
+      fetchFn: fetchMock as unknown as typeof fetch,
+      retrieve: retrieveMock,
+      resolvePersona: personaMock,
+    });
+
+    expect(result.body).toBe('draft text');
+    expect(result.perf.tokens_in).toBe(500);
+    expect(result.perf.tokens_out).toBe(100);
+    expect(result.perf.tokens_per_second).toBeCloseTo(20, 5);
+    expect(result.perf.latency_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it('omits perf fields when Ollama response lacks them (cloud endpoint)', async () => {
+    // Cloud endpoints (Anthropic via Ollama-shape adapter) may omit the
+    // perf counters. The harness should still record latency_ms (always
+    // wall-clocked) but leave tokens_* undefined so aggregate counts
+    // exclude these pairs.
+    const cloudResp = { message: { content: 'cloud draft' } };
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(cloudResp), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const retrieveMock = vi.fn(async () => ({
+      refs: [],
+      reason: 'no_hits' as const,
+      kb_refs: [],
+      kb_reason: 'no_hits' as const,
+    }));
+    const personaMock = vi.fn(async () => persona);
+
+    const result = await generateDraft(pair, {
+      fetchFn: fetchMock as unknown as typeof fetch,
+      retrieve: retrieveMock,
+      resolvePersona: personaMock,
+    });
+
+    expect(result.body).toBe('cloud draft');
+    expect(result.perf.tokens_in).toBeUndefined();
+    expect(result.perf.tokens_out).toBeUndefined();
+    expect(result.perf.tokens_per_second).toBeUndefined();
+    expect(typeof result.perf.latency_ms).toBe('number');
   });
 });
 
