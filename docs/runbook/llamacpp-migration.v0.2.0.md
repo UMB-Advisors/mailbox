@@ -21,6 +21,7 @@
 | 5 | **§8.2 SM-68 ceiling adjusted** — combined memory acceptance now ≤ 7.0 GiB (was implicit 4.0 GiB GPU-only) | M1 empirical: ~6.9 GiB combined system + 1.1 GiB headroom on 8 GB unified RAM. The 4 GiB GPU-only ceiling was misleading because Jetson unified-memory makes GPU/CPU split irrelevant. Track unified-RAM-pressure, not GPU-line-item. |
 | 6 | **§11 cross-link to STAQPRO-361 added** — cosmetic `gpt-3.5-turbo` envelope leak | Doesn't block cutover but pollutes `drafts.model` telemetry; track as follow-up. |
 | 7 | **Appendix A added** — M1 historical execution timeline | Capture the actual outcome of the 2026-05-14 cutover so M2 backport operators inherit institutional memory. |
+| 8 | **§0.5 added** — second footgun: proxy URL `/dashboard/` basePath + workflow patch | Post-revert forensics (see `docs/dr25-revert-root-cause-2026-05-14.md`) found two un-applied prereqs that the v0.1 envelope-diff gate failed to catch. Compose changes from §0 are necessary but not sufficient. |
 
 ---
 
@@ -52,6 +53,82 @@ The `:-ollama` default keeps M2's pre-cutover behavior byte-identical until `.en
 ssh mailbox2 'docker exec mailbox-dashboard env | grep -E "^(LOCAL_INFERENCE_RUNTIME|LLAMA_CPP_)"'
 # Expected three lines: LOCAL_INFERENCE_RUNTIME, LLAMA_CPP_BASE_URL, LLAMA_CPP_MODEL
 # If any line is missing: STOP. The compose `environment:` block is incomplete.
+```
+
+---
+
+## §0.5. Second footgun — proxy URL `/dashboard/` basePath (post-2026-05-14 revert)
+
+The 2026-05-14 M1 cutover revert (see `docs/dr25-revert-root-cause-2026-05-14.md`) surfaced TWO additional must-fix items that the v0.1 runbook did not call out. **Until both are addressed, the cutover cannot succeed**; the compose changes from §0 are necessary but not sufficient.
+
+### A. Dashboard proxy URL default is missing the `/dashboard/` basePath
+
+`dashboard/lib/drafting/router.ts:45`:
+
+```ts
+const DASHBOARD_LLM_PROXY_BASE =
+  process.env.DASHBOARD_LLM_PROXY_BASE_URL ?? 'http://mailbox-dashboard:3001/api/internal/llm';
+```
+
+The default URL omits the Next.js App Router `basePath: '/dashboard'` configured in `dashboard/next.config.mjs`. Every other internal-route URL in `MailBOX-Classify.json` (lines 203, 284, 502) correctly uses the `/dashboard/` prefix. When `LOCAL_INFERENCE_RUNTIME=llama-cpp`, drafts route to the proxy URL — which returns 404 because of this defect.
+
+**Permanent fix (preferred):** patch the default in source to `'http://mailbox-dashboard:3001/dashboard/api/internal/llm'` and ship it. Single-line change in a sibling PR.
+
+**Operational workaround until the code fix lands:** add the env override to BOTH `.env` AND the dashboard `environment:` block in `docker-compose.yml`:
+
+```yaml
+  mailbox-dashboard:
+    environment:
+      # ... existing vars ...
+      DASHBOARD_LLM_PROXY_BASE_URL: ${DASHBOARD_LLM_PROXY_BASE_URL:-http://mailbox-dashboard:3001/dashboard/api/internal/llm}
+```
+
+The STAQPRO-360 compose change does NOT currently forward `DASHBOARD_LLM_PROXY_BASE_URL`. If you go the workaround route, you must add it.
+
+### B. n8n MailBOX-Classify workflow "Call Ollama" node URL never patched
+
+`n8n/workflows/MailBOX-Classify.json:264` still has:
+
+```json
+"url": "http://ollama:11434/api/generate"
+```
+
+This must change to:
+
+```json
+"url": "http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate"
+```
+
+The procedural patch document is `docs/n8n-workflow-patch-staqpro-338.md` (URL corrected in this session). Apply via:
+
+```bash
+ssh mailbox2 'cd ~/mailbox && \
+  sed -i "s|http://ollama:11434/api/generate|http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate|" \
+    n8n/workflows/MailBOX-Classify.json && \
+  docker exec mailbox-n8n-1 n8n import:workflow --input=/home/node/workflows/MailBOX-Classify.json'
+
+WORKFLOW_ID=$(ssh mailbox2 'docker exec mailbox-postgres-1 psql -U mailbox -d mailbox -tAc \
+  "SELECT id FROM workflow_entity WHERE name='\''MailBOX-Classify'\''"')
+
+ssh mailbox2 "docker exec mailbox-n8n-1 n8n update:workflow --active=true --id=$WORKFLOW_ID && \
+  cd ~/mailbox && docker compose restart n8n"
+```
+
+Then re-run the **post-n8n-upgrade verification one-liner** (project CLAUDE.md → Deployment Target) — all four `MailBOX%` workflows must show `active=t`.
+
+### Hardened §6 envelope-diff gate
+
+The v0.1 §6 gate let the 2026-05-14 cutover proceed with a broken proxy URL because it accepted empty responses as a "no-op pass" instead of failing loudly on 404. Until the v0.1 gate is rewritten:
+
+```bash
+# Before §7 cutover, prove the proxy URL works from inside the n8n container
+# (NOT from the workstation — production traffic comes from n8n's docker network position).
+ssh mailbox2 'docker exec mailbox-n8n-1 wget -qO- --post-data="{\"model\":\"qwen3:4b-ctx4k\",\"prompt\":\"ping\",\"stream\":false}" \
+  --header="content-type: application/json" \
+  http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate' \
+  | jq -r '.response | length'
+# Expected: a positive integer. If the curl returns empty or 404: STOP.
+# The router.ts default URL is wrong (see §0.5.A); apply the workaround before §7.
 ```
 
 ---
@@ -434,9 +511,9 @@ Captured here so the M2 operator inherits operational memory.
 | 2026-05-14 09:08:36 | Dashboard restarted (back on Ollama) |
 | 2026-05-14 09:08:45 | llama-cpp container stopped (exit 0, clean shutdown via documented rollback path) |
 
-**Reason for the revert is not in Linear or git history.** Documented rollback was executed (matching §10 of this runbook). The compose-level changes from §5 + §0 stayed in M1's working tree un-pushed; the STAQPRO-360 PR (worktree `worktree-staqpro-360`) captures them for upstream.
+**Reason for revert (per forensics 2026-05-14 afternoon, see `docs/dr25-revert-root-cause-2026-05-14.md`):** two un-applied prerequisites — (A) `dashboard/lib/drafting/router.ts:45` default proxy URL omits the Next.js `/dashboard/` basePath and returns 404; (B) `n8n/workflows/MailBOX-Classify.json:264` was never patched to route through the dashboard SDK proxy, so classify continued to hit Ollama directly. With Ollama up (per the 7-day rollback policy), both failures were transparent. When the operator stopped Ollama to test cutover purity, classify failed immediately. Forced rollback. **Not a quality-driven decision; the llama-cpp runtime itself was working fine** — it just never received production traffic because the routing was broken upstream.
 
-**For the M2 operator:** treat the M1 timeline as evidence the runbook's rollback path works end-to-end. Do not assume the cutover was failed for a quality reason — the absence of an in-band root-cause note means the operator either reverted defensively (e.g., end-of-day stability) or for an undocumented qualitative observation. Confirm with Dustin before re-attempting on M1, but M2 can proceed on its own merits once §0 is satisfied.
+**For the M2 operator:** treat the M1 timeline as evidence the cutover was *staged correctly at the compose layer* (this is what STAQPRO-360 PR captures) but *not yet wired through the request path*. The runbook §0 + §0.5 enumerate the full set of prerequisites; once all are satisfied, M2 can proceed. Confirm with Dustin before re-attempting on M1, since the un-applied prereqs are common to both appliances.
 
 ---
 
