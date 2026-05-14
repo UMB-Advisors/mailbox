@@ -63,6 +63,40 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+  llama-cpp:
+    image: local/llama-cpp:cuda-jetson
+    runtime: nvidia
+    container_name: mailbox-llama-cpp-1
+    # STAQPRO-338 / DR-25: dustynv/llama_cpp:r36.4.0 retagged.
+    # Image has empty entrypoint + bash cmd; override entrypoint to the
+    # server binary so docker-compose `command:` provides only args.
+    entrypoint: ["/usr/local/bin/llama-server"]
+    command:
+      - "--model"
+      - "/models/qwen3-4b-ctx4k.gguf"
+      - "--ctx-size"
+      - "4096"
+      - "--flash-attn"
+      - "--cache-type-k"
+      - "q8_0"
+      - "--cache-type-v"
+      - "q8_0"
+      - "--n-gpu-layers"
+      - "99"
+      - "--no-mmap"
+      - "--slots"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+    environment:
+      LLAMA_LOG_LEVEL: "info"
+    volumes:
+      - ./llama-cpp-models:/models:ro
+    # No ports: block — internal docker network only, matches M2's tighter
+    # binding model. Workstation access is via tailnet+ssh tunnel.
+    restart: unless-stopped
+    depends_on: []
   n8n:
     image: n8nio/n8n:2.14.2
     environment:
@@ -155,6 +189,11 @@ services:
       # retrieval (the existing pre-221 path). All other RAG_RETRIEVE_TOP_K_*
       # and RAG_MIN_INBOUND_CHARS tunables fall through to retrieve.ts defaults.
       MAILBOX_OPERATOR_EMAIL: ${MAILBOX_OPERATOR_EMAIL:-}
+      # STAQPRO-338 / DR-25 - runtime selector + llama-cpp endpoint.
+      # Defaults preserve Ollama behavior on appliances that don't set these.
+      LOCAL_INFERENCE_RUNTIME: ${LOCAL_INFERENCE_RUNTIME:-ollama}
+      LLAMA_CPP_BASE_URL: ${LLAMA_CPP_BASE_URL:-http://llama-cpp:8080}
+      LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:-qwen3-4b-ctx4k}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
