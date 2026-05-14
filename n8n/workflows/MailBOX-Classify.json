@@ -254,10 +254,10 @@
       "id": "htp00000-0000-0000-0000-000000000005",
       "name": "Call Ollama",
       "parameters": {
-        "jsonBody": "={\n  \"model\": {{ JSON.stringify($json.model) }},\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false,\n  \"format\": \"json\",\n  \"think\": false,\n  \"options\": { \"temperature\": 0 }\n}",
+        "jsonBody": "={\n  \"model\": {{ JSON.stringify($json.model) }},\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false,\n  \"format\": \"json\",\n  \"think\": false,\n  \"options\": { \"temperature\": 0, \"num_predict\": 64 }\n}",
         "method": "POST",
         "options": {
-          "timeout": 60000
+          "timeout": 180000
         },
         "sendBody": true,
         "specifyBody": "json",
