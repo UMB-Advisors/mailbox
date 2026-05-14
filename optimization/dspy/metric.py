@@ -325,13 +325,29 @@ class JudgeMetric:
 
         return JudgeResult(win=win, reason=reason, cosine=cosine)
 
-    def __call__(self, example: Any, prediction: Any, trace: Any = None) -> float:
+    def __call__(
+        self,
+        example: Any,
+        prediction: Any,
+        trace: Any = None,
+        pred_name: Any = None,
+        pred_trace: Any = None,
+    ) -> float:
         """GEPA metric callable.
 
         ``example`` is a DSPy ``Example`` carrying inbound + reference fields;
         ``prediction`` is the DSPy program's output for the draft-reply
         signature. Returns float in [0.0, 1.0] (win rate per-example is 0/1
         but the type contract allows fractional aggregates).
+
+        DSPy GEPA (since 3.x) inspects the metric signature at construction
+        time and requires five positional arguments: ``(gold, pred, trace,
+        pred_name, pred_trace)``. The last two are predictor-scoped trace
+        info GEPA may pass for richer reflection; we don't use them for this
+        single-predictor draft-reply program but the params must exist or
+        ``inspect.signature(metric).bind(None, None, None, None, None)``
+        rejects the metric at GEPA.__init__ time. Kept as defaults so the
+        same callable still works in standard ``dspy.Evaluate`` (2-arg).
         """
 
         inbound = getattr(example, "inbound_body", "") or ""
