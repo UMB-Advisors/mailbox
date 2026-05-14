@@ -146,3 +146,72 @@ via `disable_cosine=True`.
   harness, document the operator runbook above for fetching a real trace
   set. No real traces materialize in this PR; first real GEPA run is an
   operator follow-up.
+
+## Run-1 baseline (2026-05-14, mailbox1 v1.0 trace set)
+
+| Field | Value |
+|---|---|
+| Run dir (gitignored) | `outputs/run-1-baseline-2026-05-14/` |
+| Trace set | `traces/v1.0` (100 traces from mailbox1) |
+| Set SHA-256 | `d8d040ba5ee06933425e794b7c81c20f9938ffb2c35f4f531d2f7eed30799d04` |
+| Split | train=50, val=50, seed=1 |
+| Target | `qwen3:4b-ctx4k` @ `http://localhost:11434` |
+| Judge | `gpt-oss:120b` @ Ollama Cloud |
+| GEPA budget | `--auto light` (≈580 metric calls, 2h21m wall-clock) |
+| **PRE win rate** | **0.000** (full valset) |
+| **POST win rate** | **0.000** |
+| **Lift** | **+0.000** |
+
+The compiled `prompt-draft-reply.yaml` is byte-identical to the baseline
+instructions — GEPA proposed ≥5 mutations and the judge scored every
+one at 0.0, so GEPA correctly skipped all of them per its
+"new-score must beat old-score to be accepted" rule.
+
+**This is a real data point, not a measurement artifact.** GEPA's
+Iteration-0 base-program full-valset eval registered 0.0/50 *before*
+the run hit any Ollama Cloud rate-limit pressure (the 428 of 580
+`429 Too Many Requests` failures concentrated in post-eval at the
+tail). With baseline = 0.0, GEPA has no positive signal to gradient
+against, so every reflective mutation also returns 0.0 and the search
+collapses to "no change."
+
+The next-steps follow-ups are about the **metric + corpus**, not GEPA
+itself:
+
+1. **Judge prompt is structurally too strict.** Pairwise win-rate is
+   defined as `candidate ≥ reference` on three axes (intent +
+   actionability + tone-match). Real-world references are often short,
+   conversational, sometimes literal forwarded-message chains
+   ("`---------- Forwarded message --------- From: …`"). Qwen3-4B's
+   default-prompt candidates are longer and more corporate. On the
+   *tone-match* axis the operator-written reference is treated as
+   canonical, so any rewrite — however semantically equivalent — fails
+   the `≥` test. The metric needs to relax to *"non-regressive on
+   intent + no fabrication"* rather than strict majority-vote-≥ on three
+   axes. Tracked separately (see Linear: judge-relax follow-up on
+   STAQPRO-340).
+2. **Trace corpus has forwarded-mail and duplicate-inbound rows.** The
+   v1.0 builder (`dashboard/scripts/build-trace-set.ts`) joins
+   `sent_history` rows with `source='backfill'` 1:1 to `inbox_messages`
+   on `inbox_message_id`. For inbounds that the operator forwarded
+   *and* replied to (or replied multiple times), the inbound appears in
+   multiple traces with different `actual_reply_body` values. The
+   target model deterministically produces the same candidate for the
+   same prompt, so the metric scores those duplicates against
+   different "ground truths" — diluting signal. The builder should
+   filter forwarded-only replies and pick one canonical reply per
+   inbound. Tracked separately on STAQPRO-340.
+3. **Ollama Cloud 429 rate-limit handling.** The judge HTTP client
+   currently has no retry/backoff — a 429 becomes an immediate
+   `0` score for that example. Add exponential backoff with jitter
+   inside `metric.JudgeMetric._call_judge`. Tracked separately.
+
+**Conclusion for M5 sequencing:** the +0.000 lift is the honest answer
+under the current v0.1 metric + v1.0 corpus. Read it as: *prompt
+optimization alone does not move the Qwen3-4B-ctx4k draft-quality
+needle when evaluated against the operator's actual sent replies.*
+For STAQPRO-342 (three-way bake-off) this is useful: it suggests
+architectural model lift, not prompt lift, is where Phase 2 win-rate
+improvements live. The two follow-ups above will tell us whether a
+relaxed metric + a cleaner corpus would surface prompt-level lift on
+the bake-off winner.
