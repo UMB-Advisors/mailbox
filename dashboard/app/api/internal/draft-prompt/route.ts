@@ -6,6 +6,8 @@ import { getCategoryExemplars } from '@/lib/drafting/exemplars';
 import { getPersonaContext } from '@/lib/drafting/persona';
 import { assemblePrompt } from '@/lib/drafting/prompt';
 import { pickEndpoint } from '@/lib/drafting/router';
+import { stripQuotedAndSignature } from '@/lib/drafting/strip-quoting';
+import { getThreadHistory } from '@/lib/drafting/thread-history';
 import { parseJson } from '@/lib/middleware/validate';
 import { retrieveForDraft } from '@/lib/rag/retrieve';
 import { draftPromptBodySchema } from '@/lib/schemas/internal';
@@ -84,13 +86,23 @@ export async function POST(req: NextRequest) {
     // safe — pickEndpoint is pure and doesn't depend on assembled state.
     const endpoint = pickEndpoint(classification_category, confidence);
 
-    // STAQPRO-234 — run RAG retrieval and sent_history exemplar mining in
-    // parallel. Both are read-only and independent; the exemplar query runs
-    // entirely in postgres (no Qdrant / no Ollama embed) so it adds <5ms.
+    // STAQPRO-341 — strip quoted thread history + signatures from the
+    // inbound body before it enters the prompt. Pure function; sub-ms.
+    // Applied here (not in assemblePrompt) so the stripped body is also
+    // available for downstream instrumentation (audit log, response).
+    const strippedInbound = stripQuotedAndSignature(row.body_text ?? '');
+
+    // STAQPRO-234 + STAQPRO-341 — run RAG retrieval, sent_history exemplar
+    // mining, and same-thread history fetch in parallel. All three are
+    // read-only and independent; exemplar + thread-history queries run
+    // entirely in postgres (no Qdrant / no Ollama embed) so they add <10ms.
     // Default k=1 keeps the budget at 1 exemplar (~600c) + 2 RAG refs
     // (~1200c), the same ~450-token augmentation slice as before per
-    // prompt.ts:effectiveRagRefsCap.
-    const [retrieval, exemplars] = await Promise.all([
+    // prompt.ts:effectiveRagRefsCap. Thread history has its own char budget
+    // (THREAD_HISTORY_CHAR_BUDGET, default 6000c) and sits in the existing
+    // MAX_THREAD_CHARS=2000c assemblePrompt slot — the in-module 50-row
+    // SQL LIMIT + per-message strip keeps the join cheap.
+    const [retrieval, exemplars, threadHistory] = await Promise.all([
       retrieveForDraft({
         from_addr: row.from_addr ?? '',
         subject: row.subject ?? null,
@@ -105,13 +117,21 @@ export async function POST(req: NextRequest) {
         thread_id: row.thread_id,
       }),
       getCategoryExemplars(classification_category, 1, DEFAULT_PERSONA_KEY),
+      getThreadHistory({
+        thread_id: row.thread_id,
+        message_id: row.message_id,
+        draft_source: endpoint.source,
+      }),
     ]);
 
     const assembled = assemblePrompt({
       from_addr: row.from_addr ?? '',
       to_addr: row.to_addr ?? '',
       subject: row.subject ?? '',
-      body_text: row.body_text ?? '',
+      // STAQPRO-341 — feed the stripped inbound body, not the raw row body.
+      // Quoted nested threads + signature lines were taking ~half the local
+      // model's 4k ctx before this lands.
+      body_text: strippedInbound.body,
       category: classification_category,
       confidence,
       persona,
@@ -127,6 +147,14 @@ export async function POST(req: NextRequest) {
         snippet: e.snippet,
         sent_at: e.sent_at,
         subject: e.subject,
+      })),
+      // STAQPRO-341 — same-thread prior messages walked via thread_id.
+      // assemblePrompt's threadBlock truncates at MAX_THREAD_CHARS=2000c
+      // and renders one "From: ..." block per message. Empty array = no
+      // history available / gated / disabled (graceful degrade).
+      thread_context: threadHistory.messages.map((m) => ({
+        from_addr: m.from_addr,
+        body_text: m.body_text,
       })),
     });
 
@@ -190,6 +218,20 @@ export async function POST(req: NextRequest) {
       // surface and the "did Phase 1 actually inject anything?" eval check.
       exemplars: {
         refs_count: exemplars.length,
+      },
+      // STAQPRO-341 — thread-history + quote-strip audit signals. Lets the
+      // dashboard graph "how often did thread context fire?" and the n8n
+      // execution log surface why a draft had no thread context (gated /
+      // no_thread_id / no_hits / disabled / db_unavailable).
+      thread_history: {
+        messages_count: threadHistory.messages.length,
+        reason: threadHistory.reason,
+      },
+      strip_quoting: {
+        stripped_quoted: strippedInbound.stripped_quoted,
+        stripped_signature: strippedInbound.stripped_signature,
+        original_length: strippedInbound.original_length,
+        stripped_length: strippedInbound.body.length,
       },
     });
   } catch (error) {
