@@ -261,7 +261,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "url": "http://ollama:11434/api/generate"
+        "url": "http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate"
       },
       "position": [
         880,
