@@ -46,6 +46,44 @@ export const classificationNormalizeBodySchema = z.object({
 
 export type ClassificationNormalizeBody = z.infer<typeof classificationNormalizeBodySchema>;
 
+// POST /api/internal/llm/api/generate — Ollama-shape /api/generate body
+// forwarded to the local runtime (ollama or llama.cpp, per
+// LOCAL_INFERENCE_RUNTIME). STAQPRO-338 / DR-25.
+export const llmGenerateBodySchema = z
+  .object({
+    model: z.string().trim().min(1, 'model required'),
+    prompt: z.string().min(1, 'prompt required'),
+    stream: z.literal(false).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
+    stop: z.array(z.string()).optional(),
+    format: z.string().optional(),
+    system: z.string().optional(),
+    template: z.string().optional(),
+  })
+  .strip();
+
+export type LlmGenerateBody = z.infer<typeof llmGenerateBodySchema>;
+
+// POST /api/internal/llm/api/chat — Ollama-shape /api/chat body. STAQPRO-338.
+export const llmChatBodySchema = z
+  .object({
+    model: z.string().trim().min(1, 'model required'),
+    messages: z
+      .array(
+        z.object({
+          role: z.enum(['system', 'user', 'assistant']),
+          content: z.string(),
+        }),
+      )
+      .min(1, 'messages (non-empty array) required'),
+    stream: z.literal(false).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
+    format: z.string().optional(),
+  })
+  .strip();
+
+export type LlmChatBody = z.infer<typeof llmChatBodySchema>;
+
 // POST /api/internal/inbox-messages — STAQPRO-135 ingest endpoint that
 // replaces n8n's `Insert Inbox (skip dupes)` Postgres node. Field shape
 // mirrors what n8n's `Extract Fields` set node already produces; tightening

@@ -319,6 +319,7 @@ Failure semantics: every RAG path returns success-shaped responses on Ollama or 
 | DR-22 | Pub/Sub push as Phase 1 ingress | **KILLED 2026-04-30** — stay polling |
 | DR-23 | Anthropic Haiku 4.5 as primary cloud draft model | **SUPERSEDED 2026-04-30** — Ollama Cloud `gpt-oss:120b` is default; Haiku is config-ready alt |
 | DR-24 | Dedicated Next.js 14 dashboard service (not Brain plugin, not Express+Vite SPA) | Active |
+| DR-25 | llama.cpp as T2 local inference runtime (Phase 1, behind `LOCAL_INFERENCE_RUNTIME=llama-cpp`); SDK HTTP abstraction in `dashboard/lib/llm/` + `/api/internal/llm/api/{chat,generate}` proxy keeps n8n runtime-agnostic; Ollama retained on T3+ and for embeddings on T2 | **Proposed 2026-05-13** — design + SDK abstraction landed, on-device build + §3.5.5 envelope re-validation pending per STAQPRO-338. See `dashboard/.planning/spec/addendum-t2-build-validation-v0_2-2026-05-13.md` and `docs/runbook/llamacpp-migration.v0.1.0.md` |
 | DR-50 | Deterministic operator-domain preclass for `internal` category (lifted recall 0.22 → PASS) | Active |
 | 2026-04-27 ADR (Dashboard Stack Pivot) | Next.js 14 single-service architecture (active); Drizzle-as-MVP-target half **SUPERSEDED 2026-05-01** by Dashboard ORM ADR (Kysely) | Partial — single-service half active, ORM half superseded |
 | 2026-05-01 ADR (Dashboard ORM) | Kysely chosen over Prisma/Drizzle on Jetson hardware grounds + migration-tooling + type-cascade reasoning. Closes STAQPRO-136. | Active |
