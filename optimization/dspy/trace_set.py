@@ -61,7 +61,15 @@ class TraceProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     appliance: str = Field(min_length=1)
-    sent_history_id: int = Field(ge=0)
+    # Wire-format reality: `sh.id` is a Postgres BIGINT which the `pg` driver
+    # serializes as a JSON string (precision-safety against
+    # Number.MAX_SAFE_INTEGER), whereas `im.id` is a plain INTEGER that
+    # serializes as a number. The TS Trace interface in
+    # dashboard/lib/eval/trace-set.ts declares both as `number` but the
+    # extractor's runtime output is mixed. Python must match the wire to
+    # preserve the SHA-256 round-trip; a follow-up should reconcile the TS
+    # types so the interface stops lying.
+    sent_history_id: str = Field(min_length=1)
     inbox_id: int = Field(ge=0)
     extracted_at: str = Field(min_length=1)
     scrub_counts: TraceScrubCounts
@@ -87,7 +95,14 @@ class Trace(BaseModel):
     inbox_from: str | None
     inbox_subject: str | None
     inbox_body: str
-    inbox_confidence: float | None
+    # Wire-format reality: classifier confidence stored as Postgres NUMERIC,
+    # serialized by the pg driver as a string (precision-safety,
+    # trailing-zero preservation — e.g. "0.950" not 0.95). Python must keep
+    # the string for SHA round-trip; downstream consumers can `float(x)` on
+    # demand. The TS Trace interface declares this as `number | null` but
+    # the extractor's runtime output is the string form — same lying-types
+    # pattern as `provenance.sent_history_id` (see comment above).
+    inbox_confidence: str | None
     actual_reply_body: str
     reply_sent_at: str = Field(min_length=1)
     provenance: TraceProvenance
