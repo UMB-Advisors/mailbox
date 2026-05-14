@@ -6,17 +6,19 @@ Coverage:
 * Cosine math: identical vectors → 1.0, orthogonal → 0.0, mismatched
   length → 0.0.
 * Empty candidate → automatic loss, judge not called.
-* Mocked Anthropic happy path: judge returns ``win=1``, cosine disabled,
+* Mocked Ollama Cloud happy path: judge returns ``win=1``, cosine disabled,
   ``__call__`` returns ``1.0``.
+* Wire shape: POST hits ``{judge_base_url}/api/chat`` with a Bearer auth
+  header carrying ``OLLAMA_CLOUD_API_KEY``.
 
-All Anthropic + Ollama calls are mocked. No live cloud or local-network
-calls happen in CI.
+All Ollama Cloud + local-Ollama calls are mocked at the ``httpx.Client``
+level. No live cloud or local-network calls happen in CI.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -92,18 +94,30 @@ def test_cosine_zero_vector_is_zero() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_mock_metric(monkeypatch: pytest.MonkeyPatch) -> JudgeMetric:
-    """Construct a ``JudgeMetric`` without touching real Anthropic.
+def _fake_chat_response(content_text: str) -> MagicMock:
+    """Build an ``httpx.Response``-shaped mock for an Ollama ``/api/chat`` success."""
 
-    Patches ``metric.Anthropic`` at the class level so the constructor
-    doesn't try to validate an API key, and forces ``disable_cosine=True``
-    so we don't touch Ollama.
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "message": {"role": "assistant", "content": content_text},
+    }
+    mock_resp.raise_for_status.return_value = None
+    return mock_resp
+
+
+def _build_mock_metric(monkeypatch: pytest.MonkeyPatch) -> JudgeMetric:
+    """Construct a ``JudgeMetric`` without touching real Ollama Cloud.
+
+    Replaces the metric's ``httpx.Client`` with a ``MagicMock`` after
+    construction so the judge HTTP POST never leaves the process, and
+    forces ``disable_cosine=True`` so we don't touch the local Ollama for
+    embeddings either.
     """
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
-    with patch("metric.Anthropic") as mock_cls:
-        mock_cls.return_value = MagicMock()
-        return JudgeMetric(JudgeConfig(disable_cosine=True))
+    monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "oc-test-key")
+    metric = JudgeMetric(JudgeConfig(disable_cosine=True))
+    metric._http = MagicMock()  # noqa: SLF001 — replace real client
+    return metric
 
 
 def test_empty_candidate_is_automatic_loss(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,8 +127,8 @@ def test_empty_candidate_is_automatic_loss(monkeypatch: pytest.MonkeyPatch) -> N
         assert isinstance(result, JudgeResult)
         assert result.win == 0
         assert result.reason == "empty candidate"
-        # And the Anthropic mock was never called.
-        assert metric._anthropic.messages.create.called is False  # noqa: SLF001
+        # And the Ollama Cloud mock was never called.
+        assert metric._http.post.called is False  # noqa: SLF001
     finally:
         metric.close()
 
@@ -122,26 +136,33 @@ def test_empty_candidate_is_automatic_loss(monkeypatch: pytest.MonkeyPatch) -> N
 def test_judge_happy_path_returns_win(monkeypatch: pytest.MonkeyPatch) -> None:
     metric = _build_mock_metric(monkeypatch)
     try:
-        # Anthropic SDK returns Message-like object with .content list of
-        # blocks; each block has .type and .text.
-        text_block = SimpleNamespace(type="text", text='{"win": 1, "reason": "matches intent"}')
-        fake_msg = SimpleNamespace(content=[text_block])
-        metric._anthropic.messages.create.return_value = fake_msg  # noqa: SLF001
+        metric._http.post.return_value = _fake_chat_response(  # noqa: SLF001
+            '{"win": 1, "reason": "matches intent"}',
+        )
 
         score = metric(
             SimpleNamespace(inbound_body="hi", reply_body="reference reply"),
             SimpleNamespace(reply_body="candidate reply"),
         )
         assert score == 1.0
-        assert metric._anthropic.messages.create.called is True  # noqa: SLF001
+        assert metric._http.post.called is True  # noqa: SLF001
+
+        # Verify wire shape: URL targets /api/chat on the configured base
+        # and the Bearer auth header carries the API key.
+        call = metric._http.post.call_args  # noqa: SLF001
+        url = call.args[0] if call.args else call.kwargs.get("url")
+        assert url == "https://ollama.com/api/chat"
+        assert call.kwargs["headers"]["Authorization"] == "Bearer oc-test-key"
+        assert call.kwargs["json"]["model"] == "gpt-oss:120b"
+        assert call.kwargs["json"]["stream"] is False
     finally:
         metric.close()
 
 
-def test_judge_anthropic_error_is_loss(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_judge_ollama_cloud_error_is_loss(monkeypatch: pytest.MonkeyPatch) -> None:
     metric = _build_mock_metric(monkeypatch)
     try:
-        metric._anthropic.messages.create.side_effect = RuntimeError("503 overloaded")  # noqa: SLF001
+        metric._http.post.side_effect = RuntimeError("503 overloaded")  # noqa: SLF001
         result = metric.judge(inbound="hi", reference="ref", candidate="cand")
         assert result.win == 0
         assert "errored" in result.reason
@@ -151,6 +172,6 @@ def test_judge_anthropic_error_is_loss(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_judge_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+    monkeypatch.delenv("OLLAMA_CLOUD_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="OLLAMA_CLOUD_API_KEY"):
         JudgeMetric(JudgeConfig(disable_cosine=True))

@@ -1,35 +1,39 @@
 """Pairwise LLM-as-judge metric for GEPA optimization.
 
-Decision log (STAQPRO-343, 2026-05-13):
+Decision log (STAQPRO-343, 2026-05-13; judge swap 2026-05-14):
 
 * **Primary metric:** pairwise LLM-as-judge win rate. Judge model is
-  Claude Haiku 4.5 (``claude-haiku-4-5-20251001``) — picked deliberately
-  as a different family than the Qwen3 baseline drafter to avoid
-  same-model-as-judge bias. The judge sees ``(candidate, reference)``
+  Ollama Cloud ``gpt-oss:120b`` — picked deliberately as a different
+  family than the Qwen3 baseline drafter (OpenAI lineage vs Qwen) to
+  avoid same-model-as-judge bias. The judge sees ``(candidate, reference)``
   where the reference is the operator-approved sent reply (the trace's
   ``actual_reply_body``). The judge returns 1 when candidate ≥ reference
   on conveyed intent + actionability + tone match, else 0. Win rate over
-  the eval set is the optimization target.
+  the eval set is the optimization target. Originally scoped to Claude
+  Haiku 4.5; flipped to Ollama Cloud on 2026-05-14 because Ollama Cloud is
+  already wired as the live alt-cloud drafter (DR-23 supersede) and
+  avoids taking on a second cloud vendor purely for the optimization
+  toolchain.
 * **Secondary sanity floor:** nomic-embed-text cosine similarity between
   candidate and reference. Not the optimization target — used to detect
   degenerate outputs (empty, off-topic, repetitive) that the judge might
   miss because the judge is itself an LM. Floor is configurable
   (``--cos-floor``, default 0.30). Below floor → judge result is forced
-  to 0 regardless of what Haiku says.
+  to 0 regardless of what the judge says.
 * **Trace filter:** v1 includes ``status='sent'`` only; rejected drafts
   excluded. Revisit as explicit negatives if first GEPA pass underfits.
 
 The judge call sends one ``(candidate, reference, inbound)`` triple at a
-time to Anthropic. This is inside the existing cloud trust boundary — the
-live drafter already escalates to Ollama Cloud + Anthropic alt-cloud for
-the cloud route — but it's still PII-scrubbed customer content leaving the
-local box, so we cap parallelism aggressively and never log bodies.
+time to Ollama Cloud. This is inside the existing cloud trust boundary —
+the live drafter already escalates to the same endpoint for the cloud
+route — but it's still PII-scrubbed customer content leaving the local
+box, so we cap parallelism aggressively and never log bodies.
 
 Failure modes:
 
-* Anthropic returns a non-{0,1} response → conservative ``0`` (penalize
+* Judge returns a non-{0,1} response → conservative ``0`` (penalize
   candidate, force GEPA to reflect).
-* Anthropic call raises → metric returns ``0.0`` with the reason in the
+* Judge HTTP call raises → metric returns ``0.0`` with the reason in the
   feedback string so GEPA's reflection LM can see what happened.
 * nomic embed call fails → cosine floor disabled for that pair; judge
   result stands.
@@ -45,16 +49,16 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
-from anthropic import Anthropic
-from anthropic.types import Message
 
 logger = logging.getLogger(__name__)
 
-# Live alt-cloud judge model — see `dashboard/lib/drafting/prompt.ts`
-# ``DRAFT_ANTHROPIC_MODEL``. Kept as a constant rather than env-tunable on
-# purpose: changing the judge model changes the metric, and that's a
-# decision that should land in a PR, not an env var on the workstation.
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
+# Ollama Cloud — same wire shape and env-var naming as
+# `dashboard/lib/drafting/judge.ts`. Kept as constants rather than
+# env-tunable on purpose: changing the judge model changes the metric,
+# and that's a decision that should land in a PR, not an env var on the
+# workstation.
+DEFAULT_JUDGE_BASE_URL = "https://ollama.com"
+DEFAULT_JUDGE_MODEL = "gpt-oss:120b"
 
 # nomic-embed-text:v1.5 on local Ollama. Default to the workstation /
 # appliance Ollama HTTP API; overridable via env for an SSH-tunneled probe.
@@ -204,7 +208,8 @@ class JudgeConfig:
     """All-in-one judge configuration. Defaults match STAQPRO-343 decision log."""
 
     judge_model: str = DEFAULT_JUDGE_MODEL
-    anthropic_api_key: str | None = None
+    judge_base_url: str = DEFAULT_JUDGE_BASE_URL
+    ollama_cloud_api_key: str | None = None
     embed_base_url: str = DEFAULT_EMBED_BASE_URL
     embed_model: str = DEFAULT_EMBED_MODEL
     cos_floor: float = DEFAULT_COS_FLOOR
@@ -219,20 +224,23 @@ class JudgeMetric:
 
     DSPy GEPA accepts a callable with signature
     ``metric(example, prediction, trace=None) -> float``. We expose this as a
-    class to keep the Anthropic client + httpx client alive across calls
-    (avoid reconnect overhead during a multi-hundred-call optimization run).
+    class to keep the HTTP client alive across calls (avoid reconnect
+    overhead during a multi-hundred-call optimization run). One ``httpx.Client``
+    serves both the judge call (Ollama Cloud) and the cosine-floor embed
+    calls (local Ollama) — different hosts, same client.
     """
 
     def __init__(self, config: JudgeConfig | None = None) -> None:
         self.config = config or JudgeConfig()
-        api_key = self.config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+        api_key = self.config.ollama_cloud_api_key or os.environ.get("OLLAMA_CLOUD_API_KEY")
         if not api_key:
             raise RuntimeError(
-                "ANTHROPIC_API_KEY not set — required for Haiku 4.5 judge. "
-                "Set it in the environment or pass anthropic_api_key on JudgeConfig.",
+                "OLLAMA_CLOUD_API_KEY not set — required for the Ollama Cloud "
+                "gpt-oss:120b judge. Set it in the environment or pass "
+                "ollama_cloud_api_key on JudgeConfig.",
             )
-        self._anthropic = Anthropic(api_key=api_key)
-        self._http = httpx.Client(timeout=30.0)
+        self._api_key = api_key
+        self._http = httpx.Client(timeout=60.0)
 
     def close(self) -> None:
         """Release the underlying HTTP client. Optional — Python GC handles it
@@ -253,31 +261,42 @@ class JudgeMetric:
             return JudgeResult(win=0, reason="empty candidate", cosine=0.0)
 
         try:
-            message: Message = self._anthropic.messages.create(
-                model=self.config.judge_model,
-                max_tokens=200,
-                system=JUDGE_SYSTEM_PROMPT,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": _build_judge_user_prompt(
-                            inbound=inbound,
-                            reference=reference,
-                            candidate=candidate,
-                        ),
-                    }
-                ],
+            resp = self._http.post(
+                f"{self.config.judge_base_url.rstrip('/')}/api/chat",
+                json={
+                    "model": self.config.judge_model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": _build_judge_user_prompt(
+                                inbound=inbound,
+                                reference=reference,
+                                candidate=candidate,
+                            ),
+                        },
+                    ],
+                    # Deterministic + bounded — judge output is a tiny JSON
+                    # envelope; no need to spend a long generation budget.
+                    "options": {"temperature": 0.0, "num_predict": 200},
+                },
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=60.0,
             )
+            resp.raise_for_status()
+            payload = resp.json()
         except Exception as exc:  # noqa: BLE001 — fail-soft, attribute the failure
-            logger.warning("anthropic judge call failed: %s", exc)
+            logger.warning("ollama-cloud judge call failed: %s", exc)
             return JudgeResult(win=0, reason="judge call errored", error=str(exc))
 
-        # Anthropic SDK returns a list of content blocks; we expect one text block.
+        # Ollama /api/chat shape (native, not OpenAI-compat): the response is
+        # ``{"message": {"role": "assistant", "content": "..."}, ...}``.
         text = ""
-        for block in message.content:
-            if getattr(block, "type", None) == "text":
-                text = getattr(block, "text", "") or ""
-                break
+        if isinstance(payload, dict):
+            msg = payload.get("message")
+            if isinstance(msg, dict):
+                text = str(msg.get("content") or "")
         win, reason = _parse_judge_response(text)
 
         # Cosine sanity floor — optional veto on the judge's "win".
@@ -326,6 +345,7 @@ __all__ = [
     "DEFAULT_COS_FLOOR",
     "DEFAULT_EMBED_BASE_URL",
     "DEFAULT_EMBED_MODEL",
+    "DEFAULT_JUDGE_BASE_URL",
     "DEFAULT_JUDGE_MODEL",
     "JUDGE_SYSTEM_PROMPT",
     "JudgeConfig",

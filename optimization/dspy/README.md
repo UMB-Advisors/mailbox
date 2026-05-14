@@ -16,9 +16,11 @@ scope).
 - `pyproject.toml`, `uv.lock` — Python toolchain pinned to DSPy 2.x.
 - `signatures.py` — DSPy signatures for `ClassifyAndFile` + `DraftReply`,
   mirroring `dashboard/lib/{classification,drafting}/prompt.ts`.
-- `metric.py` — Haiku 4.5 LLM-as-judge metric (primary) + nomic-embed
-  cosine sanity floor (secondary). Returns 0/1 win per `(candidate,
-  reference)` pair.
+- `metric.py` — Ollama Cloud `gpt-oss:120b` LLM-as-judge metric (primary)
+  + nomic-embed cosine sanity floor (secondary). Returns 0/1 win per
+  `(candidate, reference)` pair. Same endpoint + auth as the live
+  alt-cloud drafter (DR-23 supersede) — different family than the Qwen3
+  baseline drafter to avoid same-model-as-judge bias.
 - `trace_set.py` — Pydantic mirror of the canonical TS trace-set schema
   with SHA-256 verification. Source of truth: `dashboard/lib/eval/trace-set.ts`.
 - `optimize.py` — CLI entry point. Loads traces, splits train/val, runs
@@ -35,10 +37,11 @@ scope).
   PII-scrubbed customer email bodies but still embed real sender names and
   email addresses per the STAQPRO-193 locked decision. Treat as
   customer-private; never commit, never publish.
-- The Haiku 4.5 judge call sends individual `(candidate, reference,
-  inbound)` triples to Anthropic. This is inside the existing cloud trust
-  boundary — the live drafter already escalates to the same model on the
-  alt-cloud path — but you should still gate runs behind operator approval.
+- The Ollama Cloud `gpt-oss:120b` judge call sends individual
+  `(candidate, reference, inbound)` triples to `https://ollama.com/api/chat`.
+  This is inside the existing cloud trust boundary — the live drafter
+  already escalates to the same endpoint on the cloud route per DR-23 —
+  but you should still gate runs behind operator approval.
 - The portable prompt YAML in `prompts/` (or in `outputs/<run>/prompt-*.yaml`)
   is **instructions only**, no few-shot demos. The optimizer deliberately
   strips compiled demonstrations because those may quote real customer
@@ -51,8 +54,11 @@ scope).
 
 ```bash
 cd optimization/dspy
-uv sync                           # materializes .venv from uv.lock
-export ANTHROPIC_API_KEY=sk-ant-... # required for judge + reflection LM
+uv sync                                # materializes .venv from uv.lock
+export OLLAMA_CLOUD_API_KEY=...        # required for judge + reflection LM
+# Same key as the live appliance's `.env` OLLAMA_CLOUD_API_KEY (the
+# alt-cloud drafter path per DR-23). Pull from 1Password if you don't have
+# it locally; never commit.
 ```
 
 ### Fetch a real trace set from an appliance
@@ -121,11 +127,12 @@ Tests cover:
 - Trace loader: parsing the example manifest, schema validation, SHA-256
   verification.
 - Signatures: enum parity with `dashboard/lib/classification/prompt.ts`.
-- Metric: judge response parsing (mocked Anthropic), cosine math, empty
-  candidate handling.
+- Metric: judge response parsing (mocked Ollama Cloud `/api/chat`), wire
+  shape (URL, Bearer auth, model), cosine math, empty candidate handling.
 
-No live cloud calls are made in CI — Anthropic is mocked and nomic-embed
-is bypassed via `disable_cosine=True`.
+No live cloud calls are made in CI — the judge's `httpx.Client` is
+swapped for a `MagicMock` after construction and nomic-embed is bypassed
+via `disable_cosine=True`.
 
 ## Scope notes (STAQPRO-343 v0.1)
 

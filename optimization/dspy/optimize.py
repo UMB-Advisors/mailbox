@@ -19,9 +19,11 @@ What this does:
    model (the model whose prompt we're optimizing — Qwen3 by default per
    STAQPRO-343 first-pass scope).
 4. Builds a separate ``dspy.LM`` for the **reflection** model — the LM GEPA
-   uses to propose prompt mutations. Defaults to Anthropic Haiku 4.5 (same
-   model as the judge — by design; reflection benefits from a stronger
-   model than the target).
+   uses to propose prompt mutations. Defaults to Ollama Cloud
+   ``gpt-oss:120b`` (same endpoint + model as the judge — by design;
+   reflection benefits from a stronger model than the target, and
+   reusing the live alt-cloud drafter endpoint keeps the optimization
+   toolchain to one cloud vendor).
 5. Runs ``GEPA.compile(program, trainset=, valset=)``.
 6. Dumps the optimized program JSON to ``outputs/<run>/program.json``,
    extracts the optimized signature instructions into a portable
@@ -35,7 +37,7 @@ the committed YAML before pushing it to a public repo.
 
 Stop-gate: this module is the harness. A real GEPA run requires the
 operator to (a) fetch a real trace set from the appliance and (b) supply
-ANTHROPIC_API_KEY. See README.md "Operator runbook" for the fetch flow.
+OLLAMA_CLOUD_API_KEY. See README.md "Operator runbook" for the fetch flow.
 """
 
 from __future__ import annotations
@@ -161,13 +163,27 @@ def build_target_lm(base_url: str, model: str, api_key: str | None) -> dspy.LM:
 def build_reflection_lm() -> dspy.LM:
     """LM that GEPA uses to propose prompt mutations.
 
-    Defaults to Anthropic Haiku 4.5 — same model as the judge — because
-    reflection benefits from a stronger LM than the target. ``ANTHROPIC_API_KEY``
-    must be set; DSPy/litellm reads it from the environment.
+    Ollama Cloud ``gpt-oss:120b`` — same endpoint + model as the judge by
+    design, since reflection benefits from a stronger LM than the target
+    and we want one cloud-vendor dependency, not two. Hits Ollama Cloud's
+    OpenAI-compatible surface at ``https://ollama.com/v1`` via DSPy's
+    LiteLLM-backed ``openai/<model>`` provider convention.
+    ``OLLAMA_CLOUD_API_KEY`` must be set in the environment.
     """
 
+    api_key = os.environ.get("OLLAMA_CLOUD_API_KEY")
+    if not api_key:
+        # Defensive: build_target_lm tolerates a missing key (local Ollama
+        # ignores it) but reflection genuinely needs Ollama Cloud. Fail with
+        # a clear message before GEPA starts spending budget.
+        raise RuntimeError(
+            "OLLAMA_CLOUD_API_KEY not set — required for the Ollama Cloud "
+            "gpt-oss:120b reflection LM.",
+        )
     return dspy.LM(
-        model="anthropic/claude-haiku-4-5-20251001",
+        model="openai/gpt-oss:120b",
+        api_base="https://ollama.com/v1",
+        api_key=api_key,
         max_tokens=8000,
         temperature=1.0,
     )
@@ -249,9 +265,9 @@ def evaluate_program(
     """Compute win rate of ``program`` on ``examples`` using ``metric``.
 
     Sequential evaluation — keeps the judge calls in a tight loop with one
-    in-flight Anthropic request at a time. For 50-200 traces this is fine;
-    a future iteration may want ``num_threads`` parallelism if we ever
-    optimize against a 1000-trace set.
+    in-flight Ollama Cloud request at a time. For 50-200 traces this is
+    fine; a future iteration may want ``num_threads`` parallelism if we
+    ever optimize against a 1000-trace set.
     """
 
     cap = max_eval if max_eval is not None else len(examples)
@@ -435,7 +451,7 @@ def main(
         f"- Manifest: count={manifest.count}, source_appliance={manifest.source_appliance}\n"
         f"- Split: train={len(trainset)} val={len(valset)} (seed={seed}, frac={train_fraction})\n"
         f"- Target: `{target_model}` @ `{target_base_url}`\n"
-        f"- Judge: `claude-haiku-4-5-20251001`\n"
+        f"- Judge: `gpt-oss:120b` (Ollama Cloud)\n"
         f"- GEPA auto: `{auto}`\n\n"
         f"## Win rate\n\n"
         f"- Pre-optimization:  **{pre_win_rate:.3f}**\n"
