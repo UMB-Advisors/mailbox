@@ -14,7 +14,9 @@ import type { RuntimeKind } from './types';
 
 const VALID_RUNTIMES = ['ollama', 'llama-cpp'] as const satisfies readonly RuntimeKind[];
 
-export function readRuntimeKind(env: Record<string, string | undefined> = process.env): RuntimeKind {
+export function readRuntimeKind(
+  env: Record<string, string | undefined> = process.env,
+): RuntimeKind {
   const raw = env.LOCAL_INFERENCE_RUNTIME?.trim();
   if (!raw) return 'ollama';
   if ((VALID_RUNTIMES as readonly string[]).includes(raw)) {
