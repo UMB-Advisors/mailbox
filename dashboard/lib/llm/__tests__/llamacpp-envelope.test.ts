@@ -240,7 +240,10 @@ describe('callLlamaCppGenerate (fetch wiring)', () => {
     expect(captured.url).toBe('http://llama-cpp:8080/v1/chat/completions');
     const sentBody = JSON.parse(captured.body ?? '{}');
     expect(sentBody.messages).toEqual([{ role: 'user', content: 'classify' }]);
-    expect(sentBody.response_format).toEqual({ type: 'json_object' });
+    // Intentionally NOT passed: response_format. The json_object grammar lets
+    // Qwen3 emit `{}` and stop early (attempt-4 probe finding); we rely on the
+    // upstream prompt's explicit JSON schema instructions instead.
+    expect('response_format' in sentBody).toBe(false);
     expect(sentBody.chat_template_kwargs).toEqual({ enable_thinking: false });
     expect(out.response).toBe('{"category":"inquiry","confidence":0.92}');
     expect(out.prompt_eval_count).toBe(100);

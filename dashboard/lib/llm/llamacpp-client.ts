@@ -119,9 +119,15 @@ export function generateRequestToLlamaCppChat(
   if (topP !== undefined) out.top_p = topP;
   const stop = req.stop ?? readStringArray(opts.stop);
   if (stop !== undefined) out.stop = stop;
-  if (req.format === 'json') {
-    out.response_format = { type: 'json_object' };
-  }
+  // NOTE: we intentionally do NOT pass response_format: {type:"json_object"}
+  // even when req.format === "json". llama.cpp's json_object grammar accepts
+  // any valid JSON object including `{}`, and Qwen3 takes the shortcut —
+  // emitting `{}` and stopping (verified 2026-05-14 attempt-4 probe). The
+  // upstream classify prompt already contains explicit JSON schema instructions
+  // and Qwen3 follows them reliably without the grammar constraint. Future:
+  // if we ever need true JSON-shape enforcement we should switch to
+  // response_format: {type:"json_schema", json_schema:{...}} with required
+  // fields, not the loose json_object form.
   if (req.think === false) {
     out.chat_template_kwargs = { enable_thinking: false };
   }
