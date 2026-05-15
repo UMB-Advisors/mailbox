@@ -42,10 +42,10 @@ export function Toast({
     <div
       role="status"
       aria-live="polite"
-      className={`fixed bottom-4 left-4 right-4 z-50 inline-flex items-start gap-2 rounded border px-3 py-2 font-sans text-sm shadow-lg sm:left-auto sm:max-w-md ${palette}`}
+      className={`fixed bottom-4 left-4 right-4 z-50 inline-flex items-start gap-2 rounded-sm border px-3 py-2 font-sans text-sm shadow-lg sm:left-auto sm:max-w-md ${palette}`}
     >
       <Icon size={16} className="mt-0.5 shrink-0" />
-      <span className="flex-1 break-words">{text}</span>
+      <span className="flex-1 wrap-break-word">{text}</span>
       {action && (
         <button
           type="button"
@@ -53,7 +53,7 @@ export function Toast({
             action.onClick();
             onDismiss();
           }}
-          className="ml-2 shrink-0 rounded border border-current/40 px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider hover:bg-current/10"
+          className="ml-2 shrink-0 rounded-sm border border-current/40 px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider hover:bg-current/10"
         >
           {action.label}
         </button>

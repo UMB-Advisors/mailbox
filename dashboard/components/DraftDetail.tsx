@@ -36,7 +36,7 @@ export function DraftDetail({
     // operator never scrolls to reach the primary action: actions → draft →
     // inbound (collapsed). Old order pushed actions below the inbound body
     // which often overflowed the viewport.
-    <article className="flex flex-col rounded border border-border bg-bg-panel">
+    <article className="flex flex-col rounded-sm border border-border bg-bg-panel">
       <div className="border-b border-border px-5 py-3">
         {readOnly ? (
           <StatusBanner draft={draft} />
@@ -168,7 +168,7 @@ function Banner({
   }[tone];
   return (
     <div
-      className={`flex items-center gap-2 rounded border px-3 py-2 font-sans text-sm ${palette}`}
+      className={`flex items-center gap-2 rounded-sm border px-3 py-2 font-sans text-sm ${palette}`}
     >
       {icon}
       <span className="font-medium">{label}</span>

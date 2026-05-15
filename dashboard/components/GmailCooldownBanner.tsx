@@ -34,7 +34,7 @@ export function GmailCooldownBanner({ cooldown }: Props) {
     <section
       role="alert"
       aria-live="polite"
-      className="rounded border border-accent-red/40 bg-accent-red/10 p-3"
+      className="rounded-sm border border-accent-red/40 bg-accent-red/10 p-3"
     >
       <div className="flex items-start gap-2">
         <AlertOctagon size={18} className="mt-0.5 shrink-0 text-accent-red" aria-hidden />

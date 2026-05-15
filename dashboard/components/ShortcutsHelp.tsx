@@ -39,14 +39,14 @@ export function ShortcutsHelp({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
       <div
         data-shortcuts-help
-        className="w-[min(420px,calc(100vw-2rem))] rounded border border-border bg-bg-panel p-4 shadow-lg"
+        className="w-[min(420px,calc(100vw-2rem))] rounded-sm border border-border bg-bg-panel p-4 shadow-lg"
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-sans text-sm font-semibold">Keyboard shortcuts</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-ink-dim hover:bg-bg-deep hover:text-ink"
+            className="rounded-sm p-1 text-ink-dim hover:bg-bg-deep hover:text-ink"
             aria-label="Close shortcuts help"
           >
             <X size={16} />
@@ -59,7 +59,7 @@ export function ShortcutsHelp({ onClose }: { onClose: () => void }) {
                 {s.keys.map((k) => (
                   <kbd
                     key={k}
-                    className="rounded border border-border bg-bg-deep px-1.5 py-0.5 font-mono text-[11px] text-ink"
+                    className="rounded-sm border border-border bg-bg-deep px-1.5 py-0.5 font-mono text-[11px] text-ink"
                   >
                     {k}
                   </kbd>

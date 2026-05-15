@@ -149,10 +149,7 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
                   <Td className="truncate" title={row.from_addr ?? undefined}>
                     {senderName(row.from_addr)}
                   </Td>
-                  <Td
-                    className="max-w-[28rem] truncate text-ink-muted"
-                    title={row.subject ?? undefined}
-                  >
+                  <Td className="max-w-md truncate text-ink-muted" title={row.subject ?? undefined}>
                     {row.subject || '(no subject)'}
                   </Td>
                   <Td>{row.category}</Td>

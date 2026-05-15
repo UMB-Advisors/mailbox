@@ -451,7 +451,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
         <button
           type="button"
           onClick={() => setShortcutsHelpOpen(true)}
-          className="flex items-center gap-1.5 rounded border border-border bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-ink-dim hover:text-ink"
+          className="flex items-center gap-1.5 rounded-sm border border-border bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-ink-dim hover:text-ink"
           title="Show keyboard shortcuts"
         >
           <kbd className="font-mono text-[11px]">?</kbd>

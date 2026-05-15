@@ -142,7 +142,7 @@ export function RejectPopover({ open, busy, onClose, onSubmit }: Props) {
         placeholder={
           reason === 'other' ? 'Tell us what was wrong (required)' : 'Additional context (optional)'
         }
-        className="mt-3 w-full resize-none rounded border border-border-subtle bg-bg-deep px-2 py-1.5 font-sans text-sm text-ink placeholder:text-ink-dim focus:border-border focus:outline-none disabled:opacity-50"
+        className="mt-3 w-full resize-none rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-sans text-sm text-ink placeholder:text-ink-dim focus:border-border focus:outline-hidden disabled:opacity-50"
         rows={2}
         maxLength={2000}
       />
@@ -151,7 +151,7 @@ export function RejectPopover({ open, busy, onClose, onSubmit }: Props) {
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="rounded px-3 py-1.5 font-sans text-xs font-medium text-ink-muted hover:bg-bg-deep disabled:opacity-50"
+          className="rounded-sm px-3 py-1.5 font-sans text-xs font-medium text-ink-muted hover:bg-bg-deep disabled:opacity-50"
         >
           Cancel
         </button>
@@ -159,7 +159,7 @@ export function RejectPopover({ open, busy, onClose, onSubmit }: Props) {
           type="button"
           onClick={submit}
           disabled={submitDisabled}
-          className="rounded bg-accent-red px-3 py-1.5 font-sans text-xs font-semibold text-bg-deep transition-colors hover:bg-accent-red/90 disabled:cursor-not-allowed disabled:bg-accent-red/40"
+          className="rounded-sm bg-accent-red px-3 py-1.5 font-sans text-xs font-semibold text-bg-deep transition-colors hover:bg-accent-red/90 disabled:cursor-not-allowed disabled:bg-accent-red/40"
         >
           {busy ? 'Rejecting…' : 'Reject'}
         </button>

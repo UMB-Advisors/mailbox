@@ -51,7 +51,7 @@ Customer #1 was a small-batch CPG operator (Heron Labs); customer #2 is a B2B te
 | `kysely-codegen` | ^0.20.0 (devDep) | Schema introspection → TS types | Run via `npm run db:codegen` — bootstraps a temp postgres:17-alpine, applies `dashboard/test/fixtures/schema.sql`, generates `dashboard/lib/db/schema.ts`. CI verifies drift via `npm run db:codegen:verify`. Flags: `--dialect postgres --default-schema mailbox --include-pattern 'mailbox.*' --numeric-parser string --type-mapping '{"timestamp":"string","timestamptz":"string","date":"string"}'`. |
 | Migrations | plain SQL files | Schema versioning | `dashboard/migrations/NNN-*.sql` ordered numerically; runner is `dashboard/migrations/runner.ts` (custom tsx script, no drizzle-kit, no prisma-migrate). Tracking table: `mailbox.migrations`. Compose service: `docker compose --profile migrate run mailbox-migrate`. |
 | `zod` | ^4.4.1 | Runtime validation | Adopted in **STAQPRO-138** (shipped 2026-05-01). Schemas as plain `z.object({...})` in `dashboard/lib/schemas/` parsed by `dashboard/lib/middleware/validate.ts`. Routes use `parseJson(req, schema)` / `parseParams(params, schema)` — structured 400 on failure, narrow types on success. No ORM-derived schemas (Kysely doesn't emit them). |
-| `tailwindcss` | 3.4.x | Utility CSS | Mobile-responsive dashboard. (Note: original STACK.md spec was Tailwind v4 + Vite 6 — DR-24 flipped to Next.js 14 which currently runs Tailwind v3.) |
+| `tailwindcss` | 4.x | Utility CSS | Mobile-responsive dashboard. **Upgraded from v3.4 → v4 on 2026-05-15** (STAQPRO-382 prep — aligns the dashboard stack with the sandbox UI exploration at `sandbox/`). CSS-first config: `@theme` block in `dashboard/app/globals.css` holds design tokens; no `tailwind.config.ts`. PostCSS plugin: `@tailwindcss/postcss`. `autoprefixer` removed (folded into Tailwind v4). |
 ### Development Tools
 | Tool | Purpose | Notes |
 |------|---------|-------|
@@ -118,7 +118,7 @@ Customer #1 was a small-batch CPG operator (Heron Labs); customer #2 is a B2B te
 | Qwen3-4B (Q4_K_M) | Ollama 0.6.0+ | Qwen3 family requires Ollama 0.6.0+ for proper tokenizer support; 0.18.x is well above this floor |
 | nomic-embed-text:v1.5 | Ollama 0.1.26+ | Requires Ollama 0.1.26 per official library page |
 | React 18 | Node.js 18+ (build time) | React 18 concurrent features require Node.js 18+; build happens on dev machine or CI, not on Jetson |
-| Tailwind CSS v4 | Vite 6.x | Tailwind v4 requires Vite 6+ via the `@tailwindcss/vite` plugin (replaces PostCSS config) |
+| Tailwind CSS v4 | Next.js 14.2+ via `@tailwindcss/postcss`, or Vite 6+ via `@tailwindcss/vite` | The dashboard (Next.js 14) uses the PostCSS path (`postcss.config.js` plugin = `@tailwindcss/postcss`). The sandbox (Vite) uses the Vite plugin. Both share CSS-first `@theme` config — no `tailwind.config.ts`. |
 ## Memory Budget (8GB Unified VRAM)
 | Component | Typical Footprint | Notes |
 |-----------|------------------|-------|
