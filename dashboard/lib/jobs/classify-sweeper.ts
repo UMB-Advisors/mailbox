@@ -27,8 +27,14 @@ import { getKysely } from '@/lib/db';
 
 const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? 'http://ollama:11434';
 const LOCK_KEY = 7234567; // arbitrary 32-bit int, scoped to this sweeper
-const LOOKBACK_HOURS = 24;
-const ROW_LIMIT = 50;
+
+// Per-row classify HTTP timeout. Matches the n8n MailBOX-Classify HTTP node
+// timeout (180s, c9caa33). Without this, a hung Ollama or llama-server holds
+// the per-row promise indefinitely and the outer advisory-lock unlock never
+// runs — every subsequent sweeper tick is a silent no-op.
+const CLASSIFY_TIMEOUT_MS = Number(process.env.CLASSIFY_SWEEPER_TIMEOUT_MS ?? 180_000);
+const LOOKBACK_HOURS = Number(process.env.CLASSIFY_SWEEPER_LOOKBACK_HOURS ?? 24);
+const ROW_LIMIT = Number(process.env.CLASSIFY_SWEEPER_ROW_LIMIT ?? 50);
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 
 interface SweeperResult {
@@ -63,17 +69,30 @@ async function classifyRow(row: InboxRow): Promise<ClassifyOutcome> {
   });
 
   const t0 = Date.now();
-  const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL_VERSION,
-      prompt,
-      stream: false,
-      format: 'json',
-      options: { temperature: 0 },
-    }),
-  });
+  const ctrl = new AbortController();
+  const timeoutHandle = setTimeout(() => ctrl.abort(), CLASSIFY_TIMEOUT_MS);
+  let ollamaRes: Response;
+  try {
+    ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL_VERSION,
+        prompt,
+        stream: false,
+        format: 'json',
+        options: { temperature: 0 },
+      }),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error(`ollama -> timeout after ${CLASSIFY_TIMEOUT_MS}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
   if (!ollamaRes.ok) {
     throw new Error(`ollama -> HTTP ${ollamaRes.status}`);
   }
