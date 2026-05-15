@@ -200,6 +200,28 @@ services:
     networks:
       - default
     command: sh -c "npm install --no-audit --no-fund && npm run qdrant:bootstrap"
+  mailbox-n8n-verify:
+    # Audit 2026-05-15 — STAQPRO-181 dark-classify guardrail.
+    # Asserts all four MailBOX* workflows in n8n's workflow_entity table
+    # are active=t. Run after every n8n version bump, workflow re-import,
+    # or container recreate. Exits 0 on green, 1 on missing/inactive, 2 on
+    # connection error. Safe to re-run; read-only against workflow_entity.
+    #
+    # Invoke:
+    #   docker compose --profile n8n-verify run --rm mailbox-n8n-verify
+    profiles: ["n8n-verify"]
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./dashboard:/app
+    environment:
+      POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+    command: sh -c "npm install --no-audit --no-fund && npm run n8n:verify"
 volumes:
   postgres_data: null
   qdrant_data: null

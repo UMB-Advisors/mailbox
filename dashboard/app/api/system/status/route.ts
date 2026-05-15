@@ -12,6 +12,7 @@ import {
   getDraftBacklogAged,
   getDraftCounts24h,
   getEditRate7d,
+  getJobHealth,
   getLastEmailReceivedAt,
   getLastError,
   getLastInferenceLatency,
@@ -58,6 +59,7 @@ export async function GET() {
     cloudSpendLastHour,
     editRate7d,
     qdrantCollection,
+    jobHealth,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -73,6 +75,7 @@ export async function GET() {
     getCloudSpendLastHour(),
     getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
     getQdrantCollectionHealth(),
+    getJobHealth().catch(() => null),
   ]);
 
   // STAQPRO-192 — wrap the live edit-rate alongside the frozen pre-RAG
@@ -110,6 +113,7 @@ export async function GET() {
     cloud_spend_24h: cloudSpend24h,
     rag_eval: ragEval,
     qdrant_collection: qdrantCollection,
+    jobs: jobHealth,
     alerts,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,

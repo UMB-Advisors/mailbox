@@ -37,14 +37,46 @@
 
 import { sql } from 'kysely';
 import { getKysely, getPool } from '@/lib/db';
+import { withJobRun } from '@/lib/jobs/job-runs';
 
-const LOCK_KEY = 7234568; // distinct from classify-sweeper's 7234567
+// Advisory lock keys are global across the database — each sweeper owns its
+// own integer. Map (audit 2026-05-15):
+//   classify-sweeper       = 7234567
+//   gmail-ratelimit-sweeper = 7234568
+//   stuck-stub-sweeper      = 7234569  (was 7234568 — collided with gmail-ratelimit)
+const LOCK_KEY = 7234569;
 const STUCK_AGE_MIN = 5;
 const HARD_FAIL_AGE_MIN = 30;
 const ROW_LIMIT = 10;
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 
+// Per-call HTTP timeouts. Without these, a hung dashboard or LLM holds the
+// per-row promise indefinitely; the outer advisory-lock unlock waits on the
+// for-loop, so every subsequent tick is a silent no-op.
+const DASHBOARD_HTTP_TIMEOUT_MS = Number(process.env.STUCK_STUB_DASHBOARD_TIMEOUT_MS ?? 30_000);
+const LLM_TIMEOUT_MS = Number(process.env.STUCK_STUB_LLM_TIMEOUT_MS ?? 180_000);
+
 const DASHBOARD_URL = process.env.STUCK_STUB_DASHBOARD_URL ?? 'http://localhost:3001';
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  label: string,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const handle = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error(`${label} -> timeout after ${timeoutMs}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(handle);
+  }
+}
 
 interface SweeperResult {
   checked: number;
@@ -77,11 +109,16 @@ interface OllamaChatResponse {
 }
 
 async function fetchPromptPayload(draftId: number): Promise<DraftPromptResponse> {
-  const res = await fetch(`${DASHBOARD_URL}/api/internal/draft-prompt`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ draft_id: draftId }),
-  });
+  const res = await fetchWithTimeout(
+    `${DASHBOARD_URL}/api/internal/draft-prompt`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ draft_id: draftId }),
+    },
+    DASHBOARD_HTTP_TIMEOUT_MS,
+    'draft-prompt',
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`draft-prompt -> HTTP ${res.status}: ${text.slice(0, 200)}`);
@@ -98,19 +135,24 @@ async function callLlm(
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (payload.apiKey) headers.authorization = `Bearer ${payload.apiKey}`;
 
-  const res = await fetch(`${payload.baseUrl}/api/chat`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: payload.model,
-      messages: payload.messages,
-      stream: false,
-      options: {
-        temperature: payload.temperature ?? 0.3,
-        num_predict: payload.max_tokens ?? 600,
-      },
-    }),
-  });
+  const res = await fetchWithTimeout(
+    `${payload.baseUrl}/api/chat`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: payload.model,
+        messages: payload.messages,
+        stream: false,
+        options: {
+          temperature: payload.temperature ?? 0.3,
+          num_predict: payload.max_tokens ?? 600,
+        },
+      }),
+    },
+    LLM_TIMEOUT_MS,
+    `llm ${payload.model}`,
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`llm ${payload.model} -> HTTP ${res.status}: ${text.slice(0, 200)}`);
@@ -132,18 +174,23 @@ async function postFinalize(
   input_tokens?: number,
   output_tokens?: number,
 ): Promise<void> {
-  const res = await fetch(`${DASHBOARD_URL}/api/internal/draft-finalize`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      draft_id: draftId,
-      body,
-      source,
-      model,
-      input_tokens,
-      output_tokens,
-    }),
-  });
+  const res = await fetchWithTimeout(
+    `${DASHBOARD_URL}/api/internal/draft-finalize`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        draft_id: draftId,
+        body,
+        source,
+        model,
+        input_tokens,
+        output_tokens,
+      }),
+    },
+    DASHBOARD_HTTP_TIMEOUT_MS,
+    'draft-finalize',
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`draft-finalize -> HTTP ${res.status}: ${text.slice(0, 200)}`);
@@ -263,7 +310,7 @@ export function startStuckStubSweeper(intervalMs = DEFAULT_INTERVAL_MS): void {
   if (intervalHandle) return;
   console.log(`[stuck-stub-sweeper] starting (interval=${intervalMs}ms)`);
   intervalHandle = setInterval(() => {
-    runStuckStubSweeperTick().catch((e: unknown) => {
+    withJobRun('stuck-stub-sweeper', runStuckStubSweeperTick).catch((e: unknown) => {
       console.error('[stuck-stub-sweeper] tick error:', e instanceof Error ? e.message : String(e));
     });
   }, intervalMs);

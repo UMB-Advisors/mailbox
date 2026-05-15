@@ -103,6 +103,19 @@ export interface InboxMessages {
   to_addr: string | null;
 }
 
+export interface JobRuns {
+  duration_ms: number;
+  error_message: string | null;
+  finished_at: string;
+  host: string | null;
+  id: Generated<string>;
+  job_name: string;
+  result_json: unknown | null;
+  rows_processed: Generated<number>;
+  started_at: string;
+  status: string;
+}
+
 export interface KbDocuments {
   chunk_count: Generated<number>;
   error_message: string | null;
@@ -231,6 +244,7 @@ export interface DB {
   draft_feedback: DraftFeedback;
   drafts: Drafts;
   inbox_messages: InboxMessages;
+  job_runs: JobRuns;
   kb_documents: KbDocuments;
   migrations: Migrations;
   onboarding: Onboarding;

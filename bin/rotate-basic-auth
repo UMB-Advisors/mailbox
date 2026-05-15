@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# bin/rotate-basic-auth — rotate Caddy basic_auth password for a customer appliance.
+#
+# Audit 2026-05-15 (Liotta condition #3 + Linus L5-class footgun docs).
+# Replaces the multi-step runbook in CLAUDE.md "Caddy basic_auth rotation
+# gotchas" with a single auditable command. Catches the two known footguns:
+#   1. `caddy hash-password` without `--plaintext` blocks on stdin
+#      (returns empty when piped without a TTY).
+#   2. `docker compose restart caddy` does NOT pick up .env changes —
+#      the existing container keeps its baked-in env. We use
+#      `docker compose up -d caddy` instead, which recreates the
+#      container when env changed.
+#
+# Usage:
+#   ./bin/rotate-basic-auth <ssh-target>            # generate new pw, apply
+#   ./bin/rotate-basic-auth --dry-run <ssh-target>  # print without applying
+#   ./bin/rotate-basic-auth --pw <new-pw> <target>  # use a known plaintext
+#   ./bin/rotate-basic-auth --update-1password <title> <ssh-target>
+#                                                   # also `op item edit`
+#
+# Examples:
+#   ./bin/rotate-basic-auth mailbox1
+#   ./bin/rotate-basic-auth --dry-run mailbox2
+#   ./bin/rotate-basic-auth --update-1password 'mailbox.heronlabsinc.com' mailbox1
+#
+# Pre-conditions: the ssh-target must reach the appliance over Tailscale
+# SSH or the LAN alias, the .env file must live at ~/mailbox/.env on the
+# appliance, the caddy container must be named `mailbox-caddy-1`.
+
+set -euo pipefail
+
+PROG="$(basename "$0")"
+
+usage() {
+  cat <<EOF
+Usage: $PROG [--dry-run] [--pw <plaintext>] [--update-1password <title>] <ssh-target>
+
+  --dry-run                  print the new hash + planned ops without applying
+  --pw <plaintext>           use the provided plaintext (otherwise generated)
+  --update-1password <title> after rotation, update the 1Password item by title
+                             (requires 'op' CLI authenticated)
+
+  <ssh-target>               e.g. mailbox1, mailbox2, mailbox1-lan
+EOF
+}
+
+DRY_RUN=0
+SUPPLIED_PW=""
+ONEP_TITLE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)            DRY_RUN=1; shift ;;
+    --pw)                 SUPPLIED_PW="${2:-}"; shift 2 ;;
+    --update-1password)   ONEP_TITLE="${2:-}"; shift 2 ;;
+    -h|--help)            usage; exit 0 ;;
+    -*)                   echo "$PROG: unknown flag $1" >&2; usage >&2; exit 2 ;;
+    *)                    break ;;
+  esac
+done
+
+TARGET="${1:-}"
+if [[ -z "$TARGET" ]]; then
+  echo "$PROG: missing <ssh-target>" >&2
+  usage >&2
+  exit 2
+fi
+
+# 1. Generate plaintext (28 alphanumeric chars) unless supplied.
+if [[ -n "$SUPPLIED_PW" ]]; then
+  NEW_PW="$SUPPLIED_PW"
+else
+  NEW_PW=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 28)
+fi
+echo "[$PROG] target=$TARGET pw_len=${#NEW_PW}"
+
+# 2. Hash via the appliance's caddy container. --plaintext is required —
+# without it, `caddy hash-password` blocks on stdin for a confirmation
+# prompt, and a piped invocation returns empty.
+HASH=$(ssh "$TARGET" "docker exec mailbox-caddy-1 caddy hash-password --plaintext '$NEW_PW'")
+if [[ -z "$HASH" ]]; then
+  echo "[$PROG] ERROR: hash came back empty — is mailbox-caddy-1 running on $TARGET?" >&2
+  exit 1
+fi
+echo "[$PROG] hash_prefix=${HASH:0:10}…"
+
+# 3. Escape '$' → '$$' for docker-compose env interpolation. Without this,
+# compose strips the literal dollar from the bcrypt hash and the auth
+# silently becomes blank.
+ESCAPED=$(echo "$HASH" | sed 's/\$/\$\$/g')
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "[$PROG] DRY RUN — would apply:"
+  echo "  new plaintext      : $NEW_PW"
+  echo "  escaped hash       : $ESCAPED"
+  echo "  .env update line   : MAILBOX_BASIC_AUTH_HASH=$ESCAPED"
+  echo "  docker action      : docker compose up -d caddy   (NOT restart)"
+  if [[ -n "$ONEP_TITLE" ]]; then
+    echo "  1Password update   : op item edit '$ONEP_TITLE' --vault MailBOX password='$NEW_PW'"
+  fi
+  exit 0
+fi
+
+# 4. Apply: backup .env, sed the hash line, recreate caddy container.
+echo "[$PROG] applying to $TARGET ..."
+ssh "$TARGET" "cd ~/mailbox && \
+  cp .env .env.bak-rotate-\$(date +%Y%m%d-%H%M%S) && \
+  sed -i 's|^MAILBOX_BASIC_AUTH_HASH=.*|MAILBOX_BASIC_AUTH_HASH=$ESCAPED|' .env && \
+  docker compose up -d caddy"
+
+# 5. Verify the caddy container actually picked up the new env. The first
+# 10 chars of the hash in the container should match the first 10 of the
+# new (un-escaped) hash. If they don't, the .env edit didn't land or the
+# container wasn't recreated.
+echo "[$PROG] verifying ..."
+LIVE_PREFIX=$(ssh "$TARGET" "docker exec mailbox-caddy-1 sh -c 'echo \${MAILBOX_BASIC_AUTH_HASH:0:10}'")
+EXPECTED_PREFIX="${HASH:0:10}"
+if [[ "$LIVE_PREFIX" != "$EXPECTED_PREFIX" ]]; then
+  echo "[$PROG] WARN: live hash prefix '$LIVE_PREFIX' != expected '$EXPECTED_PREFIX'" >&2
+  echo "[$PROG] WARN: rotation may not have applied — check $TARGET logs" >&2
+  exit 1
+fi
+echo "[$PROG] verified: live hash prefix matches"
+
+# 6. Optionally update the 1Password item so the operator never has to
+# paste the plaintext anywhere else. Edits the existing item to keep
+# URLs/tags persistent — does not create a new one.
+if [[ -n "$ONEP_TITLE" ]]; then
+  if ! command -v op >/dev/null 2>&1; then
+    echo "[$PROG] WARN: --update-1password requested but 'op' not found in PATH" >&2
+  else
+    echo "[$PROG] updating 1Password item: $ONEP_TITLE"
+    op item edit "$ONEP_TITLE" --vault MailBOX password="$NEW_PW" >/dev/null
+    echo "[$PROG] 1Password updated"
+  fi
+fi
+
+echo "[$PROG] DONE. New plaintext (store this immediately if --update-1password was skipped):"
+echo "$NEW_PW"

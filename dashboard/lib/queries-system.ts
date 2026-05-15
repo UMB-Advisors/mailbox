@@ -371,3 +371,68 @@ export async function getDraftCounts24h(): Promise<DraftCounts24h> {
   }
   return counts;
 }
+
+// Audit 2026-05-15: per-job observability for in-process sweepers.
+// Feeds /api/system/status (FR-29) so the operator sees the last run +
+// failure count per job without SSHing to logs.
+export interface JobHealthRow {
+  job_name: string;
+  last_run_at: string | null;
+  last_status: 'completed' | 'partial' | 'failed' | 'skipped' | null;
+  last_duration_ms: number | null;
+  last_rows_processed: number | null;
+  last_error_message: string | null;
+  failed_count_24h: number;
+}
+
+export async function getJobHealth(): Promise<JobHealthRow[]> {
+  const db = getKysely();
+  // DISTINCT ON is the simplest "latest per group" idiom in Postgres and
+  // lines up with the (job_name, started_at DESC) index from migration 024.
+  const rows = await sql<{
+    job_name: string;
+    last_run_at: string | null;
+    last_status: 'completed' | 'partial' | 'failed' | 'skipped' | null;
+    last_duration_ms: number | null;
+    last_rows_processed: number | null;
+    last_error_message: string | null;
+    failed_count_24h: string;
+  }>`
+    WITH latest AS (
+      SELECT DISTINCT ON (job_name)
+        job_name, finished_at AS last_run_at, status AS last_status,
+        duration_ms AS last_duration_ms, rows_processed AS last_rows_processed,
+        error_message AS last_error_message
+      FROM mailbox.job_runs
+      ORDER BY job_name, started_at DESC
+    ),
+    failures AS (
+      SELECT job_name, COUNT(*)::text AS failed_count_24h
+      FROM mailbox.job_runs
+      WHERE finished_at > NOW() - INTERVAL '24 hours'
+        AND status IN ('partial', 'failed')
+      GROUP BY job_name
+    )
+    SELECT
+      l.job_name,
+      l.last_run_at::text AS last_run_at,
+      l.last_status,
+      l.last_duration_ms,
+      l.last_rows_processed,
+      l.last_error_message,
+      COALESCE(f.failed_count_24h, '0') AS failed_count_24h
+    FROM latest l
+    LEFT JOIN failures f ON f.job_name = l.job_name
+    ORDER BY l.job_name
+  `.execute(db);
+
+  return rows.rows.map((r) => ({
+    job_name: r.job_name,
+    last_run_at: r.last_run_at,
+    last_status: r.last_status,
+    last_duration_ms: r.last_duration_ms,
+    last_rows_processed: r.last_rows_processed,
+    last_error_message: r.last_error_message,
+    failed_count_24h: Number(r.failed_count_24h),
+  }));
+}

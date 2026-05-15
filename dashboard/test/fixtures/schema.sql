@@ -986,6 +986,28 @@ CREATE INDEX IF NOT EXISTS draft_feedback_draft_id_idx
 CREATE INDEX IF NOT EXISTS draft_feedback_reason_code_idx
   ON mailbox.draft_feedback(reason_code);
 
+-- migration 024 — audit 2026-05-15
+CREATE TABLE IF NOT EXISTS mailbox.job_runs (
+  id              BIGSERIAL PRIMARY KEY,
+  job_name        TEXT NOT NULL,
+  started_at      TIMESTAMPTZ NOT NULL,
+  finished_at     TIMESTAMPTZ NOT NULL,
+  duration_ms     INTEGER NOT NULL,
+  status          TEXT NOT NULL,
+  rows_processed  INTEGER NOT NULL DEFAULT 0,
+  result_json     JSONB,
+  error_message   TEXT,
+  host            TEXT,
+  CONSTRAINT job_runs_status_check CHECK (
+    status IN ('completed', 'partial', 'failed', 'skipped')
+  )
+);
+CREATE INDEX IF NOT EXISTS job_runs_job_name_started_at_idx
+  ON mailbox.job_runs(job_name, started_at DESC);
+CREATE INDEX IF NOT EXISTS job_runs_failures_idx
+  ON mailbox.job_runs(finished_at DESC)
+  WHERE status IN ('failed', 'partial');
+
 --
 -- PostgreSQL database dump complete
 --

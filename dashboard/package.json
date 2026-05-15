@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "migrate": "tsx migrations/runner.ts",
     "qdrant:bootstrap": "tsx scripts/qdrant-bootstrap.ts",
+    "n8n:verify": "tsx scripts/n8n-verify.ts",
     "rag:backfill": "tsx scripts/rag-backfill.ts",
     "eval:rag": "tsx scripts/rag-eval-harness.ts",
     "onboarding:backfill": "tsx scripts/gmail-history-backfill.ts",

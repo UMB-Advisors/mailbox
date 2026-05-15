@@ -30,6 +30,7 @@
 
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
+import { withJobRun } from '@/lib/jobs/job-runs';
 import { setGmailCooldown } from '@/lib/queries-system-state';
 
 const LOCK_KEY = 7234568; // adjacent to classify-sweeper's 7234567
@@ -116,7 +117,7 @@ export function startGmailRatelimitSweeper(intervalMs = DEFAULT_INTERVAL_MS): vo
   if (intervalHandle) return;
   console.log(`[gmail-ratelimit-sweeper] starting (interval=${intervalMs}ms)`);
   intervalHandle = setInterval(() => {
-    runGmailRatelimitSweeperTick().catch((e: unknown) => {
+    withJobRun('gmail-ratelimit-sweeper', runGmailRatelimitSweeperTick).catch((e: unknown) => {
       console.error(
         '[gmail-ratelimit-sweeper] tick error:',
         e instanceof Error ? e.message : String(e),
