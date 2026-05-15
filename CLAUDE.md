@@ -238,7 +238,7 @@ How to inspect a stuck send:
 Until STAQPRO-231 lands a circuit-breaker, the manual cooldown SLO is: **don't fire `MailBOX-Send` again until `now > stated_retry_after + 1 hour`**, and on subsequent failures double the wait. If the operator escalates ("we need to send NOW"), the only safe path is sending the reply manually from the underlying Gmail account.
 
 ### n8n workflow editing
-- **All four MailBOX workflows must be `active=true` on n8n 2.x.** `MailBOX` (parent, ScheduleTrigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` (sub-workflows invoked via `executeWorkflowTrigger`). The pre-2.x guidance — that sub-workflows should stay `active=false` to avoid cosmetic "could not activate" warnings — was retracted in n8n 2.x: now an `executeWorkflow` call to an inactive sub-workflow throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2 upgrade). The post-n8n-upgrade verification one-liner in **Deployment Target → Post-n8n-upgrade verification** is the canonical guardrail. The dashboard CLAUDE.md's STAQPRO-186 boundary contract still mentions the pre-2.x guidance — treat that as historical, the n8n 2.x reality is "all four active."
+- **All six MailBOX workflows must be `active=true` on n8n 2.x.** `MailBOX` (parent, ScheduleTrigger), `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` (sub-workflows invoked via `executeWorkflowTrigger`), `MailBOX-ClassifySweeper` (hourly Schedule, STAQPRO-370), and `MailBOX-FetchHistory` (webhook, onboarding). The pre-2.x guidance — that sub-workflows should stay `active=false` to avoid cosmetic "could not activate" warnings — was retracted in n8n 2.x: now an `executeWorkflow` call to an inactive sub-workflow throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2 upgrade). The post-n8n-upgrade verification one-liner in **Deployment Target → Post-n8n-upgrade verification** is the canonical guardrail. The dashboard CLAUDE.md's STAQPRO-186 boundary contract still mentions the pre-2.x guidance — treat that as historical, the n8n 2.x reality is "all six active."
 - `n8n update:workflow --active=...` is a NO-OP at runtime unless the n8n container is restarted. The flag persists to the DB but the live runtime keeps the old activation state cached.
 - `Insert Inbox (skip dupes)` with no Gmail returns produces an empty `$json` that still fires `Run Classify Sub` once. That's why empty 5-min cycles error harmlessly at `Load Inbox Row`. Pre-existing, benign, but confusing if not explained.
 <!-- GSD:conventions-end -->
@@ -253,7 +253,7 @@ Until STAQPRO-231 lands a circuit-breaker, the manual cooldown SLO is: **don't f
 | `postgres` | `postgres:17-alpine` | Operational DB (`mailbox` schema) + n8n's `workflow_entity` table |
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store. Collection `email_messages` (768d / Cosine) holds inbound + outbound message embeddings for RAG retrieval (M3.5 / STAQPRO-188). Payload indexes: `message_id`, `thread_id`, `sender`, `direction`, `sent_at`, `classification_category`. Bootstrap via `docker compose --profile qdrant-bootstrap up mailbox-qdrant-bootstrap` (idempotent). |
 | `ollama` | `ollama/ollama@sha256:<per-appliance digest>` (STAQPRO-240 — pin in `.env`, never `:latest`) | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
-| `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
+| `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime. Active workflows: `MailBOX` (5-min Schedule, parent), `MailBOX-Classify` / `MailBOX-Draft` (sub-workflows via `executeWorkflow`), `MailBOX-Send` (`/webhook/mailbox-send`), `MailBOX-ClassifySweeper` (hourly Schedule, STAQPRO-370 backlog janitor), `MailBOX-FetchHistory` (`/webhook/mailbox-fetch-history`, onboarding). **All 6 must be `active=true` on n8n 2.x** — see Conventions → n8n workflow editing. |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
 | `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
@@ -488,7 +488,8 @@ Verification one-liner — run after every n8n change:
       -d \$(grep ^POSTGRES_DB /home/bob/mailbox/.env | cut -d= -f2-) \
       -c \"SELECT name, active FROM workflow_entity WHERE name LIKE 'MailBOX%' ORDER BY name;\""
 
-All four (`MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`)
+All six (`MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`,
+`MailBOX-ClassifySweeper`, `MailBOX-FetchHistory`)
 must show `active = t`. The dashboard `/status` page also surfaces this via
 the **Classify lag** Stat — green ("caught up") when no unclassified
 inbox_messages in the last 24h, red when the oldest unclassified row is

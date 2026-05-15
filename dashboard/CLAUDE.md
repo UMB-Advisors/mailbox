@@ -182,6 +182,13 @@ All routes live on `http://mailbox-dashboard:3001/...` over the docker network. 
 - **Side effects**: while `bootstrap_complete=false`, increments `mailbox.system_state.bootstrap_messages_seen`, sets `bootstrap_started_at` on first call, and flips `bootstrap_complete=true` when the cycle returned **fewer** than `GMAIL_GET_LIMIT_BOOTSTRAP` messages (didn't fill the bucket → backlog drained). Once complete, the route is a no-op.
 - **Limitation**: empty cycles (`Get many messages` returns 0 items) do NOT fire this route under the current n8n topology — the `Cycle Stats` Code node only fires when the upstream produced ≥1 item. The flip path therefore relies on the first partial-batch cycle, which happens at the tail of any non-empty backlog drain. A fresh install with a permanently empty inbox stays in bootstrap forever (cosmetic only — the throttled `limit=25` causes no harm with no traffic).
 
+#### `POST /api/internal/classify-sweep` — STAQPRO-370 backlog janitor
+- **Caller**: `MailBOX-ClassifySweeper` workflow, hourly `ScheduleTrigger` → `Call Classify Sweep` HTTP node. Also operator-callable from the appliance over the docker network for manual fire.
+- **Schema**: inline `classifySweepBodySchema` in the route file — `{ lookback_hours?: number = 168 (max 24*90), limit?: number = 50 (max 500) }`. Both default-on-empty so n8n's empty-body fallback works.
+- **Response**: `{ ok: true, processed, ok_count, fail_count, remaining, elapsed_ms, lookback_hours, limit }` on success; `{ ok: false, error: 'already_running', ... }` with HTTP 409 when a previous sweep is still holding the pg advisory lock (key `370`); `{ ok: false, error: 'sweep_failed', ... }` with HTTP 502 on infra failure.
+- **Side effects**: runs the classify chain (`lib/classification/classify-one.ts`) on inbox rows with no `classification_log` entry inside the `lookback_hours` window, oldest-first, capped at `limit`. Each successful row gets one INSERT into `mailbox.classification_log`; migration 021's `trg_sync_inbox_from_classification_log` trigger then mirrors the result onto `mailbox.inbox_messages.classification` / `confidence` / `model`. Acquires/releases `pg_try_advisory_lock(370)` for the duration. Per-row failures are logged and counted (`fail_count`) but don't abort the batch.
+- **Scope deliberately narrowed**: does NOT call the Live Gate, the drop-spam IF gate, or `Insert Draft Stub` / `Trigger Draft Sub`. Backlog rows are days/weeks old by definition; auto-drafting historical mail is a separate decision (see STAQPRO-368 scope note). Goal is exactly: restore visibility on the Classifications page + give RAG retrieval a `classification_category` payload to filter on.
+
 ### Credentials n8n owns
 
 n8n's encrypted credential store lives in the `credentials_entity` Postgres table on the same Postgres instance as `mailbox.*`. The encryption key is `N8N_ENCRYPTION_KEY` (env var, generated once via `openssl rand -hex 32`). **If the key is lost, every stored credential is unrecoverable** — operator must re-authorize Gmail OAuth and re-enter the Postgres credential.
@@ -222,7 +229,7 @@ n8n's encrypted credential store lives in the `credentials_entity` Postgres tabl
 
 ### If we ever rip out n8n
 
-This contract is the spec for the replacement. A ~100-line `setInterval` poll loop in the dashboard plus a Gmail OAuth library (`googleapis`) plus a small webhook router would replace it. STAQPRO-187 (post-customer-#2 spike, gated on customer #2 stable + STAQPRO-133 + STAQPRO-185) tracks the proof-of-concept. The boundary is intentionally narrow: **2 webhooks one direction, 7 routes the other, 2 credentials.** Total surface fits on this page.
+This contract is the spec for the replacement. A ~100-line `setInterval` poll loop in the dashboard plus a Gmail OAuth library (`googleapis`) plus a small webhook router would replace it. STAQPRO-187 (post-customer-#2 spike, gated on customer #2 stable + STAQPRO-133 + STAQPRO-185) tracks the proof-of-concept. The boundary is intentionally narrow: **2 webhooks one direction, 8 routes the other, 2 credentials.** Total surface fits on this page.
 <!-- GSD:n8n-boundary-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->

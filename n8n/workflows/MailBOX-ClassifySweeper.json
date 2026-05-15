@@ -1,0 +1,71 @@
+{
+  "active": true,
+  "connections": {
+    "Every Hour": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Call Classify Sweep",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "description": "STAQPRO-370 — periodic sweeper that drains the unclassified inbox backlog left behind by MailBOX-FetchHistory (onboarding backfill writes rows directly to mailbox.inbox_messages without classifying) and n8n-downtime cohorts. Calls POST /api/internal/classify-sweep hourly; the heavy lifting (prompt → Qwen3 → normalize → log) lives in the dashboard. One-node workflow on purpose — keeps n8n DSL surface minimal so future maintenance lives in TypeScript, not JSON.",
+  "id": "MlbxClsfySwp001",
+  "isArchived": false,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "name": "MailBOX-ClassifySweeper",
+  "nodes": [
+    {
+      "id": "trg00000-0000-0000-0000-000000000020",
+      "name": "Every Hour",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        0
+      ],
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3
+    },
+    {
+      "id": "htp00000-0000-0000-0000-000000000021",
+      "name": "Call Classify Sweep",
+      "parameters": {
+        "method": "POST",
+        "url": "http://mailbox-dashboard:3001/dashboard/api/internal/classify-sweep",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lookback_hours\": 168,\n  \"limit\": 50\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "position": [
+        260,
+        0
+      ],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": []
+}
