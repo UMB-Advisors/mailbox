@@ -21,12 +21,11 @@
 // runs as a one-shot tsx process without the Next.js module context.
 
 import { sql } from 'kysely';
-import { normalizeClassifierOutput } from '@/lib/classification/normalize';
-import { buildPrompt, MODEL_VERSION } from '@/lib/classification/prompt';
+import { classifyOne, type InboxRowForClassify } from '@/lib/classification/classify-one';
+import { MODEL_VERSION } from '@/lib/classification/prompt';
 import { getKysely } from '@/lib/db';
 import { withJobRun } from '@/lib/jobs/job-runs';
 
-const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? 'http://ollama:11434';
 const LOCK_KEY = 7234567; // arbitrary 32-bit int, scoped to this sweeper
 
 // Per-row classify HTTP timeout. Matches the n8n MailBOX-Classify HTTP node
@@ -44,74 +43,27 @@ interface SweeperResult {
   failed: number;
 }
 
-interface InboxRow {
-  id: number;
-  from_addr: string | null;
-  to_addr: string | null;
-  subject: string | null;
-  body: string | null;
-  snippet: string | null;
-}
+type InboxRow = InboxRowForClassify;
 
-interface ClassifyOutcome {
-  category: string;
-  confidence: number;
-  latency_ms: number;
-  raw_output: string;
-  json_parse_ok: boolean;
-  think_stripped: boolean;
-}
-
-async function classifyRow(row: InboxRow): Promise<ClassifyOutcome> {
-  const prompt = buildPrompt({
-    from: row.from_addr ?? '',
-    subject: row.subject ?? '',
-    body: row.body ?? row.snippet ?? '',
-  });
-
-  const t0 = Date.now();
-  const ctrl = new AbortController();
-  const timeoutHandle = setTimeout(() => ctrl.abort(), CLASSIFY_TIMEOUT_MS);
-  let ollamaRes: Response;
-  try {
-    ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL_VERSION,
-        prompt,
-        stream: false,
-        format: 'json',
-        options: { temperature: 0 },
-      }),
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    if (e instanceof Error && e.name === 'AbortError') {
-      throw new Error(`ollama -> timeout after ${CLASSIFY_TIMEOUT_MS}ms`);
+// Wrap global fetch with a per-call AbortController timeout. classify-one's
+// ClassifyOneDeps takes a `fetchImpl` injection point precisely for this —
+// we don't want to bake a timeout into the shared classify chain because
+// the live MailBOX-Classify node + the operator backfill script have
+// different latency tolerances.
+function timeoutFetch(timeoutMs: number, label: string): typeof fetch {
+  return async (input, init) => {
+    const ctrl = new AbortController();
+    const handle = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: ctrl.signal });
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw new Error(`${label} -> timeout after ${timeoutMs}ms`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(handle);
     }
-    throw e;
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-  if (!ollamaRes.ok) {
-    throw new Error(`ollama -> HTTP ${ollamaRes.status}`);
-  }
-  const ollamaJson = (await ollamaRes.json()) as { response?: string };
-  const latency_ms = Date.now() - t0;
-
-  const normalized = normalizeClassifierOutput(ollamaJson.response ?? '', {
-    from: row.from_addr ?? undefined,
-    to: row.to_addr ?? undefined,
-  });
-
-  return {
-    category: normalized.category,
-    confidence: normalized.confidence,
-    latency_ms,
-    raw_output: normalized.raw_output,
-    json_parse_ok: normalized.json_parse_ok,
-    think_stripped: normalized.think_stripped,
   };
 }
 
@@ -137,10 +89,11 @@ export async function runSweeperTick(): Promise<SweeperResult> {
        LIMIT ${ROW_LIMIT}
     `.execute(db);
 
+    const sharedFetch = timeoutFetch(CLASSIFY_TIMEOUT_MS, 'classify-sweeper');
     result.checked = queryResult.rows.length;
     for (const row of queryResult.rows) {
       try {
-        const outcome = await classifyRow(row);
+        const outcome = await classifyOne(row, { fetchImpl: sharedFetch });
         await db
           .insertInto('classification_log')
           .values({
