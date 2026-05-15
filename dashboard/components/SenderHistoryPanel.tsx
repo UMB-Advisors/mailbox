@@ -60,7 +60,7 @@ export function SenderHistoryPanel({ draftId }: { draftId: number }) {
   }, [open, draftId, state.kind]);
 
   return (
-    <section className="rounded border border-border bg-bg-deep">
+    <section className="rounded-sm border border-border bg-bg-deep">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

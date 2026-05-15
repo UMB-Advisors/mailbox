@@ -145,7 +145,7 @@ export default async function StatusPage() {
           )}
 
           {bootstrapState && !bootstrapState.complete && (
-            <section className="mb-6 rounded border border-accent-blue/40 bg-accent-blue/10 p-4">
+            <section className="mb-6 rounded-sm border border-accent-blue/40 bg-accent-blue/10 p-4">
               <div className="flex items-baseline justify-between">
                 <h2 className="font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
                   Bootstrap in progress
@@ -301,7 +301,7 @@ export default async function StatusPage() {
                       free of {formatBytes(diskFree.total_bytes)}
                     </span>
                   </div>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded bg-bg-deep">
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-sm bg-bg-deep">
                     <div
                       className="h-full bg-accent-blue"
                       style={{
@@ -390,7 +390,7 @@ export default async function StatusPage() {
               <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
                 Last error
               </h2>
-              <div className="rounded border border-accent-red/40 bg-accent-red/10 p-4">
+              <div className="rounded-sm border border-accent-red/40 bg-accent-red/10 p-4">
                 <p className="mb-1 text-xs text-ink-muted">
                   {formatRelative(lastError.at)} · most recent draft with{' '}
                   <code className="font-mono">error_message</code>
@@ -432,7 +432,7 @@ function Stat({ label, value, sub, mono, tone = 'default' }: StatProps) {
           ? 'text-accent-orange'
           : 'text-ink';
   return (
-    <div className="rounded border border-border-subtle bg-bg-panel p-3">
+    <div className="rounded-sm border border-border-subtle bg-bg-panel p-3">
       <div className="text-xs uppercase tracking-wider text-ink-dim">{label}</div>
       <div
         className={`mt-1 text-2xl font-semibold tracking-tight ${toneClass} ${mono ? 'font-mono' : 'font-sans'}`}
@@ -450,7 +450,7 @@ function AlertBanner({ alert }: { alert: Alert }) {
       ? 'border-accent-red/40 bg-accent-red/10 text-accent-red'
       : 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange';
   return (
-    <li className={`rounded border p-3 ${toneClass}`}>
+    <li className={`rounded-sm border p-3 ${toneClass}`}>
       <div className="flex items-baseline gap-3">
         <span className="font-mono text-xs uppercase tracking-wider">{alert.severity}</span>
         <span className="font-mono text-xs text-ink-dim">{alert.code}</span>
@@ -462,7 +462,7 @@ function AlertBanner({ alert }: { alert: Alert }) {
 
 function Card({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded border border-border-subtle bg-bg-panel p-4">
+    <div className="rounded-sm border border-border-subtle bg-bg-panel p-4">
       {title && <div className="mb-2 text-xs uppercase tracking-wider text-ink-dim">{title}</div>}
       {children}
     </div>

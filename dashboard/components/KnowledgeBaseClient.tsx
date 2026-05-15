@@ -276,7 +276,7 @@ export function KnowledgeBaseClient({ initialRows }: { initialRows: KbDocument[]
                         <button
                           type="button"
                           onClick={() => void handleRetry(row.id)}
-                          className="rounded border border-border bg-bg-deep px-2 py-0.5 font-mono text-[10px] text-ink-muted hover:text-accent-orange"
+                          className="rounded-sm border border-border bg-bg-deep px-2 py-0.5 font-mono text-[10px] text-ink-muted hover:text-accent-orange"
                         >
                           retry
                         </button>
@@ -284,7 +284,7 @@ export function KnowledgeBaseClient({ initialRows }: { initialRows: KbDocument[]
                       <button
                         type="button"
                         onClick={() => void handleDelete(row.id)}
-                        className="rounded border border-border bg-bg-deep px-2 py-0.5 font-mono text-[10px] text-ink-muted hover:text-accent-red"
+                        className="rounded-sm border border-border bg-bg-deep px-2 py-0.5 font-mono text-[10px] text-ink-muted hover:text-accent-red"
                       >
                         delete
                       </button>
@@ -315,7 +315,7 @@ function StatusBadge({
   return (
     <span
       title={errorMessage ?? undefined}
-      className={`inline-block rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${palette[status]}`}
+      className={`inline-block rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${palette[status]}`}
     >
       {status}
     </span>

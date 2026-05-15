@@ -96,7 +96,7 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-6 p-4 lg:p-6">
           {/* Metadata strip */}
-          <section className="rounded border border-border bg-bg-panel p-4">
+          <section className="rounded-sm border border-border bg-bg-panel p-4">
             <h2 className="mb-3 font-sans text-sm font-semibold">Persona snapshot</h2>
             <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 font-mono text-xs">
               <dt className="text-ink-dim">customer_key:</dt>
@@ -113,7 +113,7 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
               </dd>
             </dl>
             {!persona && (
-              <p className="mt-3 rounded border border-accent-orange/40 bg-accent-orange/10 p-2 text-xs text-accent-orange">
+              <p className="mt-3 rounded-sm border border-accent-orange/40 bg-accent-orange/10 p-2 text-xs text-accent-orange">
                 No persona row yet. Saving will create the default row.
               </p>
             )}
@@ -142,7 +142,7 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
               type="button"
               onClick={onSave}
               disabled={busy || refreshing}
-              className="inline-flex items-center gap-1.5 rounded bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-sm bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? 'Saving…' : 'Save persona'}
             </button>
@@ -150,7 +150,7 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
               type="button"
               onClick={onRefreshFromHistory}
               disabled={busy || refreshing}
-              className="inline-flex items-center gap-1.5 rounded border border-accent-blue/60 bg-accent-blue/10 px-3 py-2 font-sans text-sm text-accent-blue transition-colors hover:bg-accent-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-sm border border-accent-blue/60 bg-accent-blue/10 px-3 py-2 font-sans text-sm text-accent-blue transition-colors hover:bg-accent-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {refreshing ? 'Extracting…' : 'Refresh from sent history'}
             </button>
@@ -181,7 +181,7 @@ function Editor({
   error: string | null;
 }) {
   return (
-    <section className="rounded border border-border bg-bg-panel p-4">
+    <section className="rounded-sm border border-border bg-bg-panel p-4">
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <label htmlFor={label} className="font-mono text-xs uppercase tracking-wider text-ink">
           {label}
@@ -195,7 +195,7 @@ function Editor({
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
         rows={14}
-        className={`w-full rounded border bg-bg-deep p-3 font-mono text-xs leading-relaxed text-ink focus:outline-none ${
+        className={`w-full rounded border bg-bg-deep p-3 font-mono text-xs leading-relaxed text-ink focus:outline-hidden ${
           error ? 'border-accent-red/60' : 'border-border-subtle focus:border-accent-orange/60'
         }`}
       />

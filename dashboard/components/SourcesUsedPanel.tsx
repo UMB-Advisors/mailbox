@@ -120,7 +120,7 @@ export function SourcesUsedPanel({ draftId }: Props) {
 
   const count = data?.refs.length ?? null;
   return (
-    <section className="rounded border border-border-subtle bg-bg-deep">
+    <section className="rounded-sm border border-border-subtle bg-bg-deep">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -216,7 +216,7 @@ function SourcesContent({ data }: { data: RagRefsResponse }) {
       {errorBlock}
       <ul className="space-y-2">
         {data.refs.map((ref) => (
-          <li key={ref.point_id} className="rounded border border-border-subtle bg-bg-panel p-2">
+          <li key={ref.point_id} className="rounded-sm border border-border-subtle bg-bg-panel p-2">
             {ref.source === 'email' ? (
               <>
                 <div className="mb-1 flex items-baseline gap-2">

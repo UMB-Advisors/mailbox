@@ -26,7 +26,7 @@ export function EditDiff({ original, current }: { original: string | null; curre
   if (stats.added === 0 && stats.removed === 0) return null;
 
   return (
-    <section className="rounded border border-border bg-bg-deep">
+    <section className="rounded-sm border border-border bg-bg-deep">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

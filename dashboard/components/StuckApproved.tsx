@@ -73,7 +73,7 @@ export function StuckApproved({
   }
 
   return (
-    <section className="rounded border border-accent-orange/40 bg-accent-orange/5">
+    <section className="rounded-sm border border-accent-orange/40 bg-accent-orange/5">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

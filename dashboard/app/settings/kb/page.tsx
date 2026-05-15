@@ -75,7 +75,7 @@ export default async function SettingsKbPage() {
         </section>
 
         {topErr && (
-          <div className="mb-4 rounded border border-accent-orange/40 bg-accent-orange/10 p-3 text-xs text-accent-orange">
+          <div className="mb-4 rounded-sm border border-accent-orange/40 bg-accent-orange/10 p-3 text-xs text-accent-orange">
             Couldn't load drafting metrics — showing the catch-all upload only.{' '}
             <span className="font-mono">{topErr}</span>
           </div>
@@ -87,7 +87,7 @@ export default async function SettingsKbPage() {
           // fewer than 5 drafts in any category (or fewer than 20 total),
           // suppress the targeted nudges entirely and tell the operator
           // to come back later. No false-precision suggestions.
-          <section className="mb-6 rounded border border-border-subtle bg-bg-panel p-4">
+          <section className="mb-6 rounded-sm border border-border-subtle bg-bg-panel p-4">
             <h3 className="mb-2 font-sans text-sm font-semibold">Not enough drafts yet</h3>
             <p className="text-sm text-ink-muted">
               Come back after your first 20 drafts and we'll point you at the categories that need
@@ -96,7 +96,7 @@ export default async function SettingsKbPage() {
             </p>
             <a
               href={apiUrl('/knowledge-base')}
-              className="mt-3 inline-block rounded border border-border-subtle px-3 py-1 font-mono text-xs hover:bg-bg-deep"
+              className="mt-3 inline-block rounded-sm border border-border-subtle px-3 py-1 font-mono text-xs hover:bg-bg-deep"
             >
               Go to knowledge base →
             </a>
@@ -130,12 +130,12 @@ export default async function SettingsKbPage() {
             Existing documents
           </h2>
           {docsErr ? (
-            <div className="rounded border border-accent-red/40 bg-accent-red/10 p-3 text-xs text-accent-red">
+            <div className="rounded-sm border border-accent-red/40 bg-accent-red/10 p-3 text-xs text-accent-red">
               <p className="mb-1 font-medium">Failed to load knowledge base</p>
               <p className="font-mono">{docsErr}</p>
             </div>
           ) : docs.length === 0 ? (
-            <p className="rounded border border-border-subtle bg-bg-panel p-3 text-sm text-ink-muted">
+            <p className="rounded-sm border border-border-subtle bg-bg-panel p-3 text-sm text-ink-muted">
               No documents uploaded yet. Drop a file on a category above or use the{' '}
               <a className="underline hover:text-ink" href={apiUrl('/knowledge-base')}>
                 catch-all knowledge base
@@ -143,7 +143,7 @@ export default async function SettingsKbPage() {
               .
             </p>
           ) : (
-            <ul className="divide-y divide-border-subtle rounded border border-border-subtle bg-bg-panel">
+            <ul className="divide-y divide-border-subtle rounded-sm border border-border-subtle bg-bg-panel">
               {docs.map((d) => (
                 <li key={d.id} className="flex items-baseline justify-between p-3">
                   <div className="min-w-0 flex-1">

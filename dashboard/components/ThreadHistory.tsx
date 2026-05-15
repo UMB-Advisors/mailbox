@@ -6,7 +6,7 @@ export function ThreadHistory({ messages }: { messages: ThreadMessage[] }) {
   if (messages.length === 0) return null;
 
   return (
-    <details className="group rounded border border-border-subtle">
+    <details className="group rounded-sm border border-border-subtle">
       <summary className="cursor-pointer list-none select-none px-3 py-1.5 font-mono text-[11px] text-ink-dim hover:text-ink-muted">
         <span className="group-open:hidden">Conversation history ({messages.length} prior) ▸</span>
         <span className="hidden group-open:inline">
@@ -30,10 +30,10 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
       ? 'border-border bg-bg-panel text-ink-muted'
       : 'border-accent-blue/40 bg-accent-blue/10 text-accent-blue';
   return (
-    <details className="group/msg rounded border border-border-subtle bg-bg-panel/40">
+    <details className="group/msg rounded-sm border border-border-subtle bg-bg-panel/40">
       <summary className="flex cursor-pointer list-none select-none items-center gap-2 px-2 py-1 text-[11px] hover:bg-bg-panel/70">
         <span
-          className={`shrink-0 rounded-sm border px-1.5 py-0.5 font-mono uppercase tracking-wider ${directionTone}`}
+          className={`shrink-0 rounded-xs border px-1.5 py-0.5 font-mono uppercase tracking-wider ${directionTone}`}
         >
           {message.direction}
         </span>
@@ -49,7 +49,7 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
       </summary>
       {message.body && (
         <div className="border-t border-border-subtle px-2 pb-2 pt-1.5">
-          <pre className="whitespace-pre-wrap break-words font-serif text-sm leading-relaxed text-ink-muted">
+          <pre className="whitespace-pre-wrap wrap-break-word font-serif text-sm leading-relaxed text-ink-muted">
             {formatEmailBody(message.body)}
           </pre>
         </div>

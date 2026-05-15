@@ -34,7 +34,7 @@ export default function CompletePage() {
         </p>
         <a
           href={apiUrl('/settings/kb')}
-          className="inline-block rounded border border-neutral-700 px-3 py-1 font-mono text-xs text-neutral-300 hover:border-neutral-500 hover:text-neutral-100"
+          className="inline-block rounded-sm border border-neutral-700 px-3 py-1 font-mono text-xs text-neutral-300 hover:border-neutral-500 hover:text-neutral-100"
         >
           Improve your drafts →
         </a>

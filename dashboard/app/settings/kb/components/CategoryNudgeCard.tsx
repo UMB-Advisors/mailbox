@@ -151,7 +151,7 @@ export function CategoryNudgeCard({
   );
 
   return (
-    <section className="rounded border border-border-subtle bg-bg-panel p-4">
+    <section className="rounded-sm border border-border-subtle bg-bg-panel p-4">
       <div className="mb-3 flex items-baseline justify-between">
         <h3 className="font-sans text-sm font-semibold text-ink">
           <span className="font-mono text-accent-orange">{label}</span> drafts
