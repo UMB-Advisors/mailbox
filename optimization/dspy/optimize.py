@@ -328,13 +328,22 @@ def evaluate_program(
     "--cos-floor",
     type=float,
     default=None,
-    help="Override the cosine sanity floor (default 0.30).",
+    help=(
+        "Opt-in cosine sanity floor for the judge metric. Disabled by "
+        "default since STAQPRO-363 — the floor was rejecting "
+        "style-divergent but semantically-equivalent pairs. Set e.g. "
+        "``--cos-floor 0.30`` to re-enable for diagnostic runs."
+    ),
 )
 @click.option(
     "--disable-cosine",
     is_flag=True,
     default=False,
-    help="Disable the cosine sanity floor (use when nomic embed isn't reachable).",
+    help=(
+        "Force the cosine sanity floor off regardless of ``--cos-floor``. "
+        "Cosine is already off by default since STAQPRO-363; this flag is "
+        "kept for backward compatibility with older invocations."
+    ),
 )
 @click.option(
     "--train-fraction",

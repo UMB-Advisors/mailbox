@@ -215,3 +215,74 @@ architectural model lift, not prompt lift, is where Phase 2 win-rate
 improvements live. The two follow-ups above will tell us whether a
 relaxed metric + a cleaner corpus would surface prompt-level lift on
 the bake-off winner.
+
+## Run-2 (STAQPRO-363 — relaxed metric + 429 retry)
+
+**Status: pending re-run.** The metric module landed the STAQPRO-363
+changes (relaxed judge prompt, cosine sanity floor flipped to opt-in,
+429 retry/backoff with jitter + clamped `Retry-After` + structured
+`JudgeError("rate_limited")` on exhaustion). Operator re-fires Run-2
+against the same `traces/v1.0` set and fills in the table below.
+
+### Pre-flight smoke (cheap, ~30 cloud calls)
+
+Before spending another `--auto light` budget (~580 cloud calls,
+~2h21m wall-clock), confirm the relaxed judge is discriminative:
+
+```bash
+cd optimization/dspy
+uv run python scripts/judge_discriminative_smoke.py \
+    --trace-set ./traces/v1.0 \
+    --n 10
+```
+
+Pass criteria (exits non-zero on failure):
+
+* `reference-vs-reference` mean ≥ 0.80 — judge accepts operator-approved
+  replies when fed them as candidates.
+* `clearly-bad` mean = 0.00 — judge rejects an off-topic, fabricating
+  candidate every time.
+* `baseline (truncated)` — informational, no threshold; should land
+  somewhere in between as a sanity signal.
+
+If `reference-vs-reference < 0.80`, the prompt needs another pass
+before burning a full GEPA budget — STOP, don't proceed.
+
+### Run-2 invocation
+
+After smoke passes:
+
+```bash
+cd optimization/dspy
+uv run python -m optimize \
+    --trace-set ./traces/v1.0 \
+    --target-base-url http://localhost:11434 \
+    --target-model qwen3:4b-ctx4k \
+    --out outputs/run-2-relaxed-judge-$(date +%Y%m%dT%H%M%S) \
+    --auto light
+```
+
+Cosine floor stays off (the STAQPRO-363 default). Pass `--cos-floor 0.30`
+only for a diagnostic A/B against Run-1's gating behavior.
+
+### Run-2 results
+
+| Field | Value |
+|---|---|
+| Run dir (gitignored) | `outputs/run-2-relaxed-judge-<timestamp>/` |
+| Trace set | `traces/v1.0` (same as Run-1) |
+| Set SHA-256 | `d8d040ba5ee06933425e794b7c81c20f9938ffb2c35f4f531d2f7eed30799d04` |
+| Split | train=50, val=50, seed=1 (unchanged) |
+| Target | `qwen3:4b-ctx4k` @ `http://localhost:11434` |
+| Judge | `gpt-oss:120b` @ Ollama Cloud (relaxed prompt + 429 retry) |
+| GEPA budget | `--auto light` |
+| PRE win rate | _TBD_ |
+| POST win rate | _TBD_ |
+| Lift | _TBD_ |
+| Judge 429 rate | _TBD (compare to Run-1's 428/580 = 73.8%)_ |
+| `JudgeError("rate_limited")` count | _TBD (should be 0 in a healthy run)_ |
+
+After the run completes, paste the actual numbers above and write a
+1-paragraph verdict comparing to Run-1. If the lift is still +0.000
+the corpus-quality work (STAQPRO-340 forwarded-mail + duplicate-inbound
+filter) is the next sequenced follow-up.
