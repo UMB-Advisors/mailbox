@@ -531,6 +531,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
                 busyId={busyRetryId}
                 onRetry={fireRetry}
                 cooldownActive={cooldown.is_active}
+                cooldownSafeAt={cooldown.recommended_safe_at}
               />
               <NewDraftsBanner count={newCount} onDismiss={dismissNewDrafts} />
             </div>

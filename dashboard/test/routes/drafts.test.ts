@@ -330,6 +330,43 @@ dbDescribe('drafts route handlers — real Postgres', () => {
         await deleteSeededDraft(seed);
       }
     });
+
+    it('persists error_message on webhook failure (STAQPRO-271 AC #4)', async () => {
+      // Simulate n8n returning an empty body (the 2026-05-08 Gmail-Reply
+      // rate-limit failure shape). The webhook tolerates the empty body
+      // (lib/n8n.ts) and surfaces a structured error; the transition helper
+      // must persist that error to drafts.error_message so the operator can
+      // see why send failed without grepping execution_data.
+      const failFetch = vi.fn(() => Promise.resolve(new Response('', { status: 200 })));
+      vi.stubGlobal('fetch', failFetch);
+
+      const seed = await seedDraft({ status: 'approved' });
+      try {
+        const { POST } = await import('@/app/api/drafts/[id]/retry/route');
+        const res = await POST(fakeRequest(), {
+          params: { id: String(seed.draftId) },
+        });
+        expect(res.status).toBe(502);
+        const body = (await res.json()) as { success: boolean; error: string };
+        expect(body.success).toBe(false);
+        expect(body.error).toMatch(/empty body/i);
+        const row = await getDraftRow(seed.draftId);
+        expect(row?.status).toBe('approved'); // unchanged — no rollback policy
+        expect(row?.error_message).toBeTruthy();
+        expect(row?.error_message).toMatch(/empty body/i);
+      } finally {
+        await deleteSeededDraft(seed);
+        // Restore the suite-level happy-path fetch stub.
+        vi.stubGlobal(
+          'fetch',
+          vi
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+            ),
+        );
+      }
+    });
   });
 
   describe('GET /api/drafts (list)', () => {

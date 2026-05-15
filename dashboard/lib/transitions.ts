@@ -100,10 +100,30 @@ export async function transitionToApprovedAndSend(
       `POST /api/drafts/${id}/${opts.routeName} (webhook) failed:`,
       webhookResult.error,
     );
-    return NextResponse.json(
-      { success: false, draft_id: id, error: webhookResult.error },
-      { status: 502 },
-    );
+    // STAQPRO-271 — persist the send-failure detail to drafts.error_message
+    // so the operator has a forensic trail without grepping execution_data.
+    // Before this, the 502 wire response carried the cause but the row only
+    // showed status='approved' with no clue why send failed (AC #4 in the
+    // 2026-05-08 incident writeup). Best-effort: a write failure here mustn't
+    // shadow the original webhook error in the response, so swallow + log.
+    const errMsg = webhookResult.error ?? 'Send webhook failed (no detail)';
+    try {
+      const db = getKysely();
+      await db
+        .updateTable('drafts')
+        .set({
+          error_message: errMsg,
+          updated_at: sql<string>`NOW()`,
+        })
+        .where('id', '=', id)
+        .execute();
+    } catch (persistErr) {
+      console.error(
+        `POST /api/drafts/${id}/${opts.routeName} (error_message persist) failed:`,
+        persistErr,
+      );
+    }
+    return NextResponse.json({ success: false, draft_id: id, error: errMsg }, { status: 502 });
   }
 
   return NextResponse.json({

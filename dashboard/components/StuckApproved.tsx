@@ -24,6 +24,7 @@ export function StuckApproved({
   busyId,
   onRetry,
   cooldownActive = false,
+  cooldownSafeAt = null,
 }: {
   drafts: DraftWithMessage[];
   busyId: number | null;
@@ -33,6 +34,12 @@ export function StuckApproved({
   // but blocking the click prevents the dashboard 502+toast flicker and
   // reinforces the banner's "wait until safe-send" message.
   cooldownActive?: boolean;
+  // STAQPRO-271 AC #5 — the system-wide recommended_safe_at timestamp
+  // (raw 429 retry-after + the +1h STAQPRO-228 buffer). Surfaced inline
+  // per stuck row when the cooldown is active so the operator sees
+  // "safe to retry at HH:MM" rather than guessing. Null when no
+  // cooldown is set.
+  cooldownSafeAt?: string | null;
 }) {
   const [open, setOpen] = useState(true);
   const [armedId, setArmedId] = useState<number | null>(null);
@@ -103,6 +110,36 @@ export function StuckApproved({
                 <p className="mb-2 truncate font-sans text-sm font-medium">
                   {draft.message.subject ?? '(no subject)'}
                 </p>
+                {/* STAQPRO-271 AC #4 — surface drafts.error_message (now
+                    populated on send-webhook failure per lib/transitions.ts).
+                    Operator no longer has to grep n8n execution_data to find
+                    out why send failed. Truncated + tooltip'd because Gmail's
+                    rate-limit string can be long. */}
+                {draft.error_message && (
+                  <p
+                    className="mb-2 line-clamp-2 font-mono text-xs text-accent-red"
+                    title={draft.error_message}
+                  >
+                    {draft.error_message}
+                  </p>
+                )}
+                {/* STAQPRO-271 AC #5 — when a system-wide Gmail cooldown
+                    is active, show the +1h-buffered safe-to-retry
+                    timestamp inline. Pairs with the banner's "Gmail
+                    rate-limited" headline so the operator can plan. */}
+                {cooldownActive && cooldownSafeAt && (
+                  <p className="mb-2 font-sans text-xs text-ink-muted">
+                    Safe to retry after{' '}
+                    <time dateTime={cooldownSafeAt} className="font-mono">
+                      {new Date(cooldownSafeAt).toLocaleString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </time>
+                  </p>
+                )}
                 {isArmed && (
                   <p className="mb-2 font-sans text-xs text-accent-orange">
                     May have already sent — verify in your Gmail Sent folder before re-sending.
