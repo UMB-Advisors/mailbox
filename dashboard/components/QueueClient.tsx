@@ -28,29 +28,42 @@ type ToastMsg = {
   action?: { label: string; onClick: () => void };
   durationMs?: number;
 } | null;
-type View = 'pending' | 'sent';
+// STAQPRO-382 Phase 2a-2 (2026-05-15) — folder-driven queue. `folder` comes
+// from `app/queue/page.tsx` which reads the URL ?folder= search param.
+// `mode` is derived from folder and replaces the previous `view: 'pending' |
+// 'sent'` internal state. The Sidebar (left rail) handles folder switching;
+// the inline Inbox/Sent tab nav is gone.
+type FolderKey = 'queue' | 'approved' | 'sent' | 'rejected' | 'all';
+type Mode = 'active' | 'archive';
+
+function modeForFolder(folder: FolderKey): Mode {
+  // 'queue' and 'all' include pending+edited drafts that are still
+  // actionable. The others show already-actioned drafts.
+  return folder === 'queue' || folder === 'all' ? 'active' : 'archive';
+}
 
 interface Props {
-  initialActive: DraftWithMessage[];
-  initialSent: DraftWithMessage[];
+  folder: FolderKey;
+  initialList: DraftWithMessage[];
+  initialStuck: DraftWithMessage[];
   initialCooldown: CooldownState;
 }
 
-export function QueueClient({ initialActive, initialSent, initialCooldown }: Props) {
-  const [active, setActive] = useState(initialActive);
-  const [sent, setSent] = useState(initialSent);
+export function QueueClient({ folder, initialList, initialStuck, initialCooldown }: Props) {
+  const mode = modeForFolder(folder);
+  const [drafts, setDrafts] = useState(initialList);
+  const [stuckApproved, setStuckApproved] = useState(initialStuck);
   // STAQPRO-331 #5 — system-wide Gmail rate-limit cooldown. SSR-seeded so
   // the banner appears on first paint; refreshed every POLL_INTERVAL_MS
   // alongside the drafts list.
   const [cooldown, setCooldown] = useState<CooldownState>(initialCooldown);
-  const [view, setView] = useState<View>('pending');
   const [removed, setRemoved] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<Busy>(null);
   const [editing, setEditing] = useState<DraftWithMessage | null>(null);
   const [toast, setToast] = useState<ToastMsg>(null);
   const [newCount, setNewCount] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(
-    initialActive.length > 0 ? initialActive[0].id : null,
+    initialList.length > 0 ? initialList[0].id : null,
   );
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   // STAQPRO-331 #1 — controlled popover state so the 'x' keyboard shortcut
@@ -64,47 +77,73 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
   // 'oldest' surfaces stale/overdue drafts at the top.
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
-  const knownIds = useRef<Set<number>>(new Set(initialActive.map((d) => d.id)));
+  const knownIds = useRef<Set<number>>(new Set(initialList.map((d) => d.id)));
 
-  const fetchData = useCallback(async (silent: boolean) => {
-    try {
-      const [actRes, sentRes, cooldownRes] = await Promise.all([
-        fetch(apiUrl('/api/drafts?status=pending,edited&limit=50'), { cache: 'no-store' }),
-        fetch(apiUrl('/api/drafts?status=approved,sent,rejected&limit=50'), {
-          cache: 'no-store',
-        }),
-        // STAQPRO-331 #5 — Gmail cooldown refresh. Don't gate the whole
-        // fetchData on it; if the cooldown route errors, drafts still
-        // update. Cooldown is best-effort UI signal.
-        fetch(apiUrl('/api/system/gmail-cooldown'), { cache: 'no-store' }),
-      ]);
-      if (!actRes.ok || !sentRes.ok) return;
-      const actJson = await actRes.json();
-      const sentJson = await sentRes.json();
-      const nextActive: DraftWithMessage[] = actJson.drafts ?? [];
-      const nextSent: DraftWithMessage[] = sentJson.drafts ?? [];
-
-      if (silent) {
-        for (const d of nextActive) knownIds.current.add(d.id);
-      } else {
-        const fresh = nextActive.map((d) => d.id).filter((id) => !knownIds.current.has(id));
-        if (fresh.length > 0) {
-          setNewCount((c) => c + fresh.length);
-          for (const id of fresh) knownIds.current.add(id);
-        }
-      }
-
-      setActive(nextActive);
-      setSent(nextSent);
-
-      if (cooldownRes.ok) {
-        const cooldownJson = (await cooldownRes.json()) as CooldownState;
-        setCooldown(cooldownJson);
-      }
-    } catch {
-      // Background poll — swallow transient errors.
+  // Status slice per folder — mirrors the server's statusesForFolder() in
+  // app/queue/page.tsx. Kept in sync by hand; the wire shape is the same.
+  const statusQuery = (() => {
+    switch (folder) {
+      case 'queue':
+        return 'pending,edited';
+      case 'approved':
+        return 'approved';
+      case 'sent':
+        return 'sent';
+      case 'rejected':
+        return 'rejected';
+      case 'all':
+        return 'pending,edited,approved,sent,rejected';
     }
-  }, []);
+  })();
+
+  const wantsStuck = folder === 'queue';
+
+  const fetchData = useCallback(
+    async (silent: boolean) => {
+      try {
+        const [listRes, stuckRes, cooldownRes] = await Promise.all([
+          fetch(apiUrl(`/api/drafts?status=${statusQuery}&limit=50`), { cache: 'no-store' }),
+          // Stuck-approved banner only needs refreshing on the queue folder;
+          // skip the round trip otherwise.
+          wantsStuck
+            ? fetch(apiUrl('/api/drafts?status=approved&limit=50'), { cache: 'no-store' })
+            : Promise.resolve(null),
+          // STAQPRO-331 #5 — Gmail cooldown refresh. Don't gate the whole
+          // fetchData on it; if the cooldown route errors, drafts still
+          // update. Cooldown is best-effort UI signal.
+          fetch(apiUrl('/api/system/gmail-cooldown'), { cache: 'no-store' }),
+        ]);
+        if (!listRes.ok) return;
+        const listJson = await listRes.json();
+        const nextList: DraftWithMessage[] = listJson.drafts ?? [];
+
+        if (silent) {
+          for (const d of nextList) knownIds.current.add(d.id);
+        } else if (mode === 'active') {
+          const fresh = nextList.map((d) => d.id).filter((id) => !knownIds.current.has(id));
+          if (fresh.length > 0) {
+            setNewCount((c) => c + fresh.length);
+            for (const id of fresh) knownIds.current.add(id);
+          }
+        }
+
+        setDrafts(nextList);
+
+        if (wantsStuck && stuckRes?.ok) {
+          const stuckJson = await stuckRes.json();
+          setStuckApproved(stuckJson.drafts ?? []);
+        }
+
+        if (cooldownRes.ok) {
+          const cooldownJson = (await cooldownRes.json()) as CooldownState;
+          setCooldown(cooldownJson);
+        }
+      } catch {
+        // Background poll — swallow transient errors.
+      }
+    },
+    [statusQuery, wantsStuck, mode],
+  );
 
   // STAQPRO-331 #11 — visibility-aware polling. Skip ticks when the tab is
   // hidden (no point spending battery + n8n CPU when nobody is watching) and
@@ -160,7 +199,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
       // draft's position, then pick the next entry in the post-removal
       // list. Falls back to the previous entry when actioning the last
       // draft, or null when the queue empties.
-      const oldVisible = view === 'pending' ? active.filter((d) => !removed.has(d.id)) : sent;
+      const oldVisible = mode === 'active' ? drafts.filter((d) => !removed.has(d.id)) : drafts;
       const idx = oldVisible.findIndex((d) => d.id === draft.id);
       const newVisible = oldVisible.filter((_, i) => i !== idx);
       const next = newVisible[idx] ?? newVisible[idx - 1] ?? null;
@@ -203,7 +242,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
         return next;
       });
       // Auto-advance to the next visible draft (matches fireAction).
-      const oldVisible = view === 'pending' ? active.filter((d) => !removed.has(d.id)) : sent;
+      const oldVisible = mode === 'active' ? drafts.filter((d) => !removed.has(d.id)) : drafts;
       const idx = oldVisible.findIndex((d) => d.id === draft.id);
       const newVisible = oldVisible.filter((_, i) => i !== idx);
       const next = newVisible[idx] ?? newVisible[idx - 1] ?? null;
@@ -310,10 +349,11 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
 
   // STAQPRO-331 #8 — apply pending-queue sort. Server returns newest-first
   // (created_at DESC); 'oldest' flips it so overdue rows surface at the top.
-  // Sent view stays in server order — there's no actionable "oldest first"
-  // mental model for already-finalized rows.
-  const visibleActive = (() => {
-    const filtered = active.filter((d) => !removed.has(d.id));
+  // Archive folders (approved/sent/rejected) stay in server order — there's
+  // no actionable "oldest first" mental model for already-finalized rows.
+  const visibleList = (() => {
+    if (mode !== 'active') return drafts;
+    const filtered = drafts.filter((d) => !removed.has(d.id));
     if (sortOrder !== 'oldest') return filtered;
     return [...filtered].sort((a, b) => {
       const at = new Date(a.created_at).getTime();
@@ -324,15 +364,16 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
   // STAQPRO-202 — drafts stuck at status='approved' beyond the webhook
   // timeout window. Sole operator recovery surface for send-side failures
   // (the 'failed' status was retired in migration 016 — see CLAUDE.md
-  // Conventions > Draft status state machine). Warning chip below.
-  const stuckApproved = sent.filter((d) => {
+  // Conventions > Draft status state machine). The stuckApproved state was
+  // fetched separately by the server for the queue folder only; we apply
+  // the staleness threshold here to filter to actually-stuck rows.
+  const stuckApprovedFiltered = stuckApproved.filter((d) => {
     if (d.status !== 'approved') return false;
     const updated = d.updated_at ? new Date(d.updated_at).getTime() : NaN;
     if (!Number.isFinite(updated)) return false;
     return Date.now() - updated > STUCK_APPROVED_THRESHOLD_MS;
   });
-  const list = view === 'pending' ? visibleActive : sent;
-  const selected = list.find((d) => d.id === selectedId) ?? list[0] ?? null;
+  const selected = visibleList.find((d) => d.id === selectedId) ?? visibleList[0] ?? null;
   const busyKindFor = (id: number): ActionKind | null =>
     busy?.draftId === id && busy.kind !== 'retry' ? (busy.kind as ActionKind) : null;
   const busyRetryId = busy?.kind === 'retry' ? busy.draftId : null;
@@ -370,22 +411,21 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
         return;
       }
 
-      const currentList = view === 'pending' ? visibleActive : sent;
       const currentIndex =
-        selectedId == null ? -1 : currentList.findIndex((d) => d.id === selectedId);
+        selectedId == null ? -1 : visibleList.findIndex((d) => d.id === selectedId);
 
       switch (e.key) {
         case 'j':
         case 'ArrowDown': {
           e.preventDefault();
-          const nextDraft = currentList[currentIndex + 1];
+          const nextDraft = visibleList[currentIndex + 1];
           if (nextDraft) setSelectedId(nextDraft.id);
           return;
         }
         case 'k':
         case 'ArrowUp': {
           e.preventDefault();
-          const prevDraft = currentList[currentIndex - 1];
+          const prevDraft = visibleList[currentIndex - 1];
           if (prevDraft) setSelectedId(prevDraft.id);
           return;
         }
@@ -394,13 +434,13 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
         // open (we guard above on rejectPopoverOpen).
         case 'Enter':
         case 'a': {
-          if (!selected || view === 'sent' || busy) return;
+          if (!selected || mode === 'archive' || busy) return;
           e.preventDefault();
           fireAction('approve', selected);
           return;
         }
         case 'e': {
-          if (!selected || view === 'sent' || busy) return;
+          if (!selected || mode === 'archive' || busy) return;
           e.preventDefault();
           setEditing(selected);
           return;
@@ -412,7 +452,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
         // operator to pick a reason and click Reject (no auto-fire).
         case 'r':
         case 'x': {
-          if (!selected || view === 'sent' || busy) return;
+          if (!selected || mode === 'archive' || busy) return;
           e.preventDefault();
           setRejectPopoverOpen(true);
           return;
@@ -423,26 +463,37 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
     return () => window.removeEventListener('keydown', handleKey);
   });
 
-  function switchView(next: View) {
-    if (next === view) return;
-    setView(next);
-    const nextList = next === 'pending' ? visibleActive : sent;
-    setSelectedId(nextList[0]?.id ?? null);
-  }
+  // Folder-specific count label for the header chip. Each folder name
+  // matches the rail entry so the operator gets matching language.
+  const countLabel = (() => {
+    switch (folder) {
+      case 'queue':
+        return 'pending';
+      case 'approved':
+        return 'approved';
+      case 'sent':
+        return 'sent';
+      case 'rejected':
+        return 'rejected';
+      case 'all':
+        return 'drafts';
+    }
+  })();
 
   return (
-    <AppShell active={{ kind: 'folder', folder: 'queue' }}>
+    <AppShell active={{ kind: 'folder', folder }}>
       {/* Top bar — wordmark/AppNav moved into the left rail (Sidebar) per
-          STAQPRO-382 Phase 2a. Pending count + stuck count + shortcuts hint
-          stay as page-local chrome. */}
+          STAQPRO-382 Phase 2a. Folder-aware count + stuck count + shortcuts
+          hint stay as page-local chrome. The inline Inbox/Sent FolderTab
+          nav was retired in Phase 2a-2 — the rail handles folder switching. */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-panel px-4">
         <div className="flex items-center gap-3">
           <span className="rounded-full border border-border bg-bg-deep px-2 py-0.5 font-mono text-[11px] tabular-nums text-ink-muted">
-            {visibleActive.length} pending
+            {visibleList.length} {countLabel}
           </span>
-          {stuckApproved.length > 0 && (
+          {folder === 'queue' && stuckApprovedFiltered.length > 0 && (
             <span className="rounded-full border border-accent-orange/40 bg-accent-orange/10 px-2 py-0.5 font-mono text-[11px] tabular-nums text-accent-orange">
-              {stuckApproved.length} stuck
+              {stuckApprovedFiltered.length} stuck
             </span>
           )}
         </div>
@@ -476,26 +527,11 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
             mobileDetailOpen ? 'hidden md:flex' : 'flex'
           }`}
         >
-          {/* Folder switcher (Outlook-style) */}
-          <nav className="flex shrink-0 border-b border-border-subtle">
-            <FolderTab
-              label="Inbox"
-              count={visibleActive.length}
-              active={view === 'pending'}
-              onClick={() => switchView('pending')}
-            />
-            <FolderTab
-              label="Sent"
-              count={sent.length}
-              active={view === 'sent'}
-              onClick={() => switchView('sent')}
-            />
-          </nav>
-
-          {/* STAQPRO-331 #8 — pending-only sort selector. Lets the operator
-              flip to oldest-first so overdue rows surface at the top of the
-              list. Hidden in Sent view (no actionable "oldest first" there). */}
-          {view === 'pending' && visibleActive.length > 1 && (
+          {/* STAQPRO-331 #8 — sort selector (active folder only). Lets the
+              operator flip to oldest-first so overdue rows surface at the
+              top of the list. Hidden in archive folders (no actionable
+              "oldest first" mental model for already-finalized rows). */}
+          {mode === 'active' && visibleList.length > 1 && (
             <div className="flex shrink-0 items-center justify-end gap-2 border-b border-border-subtle bg-bg-panel px-3 py-1.5 font-mono text-[11px] text-ink-dim">
               <span>Sort</span>
               <button
@@ -524,10 +560,10 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
             </div>
           )}
 
-          {view === 'pending' && (stuckApproved.length > 0 || newCount > 0) && (
+          {mode === 'active' && (stuckApprovedFiltered.length > 0 || newCount > 0) && (
             <div className="space-y-2 border-b border-border-subtle p-2">
               <StuckApproved
-                drafts={stuckApproved}
+                drafts={stuckApprovedFiltered}
                 busyId={busyRetryId}
                 onRetry={fireRetry}
                 cooldownActive={cooldown.is_active}
@@ -537,22 +573,22 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {list.length === 0 ? (
-              view === 'pending' ? (
+            {visibleList.length === 0 ? (
+              mode === 'active' ? (
                 <EmptyState />
               ) : (
                 <div className="flex h-40 items-center justify-center text-sm text-ink-dim">
-                  No sent or rejected drafts yet
+                  No {folder} drafts yet
                 </div>
               )
             ) : (
               <ul className="divide-y divide-border-subtle">
-                {list.map((draft) => (
+                {visibleList.map((draft) => (
                   <li key={draft.id}>
                     <DraftCard
                       draft={draft}
                       isSelected={draft.id === selected?.id}
-                      mode={view}
+                      mode={mode === 'active' ? 'pending' : 'sent'}
                       onSelect={() => {
                         setSelectedId(draft.id);
                         setMobileDetailOpen(true);
@@ -587,7 +623,7 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
                 <DraftDetail
                   draft={selected}
                   busy={busyKindFor(selected.id)}
-                  readOnly={view === 'sent'}
+                  readOnly={mode === 'archive'}
                   onApprove={() => fireAction('approve', selected)}
                   onEdit={() => setEditing(selected)}
                   onReject={(payload) => fireReject(payload, selected)}
@@ -610,34 +646,5 @@ export function QueueClient({ initialActive, initialSent, initialCooldown }: Pro
       {shortcutsHelpOpen && <ShortcutsHelp onClose={() => setShortcutsHelpOpen(false)} />}
       {toast && <Toast {...toast} onDismiss={dismissToast} />}
     </AppShell>
-  );
-}
-
-function FolderTab({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex flex-1 items-center justify-center gap-2 px-3 py-2 font-sans text-xs font-medium transition-colors ${
-        active
-          ? 'border-b-2 border-b-accent-orange text-ink'
-          : 'border-b-2 border-b-transparent text-ink-muted hover:text-ink'
-      }`}
-    >
-      <span>{label}</span>
-      <span className="rounded-full bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-dim">
-        {count}
-      </span>
-    </button>
   );
 }

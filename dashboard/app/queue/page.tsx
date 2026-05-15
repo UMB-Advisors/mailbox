@@ -2,7 +2,7 @@ import type { CooldownState } from '@/components/GmailCooldownBanner';
 import { QueueClient } from '@/components/QueueClient';
 import { listDrafts } from '@/lib/queries';
 import { getGmailCooldown } from '@/lib/queries-system-state';
-import type { DraftWithMessage } from '@/lib/types';
+import type { DraftStatus, DraftWithMessage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,26 +13,65 @@ const EMPTY_COOLDOWN: CooldownState = {
   recommended_safe_at: null,
 };
 
-export default async function QueuePage() {
-  let initialActive: DraftWithMessage[] = [];
-  let initialSent: DraftWithMessage[] = [];
+// Folder keys come from the left rail (components/Sidebar.tsx). Each folder
+// maps to a different `mailbox.drafts.status` slice. STAQPRO-382 Phase 2a-2
+// (2026-05-15) wires the URL ?folder= search param into the server fetch so
+// each rail click drops to the right list.
+type FolderKey = 'queue' | 'approved' | 'sent' | 'rejected' | 'all';
+
+const VALID_FOLDERS: FolderKey[] = ['queue', 'approved', 'sent', 'rejected', 'all'];
+
+function parseFolder(raw: string | string[] | undefined): FolderKey {
+  if (Array.isArray(raw)) return parseFolder(raw[0]);
+  if (raw && (VALID_FOLDERS as readonly string[]).includes(raw)) return raw as FolderKey;
+  return 'queue';
+}
+
+// Status slice per folder. 'queue' shows the operator action list
+// (pending + edited). 'all' aggregates every actionable status — useful for
+// a single-pane view across the board.
+function statusesForFolder(folder: FolderKey): DraftStatus[] {
+  switch (folder) {
+    case 'queue':
+      return ['pending', 'edited'];
+    case 'approved':
+      return ['approved'];
+    case 'sent':
+      return ['sent'];
+    case 'rejected':
+      return ['rejected'];
+    case 'all':
+      return ['pending', 'edited', 'approved', 'sent', 'rejected'];
+  }
+}
+
+interface QueuePageProps {
+  searchParams?: { folder?: string | string[] };
+}
+
+export default async function QueuePage({ searchParams }: QueuePageProps) {
+  const folder = parseFolder(searchParams?.folder);
+
+  // The queue folder still needs the approved-list separately to power the
+  // StuckApproved banner — approved drafts that errored on Gmail Reply leave
+  // the row at status='approved' (STAQPRO-202 / STAQPRO-271). Other folders
+  // don't render that banner.
+  const wantsStuck = folder === 'queue';
+  let initialList: DraftWithMessage[] = [];
+  let initialStuck: DraftWithMessage[] = [];
   let initialCooldown: CooldownState = EMPTY_COOLDOWN;
   let error: string | null = null;
 
   try {
-    const [active, sent, cooldown] = await Promise.all([
-      listDrafts(['pending', 'edited'], 50),
-      // "Sent" view aggregates approved + sent + rejected so operators can see
-      // what they shipped (and what they killed). Approved is in-flight; sent
-      // hit Gmail Reply; rejected was killed in the queue. Stuck-at-approved
-      // (STAQPRO-202) is computed from this list client-side.
-      listDrafts(['approved', 'sent', 'rejected'], 50),
+    const [list, stuck, cooldown] = await Promise.all([
+      listDrafts(statusesForFolder(folder), 50),
+      wantsStuck ? listDrafts(['approved'], 50) : Promise.resolve([] as DraftWithMessage[]),
       // STAQPRO-331 #5 — initial cooldown read for the banner. Client-side
       // polling refreshes it alongside the drafts list.
       getGmailCooldown(),
     ]);
-    initialActive = active;
-    initialSent = sent;
+    initialList = list;
+    initialStuck = stuck;
     initialCooldown = {
       is_active: cooldown.isActive,
       until: cooldown.until?.toISOString() ?? null,
@@ -59,8 +98,9 @@ export default async function QueuePage() {
 
   return (
     <QueueClient
-      initialActive={initialActive}
-      initialSent={initialSent}
+      folder={folder}
+      initialList={initialList}
+      initialStuck={initialStuck}
       initialCooldown={initialCooldown}
     />
   );
