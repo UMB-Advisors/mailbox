@@ -203,7 +203,21 @@ Two footguns when rotating dashboard basic_auth credentials:
 1. **`caddy hash-password` requires `--plaintext` for non-interactive use.** Without a TTY it expects to prompt twice for confirmation, so piping (`echo -n "$PASS" | docker exec -i mailbox-caddy-1 caddy hash-password`) returns empty. Use `docker exec mailbox-caddy-1 caddy hash-password --plaintext "$PASS"` instead — yes the password is in argv on the host briefly, accept that for a single-user appliance.
 2. **`docker compose restart caddy` does NOT pick up `.env` changes** — `restart` is stop/start of the existing container with its baked-in env. To apply env-var changes you must `docker compose up -d caddy` (which recreates the container if env or compose changed). The "Deploy flow" section's `restart caddy` instruction is correct for Caddyfile-only changes (bind-mounted, re-read on restart) but **wrong for `.env` changes**. Confirm via `docker exec mailbox-caddy-1 sh -c 'echo ${MAILBOX_BASIC_AUTH_HASH:0:10}'` — if the prefix doesn't match what's in `.env` (after `$$`-unescaping), the container hasn't been recreated.
 
-Rotation flow that works:
+**Canonical rotation (audit 2026-05-15)** — use `bin/rotate-basic-auth`.
+Single command, handles both footguns, includes post-rotation verification
+that the live container actually picked up the new hash:
+
+    ./bin/rotate-basic-auth mailbox1                              # generate + apply
+    ./bin/rotate-basic-auth --dry-run mailbox2                    # preview without applying
+    ./bin/rotate-basic-auth --update-1password 'mailbox.heronlabsinc.com' mailbox1
+                                                                  # apply + edit 1P item
+
+Source: `bin/rotate-basic-auth`. The script writes a timestamped `.env`
+backup before sed-ing in the new hash, then `docker compose up -d caddy`
+(not `restart`) to force container recreation, then verifies via
+`docker exec ... echo ${MAILBOX_BASIC_AUTH_HASH:0:10}`.
+
+Manual fallback (no shell access to this repo on your workstation):
 
     NEW_PASS=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 28)
     HASH=$(ssh mailbox1 "docker exec mailbox-caddy-1 caddy hash-password --plaintext '$NEW_PASS'")
