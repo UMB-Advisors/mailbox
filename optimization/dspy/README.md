@@ -216,13 +216,15 @@ improvements live. The two follow-ups above will tell us whether a
 relaxed metric + a cleaner corpus would surface prompt-level lift on
 the bake-off winner.
 
-## Run-2 (STAQPRO-363 — relaxed metric + 429 retry)
+## Run-2 (STAQPRO-363 — relaxed metric + 429 retry, 2026-05-15)
 
-**Status: pending re-run.** The metric module landed the STAQPRO-363
-changes (relaxed judge prompt, cosine sanity floor flipped to opt-in,
-429 retry/backoff with jitter + clamped `Retry-After` + structured
-`JudgeError("rate_limited")` on exhaustion). Operator re-fires Run-2
-against the same `traces/v1.0` set and fills in the table below.
+**Status: completed 2026-05-15.** The metric module landed the
+STAQPRO-363 changes (relaxed judge prompt, cosine sanity floor flipped
+to opt-in, 429 retry/backoff with jitter + clamped `Retry-After` +
+structured `JudgeError("rate_limited")` on exhaustion). Smoke gate
+passed (ref-vs-ref 0.80, clearly-bad 0.00, baseline 0.20). GEPA was
+re-fired against the same `traces/v1.0` set. Numbers in the table
+below; verdict at the end of this section.
 
 ### Pre-flight smoke (cheap, ~30 cloud calls)
 
@@ -269,20 +271,42 @@ only for a diagnostic A/B against Run-1's gating behavior.
 
 | Field | Value |
 |---|---|
-| Run dir (gitignored) | `outputs/run-2-relaxed-judge-<timestamp>/` |
+| Run dir (gitignored) | `outputs/run-2-relaxed-judge-20260516T012838Z/` |
 | Trace set | `traces/v1.0` (same as Run-1) |
 | Set SHA-256 | `d8d040ba5ee06933425e794b7c81c20f9938ffb2c35f4f531d2f7eed30799d04` |
 | Split | train=50, val=50, seed=1 (unchanged) |
 | Target | `qwen3:4b-ctx4k` @ `http://localhost:11434` |
 | Judge | `gpt-oss:120b` @ Ollama Cloud (relaxed prompt + 429 retry) |
-| GEPA budget | `--auto light` |
-| PRE win rate | _TBD_ |
-| POST win rate | _TBD_ |
-| Lift | _TBD_ |
-| Judge 429 rate | _TBD (compare to Run-1's 428/580 = 73.8%)_ |
-| `JudgeError("rate_limited")` count | _TBD (should be 0 in a healthy run)_ |
+| GEPA budget | `--auto light` (≈580 metric calls; 100 min wall-clock vs Run-1's 141 min — the cosine-floor skip on the default path saves the embed round-trips) |
+| **PRE win rate** | **0.000** (full valset) |
+| **POST win rate** | **0.000** |
+| **Lift** | **+0.000** |
+| Judge 429-exhaustion rate | **296/≈580 ≈ 51.0%** (down from Run-1's 428/580 = 73.8%, a 22.8-pp drop) |
+| `JudgeError("rate_limited")` count | 296 (calls that exhausted 4 retries and were scored 0.0) |
+| Retry recovery rate | 1/297 ≈ 0.34% (only 1 of 297 calls that entered the retry path eventually got a 200; the cloud rate-limit is sustained, not bursty, so exponential backoff alone doesn't recover most stalled calls) |
+| GEPA iterations | 109 attempted, 0 accepted (every mutation scored 0.0; selected program 0 every iteration) |
+| Compiled `prompt-draft-reply.yaml` | byte-identical to the seed `signatures.py` instructions (same outcome as Run-1) |
 
-After the run completes, paste the actual numbers above and write a
-1-paragraph verdict comparing to Run-1. If the lift is still +0.000
-the corpus-quality work (STAQPRO-340 forwarded-mail + duplicate-inbound
-filter) is the next sequenced follow-up.
+### Run-2 verdict
+
+The relaxed-metric + retry/backoff changes worked as designed but did
+not move the lift. The 429-exhaustion rate fell ~23 pp (73.8% → 51.0%),
+confirming the retry path takes pressure off Ollama Cloud, but only
+1/297 retry-path calls actually recovered to a 200 — the cloud
+rate-limit on `gpt-oss:120b` is sustained, not bursty, so exponential
+backoff alone is the wrong tool. More importantly, the win rate didn't
+budge: pre = post = 0.000, same as Run-1. With baseline still
+collapsed at 0.000, GEPA's reflective mutator has no positive signal
+to gradient against, and every one of the 109 proposed mutations
+scored 0.0 → was correctly skipped. The +0.000 lift is the honest
+answer under the v1.0 corpus, irrespective of metric strictness.
+
+**Next sequenced follow-up — rebuild traces against v1.1.** The
+forwarded-mail + duplicate-inbound builder filter shipped in
+STAQPRO-365 (PR #98, merged 2026-05-15) was *not* applied to the
+on-disk `traces/v1.0/` set used here — the SHA-256 in the table above
+matches Run-1's, proving the corpus is unchanged. Re-fetch a v1.1
+trace set from mailbox1 using the updated `build-trace-set.ts`,
+then re-run GEPA against it. If baseline still pins to 0.000 on a
+clean corpus, the next lever isn't the metric or the corpus — it's
+the target model itself (STAQPRO-342 three-way bake-off).
