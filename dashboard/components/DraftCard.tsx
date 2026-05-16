@@ -1,19 +1,11 @@
 'use client';
 
-import { Star } from 'lucide-react';
-import { useState } from 'react';
-import { categoryPillClass } from '@/lib/category-colors';
-import { senderColor, senderInitial, senderName } from '@/lib/sender-style';
 import type { DraftWithMessage } from '@/lib/types';
 import { FreshnessChip } from './FreshnessChip';
 import { TimeAgo } from './TimeAgo';
 
-// Gmail-style compact list row (STAQPRO-382 Phase 2a-3, 2026-05-15).
-// Replaces the prior fixed-h-14 Outlook-style row with:
-//   - sender avatar bubble (initial + per-sender color, h-7 w-7)
-//   - star toggle (local state for now — Phase 2c will persist)
-//   - saturated category color pill (CATEGORY_COLORS map)
-//   - content-driven row height (py-2 instead of fixed h-14)
+// Outlook-style compact list row. Fixed h-14 so 30+ drafts fit in the
+// left pane without overflow surprises. Detail pane shows the full body.
 //
 // `mode` controls whether the row reflects the inbound classification
 // (pending view) or the outbound disposition (sent view).
@@ -29,61 +21,40 @@ export function DraftCard({
   onSelect: () => void;
 }) {
   const m = draft.message;
-  const fromAddr = m.from_addr ?? '';
-  const displayName = senderName(fromAddr);
+  const fromName =
+    m.from_addr?.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim() || m.from_addr?.split('@')[0] || 'unknown';
 
-  // Star state is local for now. Phase 2c lifts this to a parent-managed
-  // map keyed by draft.id and persists via a new mailbox.draft_stars table
-  // (or persona.statistical_markers if we keep it simple).
-  const [starred, setStarred] = useState(false);
+  const indicator =
+    mode === 'sent'
+      ? sentIndicator(draft.status)
+      : classificationIndicator(m.classification, m.confidence);
 
   // Sent view shows when the draft was finalized.
   const sentTimestamp = draft.sent_at ?? draft.updated_at ?? draft.created_at;
-  const dispositionLabel = mode === 'sent' ? draft.status : null;
 
   return (
     <button
       type="button"
       onClick={onSelect}
       aria-current={isSelected}
-      className={`group flex w-full items-center gap-2 border-l-2 px-2 py-2 text-left transition-colors duration-100 ${
+      className={`group flex h-14 w-full items-center gap-2 border-l-2 px-3 text-left transition-colors duration-100 ${
         isSelected
           ? 'border-l-accent-orange bg-bg-panel'
           : 'border-l-transparent hover:bg-bg-panel/60'
       }`}
     >
-      {/* Sender avatar — initial inside a per-sender colored circle. */}
-      <div
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ${senderColor(fromAddr)}`}
-        title={fromAddr}
-      >
-        {senderInitial(fromAddr)}
-      </div>
-
-      {/* Star toggle. Click eats the parent button click so toggling doesn't
-          select the row. */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setStarred((s) => !s);
-        }}
-        className="shrink-0 p-1 text-ink-dim hover:text-amber-400"
-        aria-label={starred ? 'Unstar draft' : 'Star draft'}
-        aria-pressed={starred}
-      >
-        <Star className={`h-4 w-4 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
-      </button>
-
-      {/* Sender + subject + meta. min-w-0 to allow truncation inside flex. */}
+      <span
+        className={`shrink-0 h-2 w-2 rounded-full ${indicator.dotColor}`}
+        title={indicator.title}
+      />
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="shrink-0 truncate text-sm font-medium text-ink">
-            {displayName || '(unknown)'}
-          </span>
-          {/* Right-side timestamp / freshness. Pending view = freshness chip
-              keyed on created_at (color advances with age — actionable
-              signal). Sent view = bare relative timestamp (read-only). */}
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-ink">{fromName}</span>
+          {/* STAQPRO-331 #8 — pending view uses the freshness chip keyed on
+              drafts.created_at so the operator sees how long the draft has
+              been waiting for approval (the actionable signal), with color
+              advancing as it ages. Sent view keeps the relative-time
+              timestamp since the row is read-only — color isn't actionable. */}
           <span className="ml-auto shrink-0 font-mono tabular-nums">
             {mode === 'sent' ? (
               <span className="font-mono text-[11px] text-ink-dim">
@@ -94,31 +65,14 @@ export function DraftCard({
             )}
           </span>
         </div>
-
-        <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden">
-          {/* Category pill — saturated color per category, dark-theme tuned.
-              See dashboard/lib/category-colors.ts for the map. */}
-          {mode === 'pending' && m.classification ? (
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${categoryPillClass(m.classification)}`}
-              title={
-                m.confidence != null
-                  ? `${m.classification} ${Math.round(parseFloat(m.confidence) * 100)}%`
-                  : m.classification
-              }
-            >
-              {m.classification}
-            </span>
-          ) : dispositionLabel ? (
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${dispositionPillClass(dispositionLabel)}`}
-            >
-              {dispositionLabel}
-            </span>
-          ) : null}
-
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
           <span className="min-w-0 truncate text-xs text-ink-muted">
             {m.subject || '(no subject)'}
+          </span>
+          <span
+            className={`ml-auto shrink-0 font-mono text-[10px] uppercase tracking-wide ${indicator.labelColor}`}
+          >
+            {indicator.label}
           </span>
         </div>
       </div>
@@ -126,17 +80,54 @@ export function DraftCard({
   );
 }
 
-// Disposition (sent-view) pill class. Mirrors the action semantics:
-// sent = success-green, approved = sending-orange, rejected = killed-red.
-function dispositionPillClass(status: string): string {
+function classificationIndicator(classification: string | null, confidence: string | null) {
+  const conf = confidence != null ? parseFloat(confidence) : null;
+  const dotColor =
+    conf == null
+      ? 'bg-ink-dim'
+      : conf >= 0.85
+        ? 'bg-accent-green'
+        : conf >= 0.6
+          ? 'bg-accent-orange'
+          : 'bg-accent-red';
+  const label = classification ?? '—';
+  return {
+    dotColor,
+    label,
+    labelColor: 'text-ink-dim',
+    title: `${label}${conf != null ? ` ${Math.round(conf * 100)}%` : ''}`,
+  };
+}
+
+function sentIndicator(status: string) {
   switch (status) {
     case 'sent':
-      return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30';
+      return {
+        dotColor: 'bg-accent-green',
+        label: 'sent',
+        labelColor: 'text-accent-green',
+        title: 'Sent via Gmail',
+      };
     case 'approved':
-      return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+      return {
+        dotColor: 'bg-accent-orange',
+        label: 'sending',
+        labelColor: 'text-accent-orange',
+        title: 'Approved — n8n send in flight',
+      };
     case 'rejected':
-      return 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30';
+      return {
+        dotColor: 'bg-accent-red',
+        label: 'rejected',
+        labelColor: 'text-accent-red',
+        title: 'Rejected by operator',
+      };
     default:
-      return 'bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30';
+      return {
+        dotColor: 'bg-ink-dim',
+        label: status,
+        labelColor: 'text-ink-dim',
+        title: status,
+      };
   }
 }
