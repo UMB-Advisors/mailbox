@@ -34,7 +34,9 @@ const FORWARDED_BODY_REGEX_JS = new RegExp(
 
 describe('FORWARDED_BODY_REGEX_SQL — STAQPRO-365', () => {
   it('matches "---------- Forwarded message ---------" headers', () => {
-    expect(FORWARDED_BODY_REGEX_JS.test('---------- Forwarded message ---------\nFrom: ...')).toBe(true);
+    expect(FORWARDED_BODY_REGEX_JS.test('---------- Forwarded message ---------\nFrom: ...')).toBe(
+      true,
+    );
   });
 
   it('matches "On <Day>, <Person> wrote:" quote headers', () => {
@@ -56,7 +58,11 @@ describe('FORWARDED_BODY_REGEX_SQL — STAQPRO-365', () => {
     // These are the cases that MUST NOT be flagged — the bias is
     // false-positives-bad, so each of these is a smoke test that real
     // operator replies survive the filter.
-    expect(FORWARDED_BODY_REGEX_JS.test('Hi Alice,\n\nThanks for reaching out — happy to chat.\n\nBest,\nDustin')).toBe(false);
+    expect(
+      FORWARDED_BODY_REGEX_JS.test(
+        'Hi Alice,\n\nThanks for reaching out — happy to chat.\n\nBest,\nDustin',
+      ),
+    ).toBe(false);
     expect(FORWARDED_BODY_REGEX_JS.test('Yes, we can do that. See attached.')).toBe(false);
     expect(FORWARDED_BODY_REGEX_JS.test('Confirmed for Tuesday at 2pm PT.')).toBe(false);
   });

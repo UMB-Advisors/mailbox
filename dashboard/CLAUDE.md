@@ -141,8 +141,9 @@ All routes live on `http://mailbox-dashboard:3001/...` over the docker network. 
 #### `POST /api/internal/classification-normalize` — Qwen3 output → enum + confidence
 - **Caller**: `MailBOX-Classify`, `Normalize` node
 - **Schema**: `classificationNormalizeBodySchema` — `{ raw?: string, from?: string, to?: string }`. `from`/`to` feed the deterministic operator-domain preclass per DR-50.
-- **Response**: normalized result `{ category, confidence, reason, route, persona_key, ... }` ready for the `Insert Draft Stub` node
+- **Response**: `ClassificationResult` from `lib/classification/normalize.ts` — `{ category, confidence, route, json_parse_ok, think_stripped, raw_output, preclass_applied, preclass_source }`. `route` (`'local' | 'cloud' | 'drop'`) is `routeFor(category, confidence)` applied AFTER preclass, so a noreply override → `spam_marketing` produces `route='drop'`. Prior versions of this doc listed `reason` / `persona_key` — those were never emitted; corrected.
 - **Side effects**: read-only at the route level. The classification log row (`mailbox.classification_log`) is written by n8n's `Shape Log Row` + Postgres node downstream, not by this route.
+- **Related shadow knob**: `MAILBOX_LOCAL_MODEL_OVERRIDE` (read by `lib/drafting/router.ts:pickEndpoint`, not by this route) swaps the local draft model for A/B testing (e.g., `qwen3:4b-ctx4k` → `qwen3.5:4b-ctx4k`). Cloud route is unaffected. Default unset = baseline. See plan `~/.claude/plans/could-mailbox-realistically-live-shimmering-bubble.md`.
 
 #### `POST /api/internal/draft-prompt` — assemble drafting prompt + RAG retrieval
 - **Caller**: `MailBOX-Draft`, `Get Prompt` node

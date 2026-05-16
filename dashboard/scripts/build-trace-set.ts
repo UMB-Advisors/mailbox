@@ -195,8 +195,7 @@ interface SourceRow {
  * regex in `test/scripts/build-trace-set.test.ts` (the test asserts both
  * sides reject the same fixtures).
  */
-const FORWARDED_BODY_REGEX_SQL =
-  String.raw`^[[:space:]]*(-{3,}|On[[:space:]]+\w+,?[[:space:]]+\w+|>{1,})`;
+const FORWARDED_BODY_REGEX_SQL = String.raw`^[[:space:]]*(-{3,}|On[[:space:]]+\w+,?[[:space:]]+\w+|>{1,})`;
 
 /**
  * SQL is structured in two layers per STAQPRO-365:

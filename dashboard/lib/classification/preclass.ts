@@ -64,19 +64,50 @@ export interface PreclassResult {
 // drafts in the operator queue. Catch them at the boundary by sender
 // pattern and force `spam_marketing` — `routeFor` already drops that.
 //
-// Patterns are anchored to the local-part start (e.g. `^noreply@`) to avoid
-// matching legitimate addresses like `john.notifications@gmail.com`.
+// Patterns match a noreply token bounded by delimiters (`-`, `_`, `.`, `+`)
+// anywhere within the local-part, with the token adjacent to `@` on at least
+// one side. This catches both prefix forms (`noreply@`, `notifications@`) and
+// the suffix forms that the original anchored-at-start version missed
+// (`drive-shares-dm-noreply@google.com`, `alerts+notifications@`). The
+// trailing `@` anchor in `LOCAL_PART_TOKEN_RE` is what prevents matching
+// domains like `eric@notifications-co.com` — token must end the local-part.
 //
 // Configuration:
 //   NOREPLY_PATTERNS         = comma-separated extra regexes appended to defaults
 //                              (case-insensitive, evaluated after the bake-ins)
 //   NOREPLY_PRECLASS_DISABLE = '1' to short-circuit the entire check
+const NOREPLY_TOKENS = [
+  'no-?reply',
+  'do-?not-?reply',
+  'donotreply',
+  'noreply',
+  'notifications?',
+  'mailer-daemon',
+  'postmaster',
+  'bounces?',
+  'auto-?reply',
+  'auto-?confirm',
+] as const;
+
+// (^|[-_.+]) <token> ([-_.+])? @  — token must end the local-part (immediately
+// before `@`, with at most one trailing delimiter), and must be preceded by
+// the start of the local-part or a delimiter. Prevents `noreplyguy@` (no
+// preceding delimiter / no trailing `@`) and `eric@notifications-co.com`
+// (token in domain, not local-part).
+const LOCAL_PART_TOKEN_RE = new RegExp(
+  `(?:^|[-_.+])(?:${NOREPLY_TOKENS.join('|')})(?:[-_.+])?@`,
+  'i',
+);
+
 const NOREPLY_DEFAULTS: ReadonlyArray<RegExp> = [
-  // Local-part starts with a noreply marker
-  /^(no-?reply|do-?not-?reply|donotreply|notifications?|mailer-daemon|postmaster|bounces)@/i,
+  LOCAL_PART_TOKEN_RE,
   // Domain explicitly carries a noreply/notifications subdomain
   /@(noreply|notifications?)\./i,
   /\.noreply\./i,
+  // Common product-noreply domain prefixes (e.g. `bounce.example.com`,
+  // `mailer.example.com`) where the local-part varies but the sending
+  // identity is uniformly automated.
+  /@(?:bounce|bounces|mailer|email)\.[^.]+\./i,
 ];
 
 function compileExtraPatterns(raw: string | undefined): ReadonlyArray<RegExp> {

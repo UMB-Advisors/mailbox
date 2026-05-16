@@ -1,7 +1,7 @@
 // Drafting endpoint router (2026-04-30 cloud-path pivot; 2026-05-13 DR-25 amend).
 //
 // Given a classification category + confidence, return the Ollama-compatible
-// endpoint, model, and credentials that the n8n 04-draft-sub workflow should
+// endpoint, model, and credentials that the n8n MailBOX-Draft workflow should
 // use. Local and cloud share the same /api/chat schema, so the only thing
 // that changes is baseUrl + model + apiKey.
 //
@@ -11,9 +11,11 @@
 // envelope. LOCAL_INFERENCE_RUNTIME=ollama (default) keeps the historical
 // direct-Ollama path with zero proxy overhead.
 //
-// The routing rule itself lives in lib/classification/prompt.ts:routeFor —
-// kept there because the n8n classify sub-workflow's IF node already mirrors
-// it (D-30) and we want a single source of truth.
+// The routing rule itself lives in lib/classification/prompt.ts:routeFor.
+// MailBOX-Draft has no IF node; n8n's HTTP Request uses whatever
+// baseUrl/model/apiKey /api/internal/draft-prompt returns. (Historical D-30
+// reference to an IF node mirroring routeFor is stale — that fork no longer
+// exists in the workflow JSONs.)
 
 import type { Category } from '@/lib/classification/prompt';
 import { routeFor } from '@/lib/classification/prompt';
@@ -47,6 +49,10 @@ const DASHBOARD_LLM_PROXY_BASE =
 function pickLocalEndpoint(): DraftEndpoint {
   const runtime = readRuntimeKind();
   if (runtime === 'llama-cpp') {
+    // The llama-cpp branch resolves its model via readLlamaCppModel()
+    // (DR-25 — runtime-specific gguf path). The MAILBOX_LOCAL_MODEL_OVERRIDE
+    // knob is Ollama-tag-shaped and is NOT applied here. To A/B a llama-cpp
+    // candidate, swap the model the proxy serves upstream.
     const model = readLlamaCppModel();
     return {
       source: 'local',
@@ -56,18 +62,25 @@ function pickLocalEndpoint(): DraftEndpoint {
       display_label: `Local llama.cpp (${model})`,
     };
   }
+  // MAILBOX_LOCAL_MODEL_OVERRIDE: A/B shadow knob for local-model swaps on
+  // the Ollama runtime (e.g., Qwen3-4B → Qwen3.5-4B or Gemma 4 E4B).
+  // Strategic direction is local-first; this knob lets us compare local-model
+  // candidates on the same hardware without changing routing logic. The
+  // override must name a model already pulled into the local Ollama daemon
+  // (`ollama pull <tag>` on the appliance) — otherwise the draft call 404s.
+  // Default unset = baseline (DRAFT_LOCAL_MODEL).
+  const localModel = process.env.MAILBOX_LOCAL_MODEL_OVERRIDE?.trim() || DRAFT_LOCAL_MODEL;
   return {
     source: 'local',
     baseUrl: readOllamaBaseUrl(),
-    model: DRAFT_LOCAL_MODEL,
+    model: localModel,
     apiKey: '',
-    display_label: `Local Ollama (${DRAFT_LOCAL_MODEL})`,
+    display_label: `Local Ollama (${localModel})`,
   };
 }
 
 export function pickEndpoint(category: Category, confidence: number): DraftEndpoint {
   const route = routeFor(category, confidence);
-  // 'drop' shouldn't reach drafting, but be defensive: fall through to local.
   if (route === 'cloud') {
     return {
       source: 'cloud',

@@ -155,6 +155,17 @@ services:
       # retrieval (the existing pre-221 path). All other RAG_RETRIEVE_TOP_K_*
       # and RAG_MIN_INBOUND_CHARS tunables fall through to retrieve.ts defaults.
       MAILBOX_OPERATOR_EMAIL: ${MAILBOX_OPERATOR_EMAIL:-}
+      # MAILBOX_LOCAL_MODEL_OVERRIDE — A/B knob for swapping the local
+      # draft model in lib/drafting/router.ts pickEndpoint(). Strategic
+      # direction is local-first; this lets us compare local-model
+      # candidates (e.g., qwen3:4b-ctx4k vs qwen3.5:4b-ctx4k vs
+      # gemma4:e4b-q4) on the same hardware. The override must name a
+      # model already pulled into the local Ollama daemon
+      # (`ollama pull <tag>` on the appliance). Default unset = baseline
+      # (qwen3:4b-ctx4k). Cloud route is unaffected by this knob.
+      # Rollback: remove from .env and `docker compose up -d mailbox-dashboard`
+      # (NOT `restart` — see root CLAUDE.md ".env rotation gotchas").
+      MAILBOX_LOCAL_MODEL_OVERRIDE: ${MAILBOX_LOCAL_MODEL_OVERRIDE:-}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:

@@ -13,17 +13,24 @@
 // noreply address that happens to live on the operator domain still drops.
 
 import { type PreclassContext, precheck, precheckNoReply } from './preclass';
-import { CATEGORIES, type Category } from './prompt';
+import { CATEGORIES, type Category, type Route, routeFor } from './prompt';
 
 export interface ClassificationResult {
   category: Category;
   confidence: number;
+  // Final routing decision derived from `routeFor(category, confidence)` after
+  // preclass (D-50/STAQPRO-260) has run. Single source of truth for the
+  // classify→draft dispatch; n8n's MailBOX-Classify IF node reads $json.route
+  // rather than re-implementing the routing rules.
+  route: Route;
   json_parse_ok: boolean;
   think_stripped: boolean;
   raw_output: string;
   preclass_applied: boolean;
   preclass_source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern' | null;
 }
+
+type ResultWithoutRoute = Omit<ClassificationResult, 'route'>;
 
 const THINK_BLOCK = /<think>[\s\S]*?<\/think>/gi;
 // Sometimes the model leaves an unclosed <think> open; strip everything up to
@@ -96,7 +103,7 @@ export function normalizeClassifierOutput(
   );
 }
 
-function fallback(raw: string, think_stripped: boolean): ClassificationResult {
+function fallback(raw: string, think_stripped: boolean): ResultWithoutRoute {
   return {
     category: 'unknown',
     confidence: 0,
@@ -108,16 +115,23 @@ function fallback(raw: string, think_stripped: boolean): ClassificationResult {
   };
 }
 
-function applyPreclass(result: ClassificationResult, ctx: PreclassContext): ClassificationResult {
+function applyPreclass(result: ResultWithoutRoute, ctx: PreclassContext): ClassificationResult {
   // Noreply check runs first: a notifications@operator.com address still
   // belongs in `spam_marketing`, not `internal`.
   const hit = precheckNoReply(ctx) ?? precheck(ctx);
-  if (!hit) return result;
+  const withPreclass: ResultWithoutRoute = hit
+    ? {
+        ...result,
+        category: hit.category,
+        confidence: hit.confidence,
+        preclass_applied: true,
+        preclass_source: hit.source,
+      }
+    : result;
+  // Compute route last so it reflects the post-preclass (category, confidence).
+  // `spam_marketing` → 'drop', `confidence < 0.75` → 'cloud' safety net, etc.
   return {
-    ...result,
-    category: hit.category,
-    confidence: hit.confidence,
-    preclass_applied: true,
-    preclass_source: hit.source,
+    ...withPreclass,
+    route: routeFor(withPreclass.category, withPreclass.confidence),
   };
 }

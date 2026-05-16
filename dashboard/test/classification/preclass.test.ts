@@ -22,6 +22,18 @@ describe('precheckNoReply', () => {
       'mailer-daemon@whatever.example',
       'postmaster@example.org',
       'bounces@listmonk.io',
+      // V1 broadening — token-adjacent-to-@ with delimiter on the other
+      // side. Without these, `drive-shares-dm-noreply@google.com` slipped
+      // past the gate and a draft was generated for a Google Drive share.
+      'drive-shares-dm-noreply@google.com',
+      'alerts+notifications@example.com',
+      'system.noreply@example.com',
+      'foo_no-reply@example.com',
+      // john.notifications@gmail.com — was a negative case in the
+      // anchored regex era; intentionally flipped by V1. Real human
+      // operators using a `notifications`-suffixed alias as a primary
+      // address are vanishingly rare; OPERATOR_ALLOWLIST is the escape.
+      'john.notifications@gmail.com',
     ])('drops %s as spam_marketing', (addr) => {
       const hit = precheckNoReply({ from: addr });
       expect(hit).toEqual({
@@ -54,12 +66,21 @@ describe('precheckNoReply', () => {
 
   describe('negative matches', () => {
     it.each([
-      'john.notifications@gmail.com', // local-part contains "notifications" but doesn't START with it
-      'noreplyguy@example.com', // no separator after "noreply"
+      'noreplyguy@example.com', // no delimiter between "noreply" and "guy"
       'replies@foo.com', // not "noreply"
       'eric@staqs.io',
       'sales@heronlabsinc.com',
       'nicky@heronlabsinc.com',
+      'norman@gmail.com', // contains "no" as a substring, not a token
+      // Trailing `@` anchor in LOCAL_PART_TOKEN_RE protects domain matches.
+      'eric@notifications-co.com',
+      // Plus-addressed newsletters with no noreply token in the local-part
+      // are deferred to V2 (header-based List-Unsubscribe detection).
+      'notanotherceo+podcast@substack.com',
+      // Plain product-team aliases without a noreply token. Atlassian's
+      // `jira@*.atlassian.net` is the canonical example — operators can
+      // opt-in via `NOREPLY_PATTERNS` env if they want to drop these.
+      'jira@company.atlassian.net',
     ])('does not match %s', (addr) => {
       expect(precheckNoReply({ from: addr })).toBeNull();
     });
