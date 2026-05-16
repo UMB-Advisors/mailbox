@@ -106,17 +106,26 @@ existing `rag-eval-harness.ts` pattern is TS. Matching the codebase per User CLA
 
 **Goal:** Pull GGUFs to the test-bench Jetson; verify each loads in llama.cpp under §3.5 envelope.
 
-**Test-bench question (LOAD-BEARING):** Where does the sweep run?
-- Option A: **M2** (`mailbox-jetson-02`) — lighter customer load, but still production for Staqs.
-- Option B: **M1 off-hours** — risk if a customer-#1 email arrives mid-sweep.
-- Option C: Stand up a third dev Jetson — not in inventory per CLAUDE.md.
-- **Recommendation:** A. M2 outside of M2's working hours, with classify keeping its
-  current `ollama` runtime untouched (per CLAUDE.md "classify still uses Ollama directly"
-  post-DR-25).
+**Test-bench: M1 (DECIDED 2026-05-16).** Heron Labs production box `mailbox-jetson-01`
+(`mailbox1`, `192.168.50.179`). Trade-off accepted: M1 has the larger `sent_history` corpus
+which Phase 0's trace generation benefits from, and running the sweep on M1 means the §3.5
+envelope validation in Phase 5 happens on the same hardware the winner deploys to (no
+hardware-delta surprise). Cost: during the sweep window, M1's prod llama.cpp is stopped so the
+candidate model can take the GPU. Drafts will stall on the < 30s SLO during that window.
+
+**SLO carve-out (Phase 3 scheduling):**
+- Sweep runs overnight (target 02:00-05:00 PT) when inbound volume is near zero per M1's
+  historical Gmail Get cadence.
+- Classify keeps Ollama unchanged (per CLAUDE.md "classify still uses Ollama directly"
+  post-DR-25), so the 5-min poll cycle continues and inbox_messages stays current.
+- Drafts queue up during the window; backlog drains within ~10 min of the sweep ending and
+  prod llama.cpp resuming.
+- Operator pre-notice to Heron Labs operator the day before the sweep window.
 
 Steps per candidate:
-1. `hf download <repo> <file>` to `mailbox-jetson-02:/home/mailbox/models/`
-2. Boot llama.cpp server with each model; confirm successful load and `nvidia-smi` shows < 7.5 GiB.
+1. `hf download <repo> <file>` to `mailbox1:/home/bob/models/`
+2. Boot llama.cpp server with each model on a non-prod port (or stop the prod container during
+   the sweep window). Confirm successful load and `nvidia-smi` shows < 7.5 GiB.
 3. Smoke prompt: "Summarize: hello world" → response within 10s.
 
 **Time estimate:** 30 min/model × 5 = ~2.5 operator hours, mostly download.
@@ -128,14 +137,17 @@ sets = 10 runs. Each run = up to 150 traces × ~5s each = ~12 min/run. Total ~2 
 time per pass.
 
 Steps:
-1. SSH to mailbox2, swap llama.cpp model via `LOCAL_INFERENCE_RUNTIME=llama-cpp` + model tag env.
-2. For each candidate: start llama.cpp with that model, run harness for both trace sets,
-   shut down server, swap model, repeat.
-3. Aggregate JSONLs into `dashboard/eval/results/bake-off-2026-05/{model}-{trace-set}.jsonl`
+1. SSH to mailbox1 (pre-notice Heron Labs operator the day before).
+2. At the carve-out window start, `docker compose stop` the prod llama.cpp container.
+3. For each candidate: start llama.cpp with that model on its dedicated port, run harness
+   for both trace sets (the harness can run from the operator workstation hitting M1's port
+   via the LAN), shut down server, swap model, repeat.
+4. At window end, restart prod llama.cpp. Confirm classify lag stat green; drain draft backlog.
+5. Aggregate JSONLs into `dashboard/eval/results/bake-off-2026-05/{model}-{trace-set}.jsonl`
    (gitignored; copy summary to committed `report.md`).
 
-**Time estimate:** 2-3 hours operator time (mostly waiting); needs to be scheduled outside M2's
-business hours per `feedback_no_backfill_during_soak` (no GPU-loading work during prod).
+**Time estimate:** 2-3 hours operator time (mostly waiting); scheduled overnight 02:00-05:00 PT
+per the SLO carve-out in Phase 2.
 
 ### Phase 4 — Blind-pref scoring (human)
 
@@ -171,8 +183,7 @@ only one that needs humans.
 
 ## Open questions / decisions to gather as we go
 
-1. **Test bench: M2 yes/no?** Load-bearing for Phase 2 + 3. Default = yes, run outside M2's
-   business hours.
+1. ~~Test bench: M2 vs M1?~~ **Decided 2026-05-16: M1.** SLO carve-out documented in Phase 2.
 2. **Run-3 GEPA against v1.1 corpus.** Should this run in parallel during the bake-off? Doesn't
    block 342, but if v1.1 unlocks GEPA gradient signal, addendum v0.2 should mention.
 3. **Gemma 4 E4B tooling.** If llama.cpp's Gemma 4 parser isn't stable by Phase 2, drop C3.
@@ -188,8 +199,8 @@ Phase 1 (code, ~6h)  ───────────────────�
                                                           ├──▶ Phase 3 (sweep, ~3h) ──▶ Phase 4 (scoring, ~4h) ──▶ Phase 5 (ship, ~3h)
 Phase 0 (corpus, ~2h)  ─────┐                             │
                              ├──▶ Phase 2 (models, ~2.5h)─┘
-(Phase 0 needs SSH to M1;  ─┘
- Phase 2 needs SSH to M2)
+(Phase 0 + 2 + 3 all  ─┘
+ SSH to M1 — sweep overnight per the SLO carve-out)
 ```
 
 Total wall-clock: ~3-5 working days assuming the human-scoring step fits a single afternoon.
