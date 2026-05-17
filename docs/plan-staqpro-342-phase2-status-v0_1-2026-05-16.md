@@ -1,7 +1,7 @@
 # Phase 2 Status — STAQPRO-342 GGUF Retrieval
 
-> **Status:** 4/5 candidates on M1. Nemotron blocked on HF user-level auth.
-> **Updated:** 2026-05-16 18:54 PDT
+> **Status:** **5/5 candidates on M1.** Network/disk side of Phase 2 complete.
+> **Updated:** 2026-05-16 20:10 PDT (v0.1.1 — Nemotron landed)
 > **Models dir on M1:** `/home/bob/mailbox/llama-cpp-models/` (bind-mounted read-only into `mailbox-llama-cpp-1`)
 
 ## Candidates state
@@ -12,7 +12,7 @@
 | Ctrl-B | Qwen3-4B-Instruct-2507 | `unsloth/Qwen3-4B-Instruct-2507-GGUF` | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | 2.33 GB | `3605803b982cb64a` | ✅ on M1 |
 | C2 | Qwen3.5-4B | `unsloth/Qwen3.5-4B-GGUF` | `Qwen3.5-4B-Q4_K_M.gguf` | 2.55 GB | `00fe7986ff5f6b46` | ✅ on M1 |
 | C3 | Gemma 4 E4B | `unsloth/gemma-4-E4B-it-GGUF` | `gemma-4-E4B-it-Q4_K_M.gguf` | 4.64 GB | `519b9793ed6ce0ff` | ✅ on M1 — but **size > §3.5 envelope** |
-| C1 | NVIDIA Nemotron 3 Nano 4B | `nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF` | _TBD_ | _TBD_ | _TBD_ | ⛔ **BLOCKED on HF token + click-through** |
+| C1 | NVIDIA Nemotron 3 Nano 4B | `nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF` | `NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf` | 2.64 GB | `be5d9a656a51922f` | ✅ on M1 |
 
 ## License posture
 
@@ -20,18 +20,22 @@ All four pulled candidates: **Apache 2.0** (confirmed via HF model card `license
 
 Nemotron: license cleared at the org level per STAQPRO-339 memo v0.2 (counsel sign-off 2026-05-14, attribution staged at `licenses/NVIDIA-Nemotron-Open-Model-License.txt` + `NOTICE`). But HF's per-user gating still applies — Dustin's HF account must click-through-accept on the model card before a download token works.
 
-## Nemotron unblock options
+## Nemotron unblock — RESOLVED 2026-05-16 20:10 PDT
 
-1. **Provide HF token in chat** (`hf_...`) — Dustin's HF account with click-through accepted. I write it to `~/.cache/huggingface/token` on M1 (mode 600), pull Nemotron, then remove the token. Token never enters the repo.
-2. **Dustin SSHs to M1 and pulls manually**:
-   ```bash
-   ssh mailbox1
-   ~/.local/bin/hf auth login              # browser flow, paste token
-   ~/.local/bin/hf download nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF \
-     <filename>.gguf --local-dir /home/bob/mailbox/llama-cpp-models
-   ```
-   (Will need to inspect repo to find the exact Q4_K_M filename — Nemotron's GGUF release naming is non-obvious.)
-3. **Skip Nemotron for now** — run 4-way bake-off (Ctrl-A, Ctrl-B, C2, C3). Still meaningful comparison, just loses the Mamba-architecture data point. Noted in the eventual addendum v0.2.
+Resolved via path **(a)**: operator-provided HF token (account `Future4200`,
+fine-grained `Read access to public gated repos`). Token landed at
+`mailbox1:~/.cache/huggingface/token` (mode 600), used once for the pull,
+then removed (`rm -f ~/.cache/huggingface/token` post-download — verified
+absent). Operator should rotate the token since it transited chat history.
+
+Surprise: `nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF` reports `gated: false` on
+authenticated inspection. The 401 returned to the unauthenticated probe was
+HF's anonymous rate-limit response shape, not actual license-gating. The
+339 memo's compliance work (license bundle + NOTICE) still applies — that's
+on the Staqs-as-distributor side, not the HF-as-host side.
+
+GGUF file: `NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf` (2.64 GB) — within §3.5
+envelope (≤3.4 GiB at 4K, claim TBD against runtime).
 
 ## §3.5 envelope flag — Gemma 4 E4B is heavier than predicted
 
@@ -71,13 +75,12 @@ npx tsx dashboard/scripts/bake-off-harness.ts \
 docker compose up -d llama-cpp
 ```
 
-## Disk impact
+## Disk impact (final)
 
 ```
 M1 NVMe: 937 GB total
 Before Phase 2: 123 GB used (14%)
-After Phase 2: 133 GB used (15%)  ← +10 GB for 3 new GGUFs
-After Nemotron: ~136 GB used (15%) (estimate, +3 GB)
+After all 5 pulls: 135 GB used (16%)  ← +12 GB for 4 new GGUFs (~12.8 GB on disk)
 ```
 
-Well within budget. NVMe wear is one-time write of ~13 GB.
+754 GB free. Well within budget. NVMe wear: one-time write of ~13 GB.
