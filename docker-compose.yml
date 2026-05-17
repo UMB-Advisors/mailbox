@@ -73,7 +73,7 @@ services:
     entrypoint: ["/usr/local/bin/llama-server"]
     command:
       - "--model"
-      - "/models/qwen3-4b-ctx4k.gguf"
+      - "/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
       - "--ctx-size"
       - "4096"
       - "--flash-attn"
@@ -191,11 +191,13 @@ services:
       # retrieval (the existing pre-221 path). All other RAG_RETRIEVE_TOP_K_*
       # and RAG_MIN_INBOUND_CHARS tunables fall through to retrieve.ts defaults.
       MAILBOX_OPERATOR_EMAIL: ${MAILBOX_OPERATOR_EMAIL:-}
-      # STAQPRO-338 / DR-25 - runtime selector + llama-cpp endpoint.
+      # STAQPRO-338 / DR-25 — runtime selector + llama-cpp endpoint.
       # Defaults preserve Ollama behavior on appliances that don't set these.
+      # The LLAMA_CPP_MODEL default is the post-STAQPRO-342 bake-off winner
+      # (qwen3-4b-instruct-2507); appliances can override via .env if needed.
       LOCAL_INFERENCE_RUNTIME: ${LOCAL_INFERENCE_RUNTIME:-ollama}
       LLAMA_CPP_BASE_URL: ${LLAMA_CPP_BASE_URL:-http://llama-cpp:8080}
-      LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:-qwen3-4b-ctx4k}
+      LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:-qwen3-4b-instruct-2507}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
