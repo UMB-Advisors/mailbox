@@ -59,6 +59,10 @@ export const llmGenerateBodySchema = z
     format: z.string().optional(),
     system: z.string().optional(),
     template: z.string().optional(),
+    // Ollama-side thinking-mode toggle (Qwen3 native param). Propagated to
+    // llama.cpp via chat_template_kwargs.enable_thinking by the proxy
+    // translator. STAQPRO-360 attempt-4.
+    think: z.boolean().optional(),
   })
   .strip();
 

@@ -42,9 +42,13 @@ const OLLAMA_CLOUD_KEY = process.env.OLLAMA_CLOUD_API_KEY ?? '';
 
 // In-cluster dashboard URL. n8n composes `${baseUrl}/api/chat` against this
 // when the local runtime is llama-cpp; the path resolves to the proxy at
-// dashboard/app/api/internal/llm/api/chat/route.ts.
+// dashboard/app/api/internal/llm/api/chat/route.ts. The `/dashboard/` prefix is
+// the Next.js App Router basePath configured in `dashboard/next.config.mjs` —
+// every internal-route URL crossing the docker network into the dashboard must
+// include it (STAQPRO-360 root-cause of the 2026-05-14 cutover revert).
 const DASHBOARD_LLM_PROXY_BASE =
-  process.env.DASHBOARD_LLM_PROXY_BASE_URL ?? 'http://mailbox-dashboard:3001/api/internal/llm';
+  process.env.DASHBOARD_LLM_PROXY_BASE_URL ??
+  'http://mailbox-dashboard:3001/dashboard/api/internal/llm';
 
 function pickLocalEndpoint(): DraftEndpoint {
   const runtime = readRuntimeKind();

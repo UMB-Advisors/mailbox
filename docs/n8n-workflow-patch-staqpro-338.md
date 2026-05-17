@@ -4,6 +4,8 @@
 > **Target n8n version:** 2.14.2
 > **Affects:** `n8n/workflows/MailBOX-Classify.json` (one node URL); `MailBOX-Draft.json` is **unchanged** (the draft path already pulls `baseUrl` from the dashboard per call).
 > **Why staged-not-applied:** the patch only makes sense once the dashboard's `/api/internal/llm/api/generate` proxy is live in production. Applying it ahead of the proxy hard-breaks the classify path. Stage gating is enforced by runbook §1.
+>
+> **🚨 URL CORRECTION (v0.2 of this doc, 2026-05-14 post-revert forensics):** the URL throughout v0.1 of this doc omitted the Next.js App Router `basePath`. The correct URL is `http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate` (with `/dashboard/` prefix). The v0.1 URL `http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate` returns **404**. The other classify nodes in `MailBOX-Classify.json` (lines 203, 284, 502) already correctly use the `/dashboard/` prefix — that's the canonical pattern. Verify any operator who acts on this doc uses the corrected URL below; do NOT trust prior cached references. **Also flagged:** `dashboard/lib/drafting/router.ts:45` has the same wrong URL as its `DASHBOARD_LLM_PROXY_BASE` default — that code defect needs fixing in a separate change before this patch can fully succeed. Set `DASHBOARD_LLM_PROXY_BASE_URL=http://mailbox-dashboard:3001/dashboard/api/internal/llm` in `.env` as a workaround until the code is patched.
 
 ---
 
@@ -15,7 +17,7 @@ The classify path historically hits Ollama directly:
 
 DR-25 lands the dashboard's `/api/internal/llm/api/{chat,generate}` proxy. Once the dashboard is upgraded with the Stage 1 code (this PR), we redirect the classify call through the proxy:
 
-    n8n MailBOX-Classify > Ollama Call  →  POST http://mailbox-dashboard:3001/api/internal/llm/api/generate
+    n8n MailBOX-Classify > Ollama Call  →  POST http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate
 
 The proxy decides ollama vs llama.cpp based on `LOCAL_INFERENCE_RUNTIME`. n8n no longer needs to know which local runtime is serving the call — the request body shape (Ollama `/api/generate` envelope) and response body shape are identical regardless.
 
@@ -32,7 +34,7 @@ File: `n8n/workflows/MailBOX-Classify.json`, line 264:
 
 ```diff
 -        "url": "http://ollama:11434/api/generate"
-+        "url": "http://mailbox-dashboard:3001/api/internal/llm/api/generate"
++        "url": "http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate"
 ```
 
 That's it. No other field changes; the `Ollama Call` node's body assembly stays as-is (the proxy accepts the exact Ollama `/api/generate` request shape).
@@ -43,7 +45,7 @@ That's it. No other field changes; the `Ollama Call` node's body assembly stays 
 
 1. **Verify the proxy is live in the running dashboard.** From the appliance:
    ```bash
-   curl -s -X POST http://mailbox-dashboard:3001/api/internal/llm/api/generate \
+   curl -s -X POST http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate \
      -H 'content-type: application/json' \
      -d '{"model":"qwen3:4b-ctx4k","prompt":"ping","stream":false}' \
      | jq '.response[:40], .done, .eval_count'
@@ -55,11 +57,11 @@ That's it. No other field changes; the `Ollama Call` node's body assembly stays 
    ```bash
    ssh mailbox1
    cd ~/mailbox
-   sed -i 's|http://ollama:11434/api/generate|http://mailbox-dashboard:3001/api/internal/llm/api/generate|' \
+   sed -i 's|http://ollama:11434/api/generate|http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate|' \
      n8n/workflows/MailBOX-Classify.json
 
    # Verify the edit took effect
-   grep -n 'http://mailbox-dashboard:3001/api/internal/llm/api/generate' \
+   grep -n 'http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate' \
      n8n/workflows/MailBOX-Classify.json
    # Expected: one line.
    ```
@@ -106,7 +108,7 @@ If anything degrades:
     cd ~/mailbox
     git revert HEAD     # if you already committed
     # OR
-    sed -i 's|http://mailbox-dashboard:3001/api/internal/llm/api/generate|http://ollama:11434/api/generate|' \
+    sed -i 's|http://mailbox-dashboard:3001/dashboard/api/internal/llm/api/generate|http://ollama:11434/api/generate|' \
       n8n/workflows/MailBOX-Classify.json
 
     # Re-import + reactivate + restart n8n (same sequence as steps 3–5)
@@ -115,9 +117,11 @@ The dashboard proxy stays live; only the n8n endpoint reverts. No data migration
 
 ---
 
-## Why the URL is `/api/internal/llm/api/generate` (the doubled `/api`)
+## Why the URL is `/dashboard/api/internal/llm/api/generate` (the `/dashboard/` prefix and the doubled `/api`)
 
-n8n's draft node templates `={{ baseUrl }}/api/chat`. To honor that without an n8n workflow change for drafting, the dashboard's `pickEndpoint` returns `baseUrl=http://mailbox-dashboard:3001/api/internal/llm` and the proxy lives at `app/api/internal/llm/api/chat/route.ts` so the path resolves cleanly. For consistency, the `/api/generate` proxy lives at the parallel `/api/internal/llm/api/generate`. The doubled `/api` is structurally enforced by the Next.js App Router file path; the URL semantics are correct.
+n8n's draft node templates `={{ baseUrl }}/api/chat`. To honor that without an n8n workflow change for drafting, the dashboard's `pickEndpoint` returns `baseUrl=http://mailbox-dashboard:3001/dashboard/api/internal/llm` and the proxy lives at `app/api/internal/llm/api/chat/route.ts` so the path resolves cleanly. For consistency, the `/api/generate` proxy lives at the parallel `/api/internal/llm/api/generate`. The doubled `/api` is structurally enforced by the Next.js App Router file path; the `/dashboard/` prefix is the Next.js App Router `basePath` configured in `dashboard/next.config.mjs` and required for every internal-route URL that crosses the docker network into the dashboard.
+
+**Pre-2026-05-14 footgun:** v0.1 of this doc and `dashboard/lib/drafting/router.ts:45` both omitted the `/dashboard/` basePath, causing the proxy URL to 404. This was the silent root cause of the 2026-05-14 M1 cutover revert: `LOCAL_INFERENCE_RUNTIME=llama-cpp` flipped the router to the proxy URL, but the proxy URL returned 404, so drafts never actually flowed through llama.cpp during the 7-hour "soak" window. Confirmed: no draft on the appliance has ever logged `model=qwen3-4b-ctx4k` (the llama.cpp tag style); all local drafts used `model=qwen3:4b-ctx4k` (Ollama tag style). When the operator stopped Ollama to test cutover purity, classify failed (workflow patch un-applied) — forced rollback. See `docs/dr25-revert-root-cause-2026-05-14.md` for the full forensic timeline.
 
 ---
 

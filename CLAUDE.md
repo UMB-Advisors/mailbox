@@ -436,12 +436,34 @@ the appliance has been on the router LAN since the bring-up move.
 
 ### Deploy flow
 
+> **⚠️ TRANSIENT — M1 is on `master` BUT the source for 12 STAQPRO-360
+> prod fixes is temporarily regressed** (state as of 2026-05-17 12:35 PDT).
+> The operator switched M1's checkout from `worktree-staqpro-360` → `master`
+> via `git checkout master && git pull` — the switch fast-forwarded cleanly
+> (23 commits). However, the deploy branch had 12 prod fixes that never
+> came back to master; switching to master "lost" those fixes from the
+> working tree.
+>
+> **The dashboard + llama-cpp containers are still serving correctly** —
+> they were built BEFORE the checkout switch (image `89ac24a1...` created
+> 09:41 PDT today) from the deploy-branch source which had the fixes.
+> Runtime is unaffected. Verify: `docker compose ps` clean,
+> `/v1/models` returns `Qwen3-4B-Instruct-2507-Q4_K_M.gguf`, classify lag
+> green.
+>
+> **DO NOT** run `docker compose up -d --build` against M1 until PR #113
+> merges. Rebuilding now would build from the regressed master source and
+> would re-break STAQPRO-360 fixes (response_format JSON, /v1/chat/completions
+> routing, hardcoded gpt-3.5-turbo override, /dashboard/ basePath, n8n
+> classify timeout). After PR #113 merges, run the full one-liner below
+> (with `--build --remove-orphans`) to land the fixes properly.
+
 This local clone is the source of truth. Edit here, commit, push, then on the Jetson: pull and reload.
 
     # On this workstation
     git add . && git commit -m "..." && git push origin master
 
-    # Apply on the Jetson (one-liner from this workstation)
+    # Apply on the Jetson (one-liner from this workstation — VALID AGAIN POST-CHECKOUT-SWITCH)
     ssh mailbox1 'cd ~/mailbox && git pull && docker compose up -d --build --remove-orphans'
 
 **Always pass `--remove-orphans`** on full-stack `up` calls. When a service is removed from `docker-compose.yml` (e.g., the ttyd removal in STAQPRO-182), the running container becomes an orphan and keeps its host port binding — `--remove-orphans` cleans it up automatically. Without it, you'll see `docker compose down <service>` return "no such service" while the container is still listening.

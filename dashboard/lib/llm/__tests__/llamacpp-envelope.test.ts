@@ -209,17 +209,23 @@ describe('openAIResponseToOllamaChat', () => {
 });
 
 describe('callLlamaCppGenerate (fetch wiring)', () => {
-  it('POSTs to <base>/completion and returns an Ollama-shape envelope', async () => {
-    const captured: { url?: string; init?: RequestInit } = {};
+  // STAQPRO-360 attempt-4: /api/generate now routes to /v1/chat/completions
+  // so the model's chat template is applied. The legacy /completion endpoint
+  // produces uninstructed prose for templated models like Qwen3.
+  it('POSTs to <base>/v1/chat/completions with prompt wrapped as user message', async () => {
+    const captured: { url?: string; body?: string } = {};
     const fetchFn: typeof fetch = async (url, init) => {
       captured.url = url as string;
-      captured.init = init;
-      const upstream: LlamaCppCompletionResponse = {
-        content: 'inquiry|0.92',
-        stop: true,
-        stopped_eos: true,
-        tokens_evaluated: 100,
-        tokens_predicted: 5,
+      captured.body = init?.body as string;
+      const upstream: LlamaCppOpenAIResponse = {
+        model: 'qwen3-4b-ctx4k',
+        choices: [
+          {
+            message: { role: 'assistant', content: '{"category":"inquiry","confidence":0.92}' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 5 },
         timings: { prompt_ms: 200, predicted_ms: 100 },
       };
       return new Response(JSON.stringify(upstream), {
@@ -228,11 +234,18 @@ describe('callLlamaCppGenerate (fetch wiring)', () => {
       });
     };
     const out = await callLlamaCppGenerate(
-      { model: 'qwen3-4b-ctx4k', prompt: 'classify' },
+      { model: 'qwen3-4b-ctx4k', prompt: 'classify', format: 'json', think: false },
       { fetchFn, baseUrl: 'http://llama-cpp:8080', model: 'qwen3-4b-ctx4k' },
     );
-    expect(captured.url).toBe('http://llama-cpp:8080/completion');
-    expect(out.response).toBe('inquiry|0.92');
+    expect(captured.url).toBe('http://llama-cpp:8080/v1/chat/completions');
+    const sentBody = JSON.parse(captured.body ?? '{}');
+    expect(sentBody.messages).toEqual([{ role: 'user', content: 'classify' }]);
+    // Intentionally NOT passed: response_format. The json_object grammar lets
+    // Qwen3 emit `{}` and stop early (attempt-4 probe finding); we rely on the
+    // upstream prompt's explicit JSON schema instructions instead.
+    expect('response_format' in sentBody).toBe(false);
+    expect(sentBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(out.response).toBe('{"category":"inquiry","confidence":0.92}');
     expect(out.prompt_eval_count).toBe(100);
     expect(out.eval_count).toBe(5);
   });
@@ -241,13 +254,19 @@ describe('callLlamaCppGenerate (fetch wiring)', () => {
     const captured: { url?: string } = {};
     const fetchFn: typeof fetch = async (url) => {
       captured.url = url as string;
-      return new Response(JSON.stringify({ content: '', stop: true }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          model: 'm',
+          choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'stop' }],
+        }),
+        { status: 200 },
+      );
     };
     await callLlamaCppGenerate(
       { model: 'm', prompt: 'p' },
       { fetchFn, baseUrl: 'http://llama-cpp:8080/', model: 'm' },
     );
-    expect(captured.url).toBe('http://llama-cpp:8080/completion');
+    expect(captured.url).toBe('http://llama-cpp:8080/v1/chat/completions');
   });
 
   it('throws on non-2xx with status + body preview', async () => {
@@ -257,7 +276,30 @@ describe('callLlamaCppGenerate (fetch wiring)', () => {
         { model: 'm', prompt: 'p' },
         { fetchFn, baseUrl: 'http://llama-cpp:8080', model: 'm' },
       ),
-    ).rejects.toThrow(/503.*model not loaded/);
+    ).rejects.toThrow(/v1\/chat\/completions 503.*model not loaded/);
+  });
+
+  it('prepends system message when req.system is set', async () => {
+    const captured: { body?: string } = {};
+    const fetchFn: typeof fetch = async (_url, init) => {
+      captured.body = init?.body as string;
+      return new Response(
+        JSON.stringify({
+          model: 'm',
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        }),
+        { status: 200 },
+      );
+    };
+    await callLlamaCppGenerate(
+      { model: 'm', prompt: 'classify me', system: 'You are a classifier.' },
+      { fetchFn, baseUrl: 'http://llama-cpp:8080', model: 'm' },
+    );
+    const sent = JSON.parse(captured.body ?? '{}');
+    expect(sent.messages).toEqual([
+      { role: 'system', content: 'You are a classifier.' },
+      { role: 'user', content: 'classify me' },
+    ]);
   });
 });
 

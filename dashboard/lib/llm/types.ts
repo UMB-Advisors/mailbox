@@ -19,6 +19,9 @@ export interface OllamaGenerateRequest {
   format?: 'json' | string;
   system?: string;
   template?: string;
+  /** Ollama-side thinking-mode toggle (Qwen3 native param). Forwarded to
+   *  llama.cpp via chat_template_kwargs.enable_thinking. STAQPRO-360. */
+  think?: boolean;
 }
 
 export interface OllamaGenerateResponse {
@@ -109,6 +112,14 @@ export interface LlamaCppOpenAIRequest {
   top_p?: number;
   max_tokens?: number;
   stop?: readonly string[];
+  /** OpenAI-compatible JSON-mode hint. Set when caller passes Ollama
+   *  `format: "json"`. llama.cpp's /v1/chat/completions honors this and
+   *  grammar-constrains the output to a valid JSON object. STAQPRO-360. */
+  response_format?: { type: 'json_object' | 'text' };
+  /** Per-call template overrides forwarded to the model's chat template
+   *  (e.g., Qwen3's `enable_thinking` flag). llama.cpp passes these into
+   *  the Jinja template evaluator. STAQPRO-360. */
+  chat_template_kwargs?: Record<string, unknown>;
 }
 
 export interface LlamaCppOpenAIResponse {
