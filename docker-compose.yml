@@ -63,6 +63,42 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+  llama-cpp:
+    image: local/llama-cpp:cuda-jetson
+    runtime: nvidia
+    container_name: mailbox-llama-cpp-1
+    # STAQPRO-338 / DR-25: dustynv/llama_cpp:r36.4.0 retagged.
+    # Image has empty entrypoint + bash cmd; override entrypoint to the
+    # server binary so docker-compose `command:` provides only args.
+    entrypoint: ["/usr/local/bin/llama-server"]
+    command:
+      - "--model"
+      - "/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+      - "--ctx-size"
+      - "4096"
+      - "--flash-attn"
+      - "--cache-type-k"
+      - "q8_0"
+      - "--cache-type-v"
+      - "q8_0"
+      - "--n-gpu-layers"
+      - "99"
+      - "--no-mmap"
+      - "--slots"
+      - "--parallel"
+      - "2"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+    environment:
+      LLAMA_LOG_LEVEL: "info"
+    volumes:
+      - ./llama-cpp-models:/models:ro
+    # No ports: block — internal docker network only, matches M2's tighter
+    # binding model. Workstation access is via tailnet+ssh tunnel.
+    restart: unless-stopped
+    depends_on: []
   n8n:
     image: n8nio/n8n:2.14.2
     environment:
@@ -166,6 +202,13 @@ services:
       # Rollback: remove from .env and `docker compose up -d mailbox-dashboard`
       # (NOT `restart` — see root CLAUDE.md ".env rotation gotchas").
       MAILBOX_LOCAL_MODEL_OVERRIDE: ${MAILBOX_LOCAL_MODEL_OVERRIDE:-}
+      # STAQPRO-338 / DR-25 — runtime selector + llama-cpp endpoint.
+      # Defaults preserve Ollama behavior on appliances that don't set these.
+      # The LLAMA_CPP_MODEL default is the post-STAQPRO-342 bake-off winner
+      # (qwen3-4b-instruct-2507); appliances can override via .env if needed.
+      LOCAL_INFERENCE_RUNTIME: ${LOCAL_INFERENCE_RUNTIME:-ollama}
+      LLAMA_CPP_BASE_URL: ${LLAMA_CPP_BASE_URL:-http://llama-cpp:8080}
+      LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:-qwen3-4b-instruct-2507}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
