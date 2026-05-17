@@ -26,7 +26,12 @@ covering ~1-2 weeks of mixed code + operator + scoring time.
 2. **The v1.1 trace corpus does not yet exist on master.** STAQPRO-365 patched the
    `build-trace-set.ts` filter logic but the v1.1 JSONL needs to be regenerated from M1's live
    `mailbox.sent_history`. Trace JSONLs are gitignored (real customer email even when
-   PII-scrubbed); they live on operator workstations only.
+   PII-scrubbed); they live on operator workstations only. **Important correction (v0.1.2,
+   2026-05-16):** v1.1 is NOT a 8K/16K long-context subset — it's the v1.0 trace set
+   re-extracted with two corpus-quality filters (drop forwarded/quoted-reply rows; dedupe to
+   one canonical reply per inbound). The long-context tier is **STAQPRO-340.1**, which is
+   explicitly **out of scope** for STAQPRO-342. The bake-off uses ONE trace set version (v1.1
+   with ~70-80 traces post-filtering from M1's ~444-row `sent_history`), not two.
 
 3. **The bake-off model-comparison harness does not exist.** `rag-eval-harness.ts` is
    RAG-dimensioned; `trace-set.ts` is the abstraction layer; what's missing is a
@@ -67,21 +72,31 @@ Ctrl-B) and note in the report.
 
 ### Phase 0 — Trace corpus regen (operator session)
 
-**Goal:** Generate `dashboard/eval/t2-traces/v1.0/` (re-baseline with STAQPRO-365 filters) and
-`dashboard/eval/t2-traces/v1.1/` (8K/16K subset) JSONLs on the operator workstation. JSONLs stay
-local; manifest SHA + README get committed.
+**Goal:** Generate `dashboard/eval/t2-traces/v1.1/` JSONL on the operator workstation by running
+the patched (post-STAQPRO-365) `build-trace-set.ts` against M1's `mailbox.sent_history`. JSONLs
+stay local; v1.1 README + manifest.example.json + .gitignore already committed on master.
 
-**Steps:**
-1. `ssh -L 5432:localhost:5432 mailbox1` (or `mailbox2` for variety; M1 has more history)
-2. From this worktree: `POSTGRES_URL=... npx tsx dashboard/scripts/build-trace-set.ts --out dashboard/eval/t2-traces/v1.0 --set-version v1.0 --appliance mailbox1 --limit 100`
-3. Same for `v1.1` with `--long-context-only` (or whatever flag the 365-patched builder exposes;
-   confirm in the script). Likely `--min-tokens 8000 --max-tokens 16000 --set-version v1.1 --limit 50`.
-4. Diff manifest SHAs with v1.0-committed example to confirm builder didn't regress.
-5. Commit the v1.1 README + manifest.example.json (NOT the JSONL).
+**Steps (from the v1.1 README regen procedure):**
+1. `ssh -L 5432:localhost:5432 mailbox1 -N &` (background SSH tunnel)
+2. `APPLIANCE_PASSWORD=$(op item get 'mailbox1' --vault MailBOX --reveal --fields password)`
+3. From `dashboard/`:
+   `POSTGRES_URL="postgresql://mailbox:${APPLIANCE_PASSWORD}@localhost:5432/mailbox" \
+    npx tsx scripts/build-trace-set.ts \
+      --out eval/t2-traces/v1.1 \
+      --set-version v1.1 \
+      --appliance mailbox1`
+4. Pin `--extracted-at <iso>` if byte-identical re-runs are needed.
+5. Verify output: expect ~70-80 `.trace.json` files + `manifest.json` (per v1.1 README).
+6. The JSONL is gitignored; only commit if `manifest.example.json` or README needs an update.
 
-**Time estimate:** 1-2 operator hours.
-**Risk:** M1 send-history may have grown thin on long-context replies; if v1.1 has < 20 traces,
-the long-context tier of the bake-off is underpowered.
+**Time estimate:** ~30 minutes operator time (SSH tunnel, script run, verification).
+**Risk:** M1's `sent_history` is currently 444 rows total; after forwarded-chain filter +
+dedupe, expect ~70-80 traces. Sufficient for bake-off but on the lower end — note in report.
+
+**Auth scope note:** This step reads M1 Postgres credentials and customer email bodies
+(PII-scrubbed but still real). Auto-mode classifier flagged the autonomous run as
+out-of-scope of "go with M1" — this step needs explicit operator authorization or runs as
+a manual operator session.
 
 ### Phase 1 — Bake-off harness (code, this worktree)
 
@@ -132,9 +147,9 @@ Steps per candidate:
 
 ### Phase 3 — Eval sweep (mostly machine time)
 
-**Goal:** Run Phase 1's harness × Phase 2's models × Phase 0's trace sets. 5 models × 2 trace
-sets = 10 runs. Each run = up to 150 traces × ~5s each = ~12 min/run. Total ~2 hours of machine
-time per pass.
+**Goal:** Run Phase 1's harness × Phase 2's models × Phase 0's trace set. 5 models × 1 trace
+set (v1.1, ~70-80 traces) = 5 runs. Each run = ~75 traces × ~5s each = ~6 min/run. Total ~30
+min of machine time per pass.
 
 Steps:
 1. SSH to mailbox1 (pre-notice Heron Labs operator the day before).
@@ -187,23 +202,24 @@ only one that needs humans.
 2. **Run-3 GEPA against v1.1 corpus.** Should this run in parallel during the bake-off? Doesn't
    block 342, but if v1.1 unlocks GEPA gradient signal, addendum v0.2 should mention.
 3. **Gemma 4 E4B tooling.** If llama.cpp's Gemma 4 parser isn't stable by Phase 2, drop C3.
-4. **Trace set size for v1.1.** If M1's history has < 20 long-context replies, augment with M2 or
-   note the underpowering in the report.
+4. ~~**Trace set size for v1.1.**~~ **Resolved 2026-05-16:** v1.1 is the post-365 quality-filter
+   set (not long-context). Expected ~70-80 traces from M1's 444-row `sent_history`. Lower-end
+   but adequate — noted in the report rather than blocking on a larger corpus.
 
 ---
 
 ## Sequencing
 
 ```
-Phase 1 (code, ~6h)  ─────────────────────────────────────┐
-                                                          ├──▶ Phase 3 (sweep, ~3h) ──▶ Phase 4 (scoring, ~4h) ──▶ Phase 5 (ship, ~3h)
-Phase 0 (corpus, ~2h)  ─────┐                             │
-                             ├──▶ Phase 2 (models, ~2.5h)─┘
-(Phase 0 + 2 + 3 all  ─┘
- SSH to M1 — sweep overnight per the SLO carve-out)
+Phase 1 (code, ~6h) [DONE c724a40] ──────────────────────────┐
+                                                             ├──▶ Phase 3 (sweep, ~1h) ──▶ Phase 4 (scoring, ~4h) ──▶ Phase 5 (ship, ~3h)
+Phase 0 (corpus, ~30min) [BLOCKED on auth scope] ─┐          │
+                                                  ├──▶ Phase 2 (models, ~2.5h)─┘
+(Phase 0 + 2 + 3 all SSH to M1 — sweep overnight per the SLO carve-out)
 ```
 
-Total wall-clock: ~3-5 working days assuming the human-scoring step fits a single afternoon.
+Total wall-clock: ~1-2 working days assuming the human-scoring step fits a single afternoon and
+Phase 0 unblocks promptly.
 
 ---
 
