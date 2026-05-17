@@ -20,7 +20,13 @@
 // asserts row counts; v1 here is the shape-and-regex layer.)
 
 import { describe, expect, it } from 'vitest';
-import { buildSourceSql, FORWARDED_BODY_REGEX_SQL } from '@/scripts/build-trace-set';
+import {
+  buildSourceSql,
+  FORWARDED_BODY_REGEX_SQL,
+  rowToTrace,
+  type SourceRow,
+} from '@/scripts/build-trace-set';
+import { traceSchema } from '@/lib/eval/trace-set';
 
 // JS-side equivalent of the Postgres POSIX regex. Postgres `[[:space:]]` ≈ JS
 // `\s`, `\w` is the same on both. We DO NOT include the SUBSTRING-from-101
@@ -130,5 +136,108 @@ describe('buildSourceSql — STAQPRO-365 shape guarantees', () => {
 
   it('keeps the v1.0 final stratification (classification ASC NULLS LAST, sent_at ASC)', () => {
     expect(sql).toMatch(/inbox_classification\s+ASC\s+NULLS\s+LAST/i);
+  });
+});
+
+// ── rowToTrace numeric coercion (STAQPRO-342) ────────────────────────────────
+//
+// Caught during the first real corpus regen: pg's default type-parser returns
+// `bigint` (sh.id) and `numeric` (im.confidence) as STRINGS. The Trace zod
+// schema declares those fields as numbers, so traceSchema.parse(trace) on the
+// generated JSON rejected every trace with "invalid_type: expected number,
+// received string". Latent until first DB-driven run because every prior
+// build-trace-set test fed synthetic numeric-typed inputs.
+
+function makeStringTypedRow(over: Partial<SourceRow> = {}): SourceRow {
+  return {
+    // bigint sh.id arrives as string from pg-driver
+    sent_history_id: '150',
+    // integer im.id arrives as number (kept honest in the interface)
+    inbox_id: 12381,
+    inbox_message_id: 'GMAIL-msg-0001',
+    inbox_thread_id: 'GMAIL-thread-0001',
+    inbox_from: 'sender@example.com',
+    inbox_subject: 'test subject',
+    inbox_body: 'inbound body text',
+    inbox_classification: 'inquiry',
+    // numeric im.confidence arrives as string from pg-driver
+    inbox_confidence: '0.900',
+    actual_reply_body: 'operator reply text',
+    reply_sent_at: '2026-05-15T12:00:00.000Z',
+    ...over,
+  };
+}
+
+describe('rowToTrace numeric coercion — STAQPRO-342', () => {
+  it('coerces bigint sent_history_id (pg string) to a JS number', () => {
+    const { trace } = rowToTrace(makeStringTypedRow(), 'mailbox1', '2026-05-17T00:00:00Z');
+    expect(typeof trace.provenance.sent_history_id).toBe('number');
+    expect(trace.provenance.sent_history_id).toBe(150);
+  });
+
+  it('coerces numeric inbox_confidence (pg string) to a JS number', () => {
+    const { trace } = rowToTrace(makeStringTypedRow(), 'mailbox1', '2026-05-17T00:00:00Z');
+    expect(typeof trace.inbox_confidence).toBe('number');
+    expect(trace.inbox_confidence).toBeCloseTo(0.9, 5);
+  });
+
+  it('preserves null inbox_confidence (operator never classified row)', () => {
+    const { trace } = rowToTrace(
+      makeStringTypedRow({ inbox_confidence: null }),
+      'mailbox1',
+      '2026-05-17T00:00:00Z',
+    );
+    expect(trace.inbox_confidence).toBe(null);
+  });
+
+  it('coerces inbox_id defensively even though pg already returns number', () => {
+    const { trace } = rowToTrace(makeStringTypedRow(), 'mailbox1', '2026-05-17T00:00:00Z');
+    expect(typeof trace.provenance.inbox_id).toBe('number');
+    expect(trace.provenance.inbox_id).toBe(12381);
+  });
+
+  it('passes traceSchema.parse — full output is valid Trace', () => {
+    const { trace } = rowToTrace(makeStringTypedRow(), 'mailbox1', '2026-05-17T00:00:00Z');
+    // This is the assertion that was failing pre-fix on every real trace.
+    expect(() => traceSchema.parse(trace)).not.toThrow();
+  });
+
+  it('coerces pg-driver Date reply_sent_at to ISO-8601 string', () => {
+    const date = new Date('2026-05-15T12:00:00.000Z');
+    const { trace } = rowToTrace(
+      // pg returns Date for timestamptz by default in this script (no
+      // setTypeParser override since lib/db.ts isn't loaded here).
+      makeStringTypedRow({ reply_sent_at: date }),
+      'mailbox1',
+      '2026-05-17T00:00:00Z',
+    );
+    expect(typeof trace.reply_sent_at).toBe('string');
+    expect(trace.reply_sent_at).toBe('2026-05-15T12:00:00.000Z');
+    expect(() => traceSchema.parse(trace)).not.toThrow();
+  });
+
+  it('preserves an already-stringified reply_sent_at (fixtures path)', () => {
+    const { trace } = rowToTrace(
+      makeStringTypedRow({ reply_sent_at: '2026-05-15T12:00:00.000Z' }),
+      'mailbox1',
+      '2026-05-17T00:00:00Z',
+    );
+    expect(trace.reply_sent_at).toBe('2026-05-15T12:00:00.000Z');
+  });
+
+  it('throws when a future regression makes inbox_confidence non-coercible', () => {
+    // Defense-in-depth: if pg ever starts returning structured numeric (e.g.
+    // a `{value, scale}` object), numberOrNull → null and traceSchema.parse
+    // accepts null. But if some other field becomes shaped wrong (e.g.
+    // inbox_message_id becomes a number), the inline traceSchema.parse should
+    // catch it at GEN time, not at LOAD time downstream.
+    expect(() =>
+      rowToTrace(
+        // @ts-expect-error — intentional bad shape
+        makeStringTypedRow({ inbox_message_id: 12345 }),
+        'mailbox1',
+        '2026-05-17T00:00:00Z',
+      ),
+    ).toThrow();
   });
 });
