@@ -66,6 +66,7 @@ import {
   type TraceScrubCounts,
   type TraceWithFilename,
   traceFilename,
+  traceSchema,
   traceToCanonicalJson,
 } from '../lib/eval/trace-set';
 import { scrubPII } from '../lib/rag/scrub';
@@ -158,18 +159,30 @@ function required(value: string | undefined, flag: string): string {
 // Source query
 // =============================================================================
 
+/**
+ * Shape of a row coming off the pg driver. Numeric DB types arrive as
+ * strings because of `pg`'s default `setTypeParser` behavior for `bigint`
+ * (sh.id) and `numeric` (im.confidence) — the project preserves that
+ * convention to avoid JS Number precision loss on bigints (see root
+ * CLAUDE.md "pg setTypeParser" convention).
+ *
+ * `rowToTrace` is responsible for coercing these into the `Trace` shape's
+ * declared numeric fields. `integer` columns (`im.id`) DO arrive as JS
+ * `number` so they stay as `number` here; we still defensively coerce in
+ * `rowToTrace` in case pg ever changes its default.
+ */
 interface SourceRow {
-  sent_history_id: number;
-  inbox_id: number;
+  sent_history_id: string; // bigint → string
+  inbox_id: number; // integer → number
   inbox_message_id: string;
   inbox_thread_id: string | null;
   inbox_from: string | null;
   inbox_subject: string | null;
   inbox_body: string;
   inbox_classification: string | null;
-  inbox_confidence: number | null;
+  inbox_confidence: string | null; // numeric → string
   actual_reply_body: string;
-  reply_sent_at: string;
+  reply_sent_at: string | Date; // timestamptz → Date (unless setTypeParser overridden)
 }
 
 /**
@@ -226,8 +239,19 @@ const FORWARDED_BODY_REGEX_SQL = String.raw`^[[:space:]]*(-{3,}|On[[:space:]]+\w
  * classification the order is by `sent_at` ASC (oldest first) — same
  * convention as the existing harness for reproducibility.
  */
-function buildSourceSql(limit: number): string {
-  return `
+interface SourceQuery {
+  text: string;
+  values: readonly string[];
+}
+
+// Returns a parameterized query — the forwarded-body regex is passed as $1/$2
+// rather than interpolated. Per the dashboard `CLAUDE.md` SQL convention:
+// "always parameterize — never string-concatenate user input into SQL." The
+// regex is currently a module-level constant with no user input, but the
+// parameterized form removes a correctness landmine if the regex ever
+// changes to contain SQL metacharacters (e.g., a single-quote).
+function buildSourceSql(limit: number): SourceQuery {
+  const text = `
     WITH candidates AS (
       SELECT
         sh.id                          AS sent_history_id,
@@ -242,7 +266,7 @@ function buildSourceSql(limit: number): string {
         sh.draft_sent                  AS actual_reply_body,
         sh.sent_at                     AS reply_sent_at,
         char_length(sh.draft_sent)     AS body_len,
-        (sh.draft_sent ~ '${FORWARDED_BODY_REGEX_SQL}') AS is_forwarded_head
+        (sh.draft_sent ~ $1) AS is_forwarded_head
       FROM mailbox.sent_history sh
       JOIN mailbox.inbox_messages im ON im.id = sh.inbox_message_id
       WHERE sh.source = 'backfill'
@@ -254,7 +278,7 @@ function buildSourceSql(limit: number): string {
         -- present in this corpus (operator preface + separator + chain).
         -- A reply that genuinely opens with three dashes is fine because we
         -- anchor the regex to the offset-100 tail, not the head.
-        AND SUBSTRING(sh.draft_sent FROM 101) !~ '${FORWARDED_BODY_REGEX_SQL}'
+        AND SUBSTRING(sh.draft_sent FROM 101) !~ $2
     )
     SELECT
       sent_history_id, inbox_id, inbox_message_id, inbox_thread_id,
@@ -277,6 +301,7 @@ function buildSourceSql(limit: number): string {
     ORDER BY inbox_classification ASC NULLS LAST, reply_sent_at ASC
     LIMIT ${Math.max(1, Math.floor(limit))}
   `;
+  return { text, values: [FORWARDED_BODY_REGEX_SQL, FORWARDED_BODY_REGEX_SQL] };
 }
 
 // =============================================================================
@@ -306,19 +331,63 @@ function rowToTrace(row: SourceRow, appliance: string, extractedAt: string): Scr
     inbox_from: row.inbox_from,
     inbox_subject: row.inbox_subject,
     inbox_body: scrubbedInbox.text,
-    inbox_confidence: row.inbox_confidence,
+    inbox_confidence: numberOrNull(row.inbox_confidence),
     actual_reply_body: scrubbedReply.text,
-    reply_sent_at: row.reply_sent_at,
+    // pg returns `timestamp`/`timestamptz` as a JS Date by default. The
+    // dashboard runtime's `lib/db.ts` overrides this via setTypeParser to
+    // keep timestamps as strings, but this script imports `Pool` from `pg`
+    // directly (it doesn't load `lib/db.ts`) so the overrides don't apply
+    // here. Coerce Date → ISO-8601 string at the construction boundary.
+    reply_sent_at: isoDateString(row.reply_sent_at),
     provenance: {
       appliance,
-      sent_history_id: row.sent_history_id,
-      inbox_id: row.inbox_id,
+      // Coerce bigint sh.id (pg-driver string) and defensively coerce inbox_id
+      // (currently integer/number but cheap insurance against future pg changes).
+      sent_history_id: Number(row.sent_history_id),
+      inbox_id: Number(row.inbox_id),
       extracted_at: extractedAt,
       scrub_counts,
     },
   };
 
+  // Defensive: fail fast if a field-shape regression slips through. This
+  // catches things like a future pg type-parser change or a new column added
+  // to SourceRow without updating the coercion. Without this guard, the
+  // failure mode is silent corpus poisoning — downstream consumers
+  // (rag-eval-harness loader, bake-off harness) reject the trace at LOAD time,
+  // not GEN time, which is much harder to debug.
+  traceSchema.parse(trace);
+
   return { trace };
+}
+
+/**
+ * Coerce a possibly-string-shaped numeric DB value (per pg-driver's default
+ * bigint/numeric → string) into a finite JS number, or null if absent or
+ * non-finite. Used for `inbox_confidence` (numeric → string) at the
+ * Trace-construction boundary.
+ */
+function numberOrNull(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
+ * Coerce a pg-driver timestamp value (JS Date by default — see comment in
+ * `rowToTrace` for why this script doesn't get the `lib/db.ts` setTypeParser
+ * overrides) into an ISO-8601 string. Accepts pre-stringified inputs
+ * verbatim so the function also works against fixture rows.
+ */
+function isoDateString(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (v instanceof Date) return v.toISOString();
+  // Defensive: any other shape (number-as-millis, etc.) — let JS try.
+  return new Date(v as never).toISOString();
 }
 
 /**
@@ -354,7 +423,8 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: postgresUrl, max: 2 });
   const rows: SourceRow[] = [];
   try {
-    const r = await pool.query<SourceRow>(buildSourceSql(args.limit));
+    const q = buildSourceSql(args.limit);
+    const r = await pool.query<SourceRow>(q.text, [...q.values]);
     rows.push(...r.rows);
   } finally {
     await pool.end();
