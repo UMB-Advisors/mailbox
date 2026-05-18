@@ -101,7 +101,7 @@ describe('FORWARDED_BODY_REGEX_SQL — STAQPRO-365', () => {
 });
 
 describe('buildSourceSql — STAQPRO-365 shape guarantees', () => {
-  const sql = buildSourceSql(50);
+  const { text: sql, values } = buildSourceSql(50);
 
   it('contains the DISTINCT ON dedupe', () => {
     expect(sql).toMatch(/SELECT\s+DISTINCT\s+ON\s*\(\s*inbox_id\s*\)/i);
@@ -125,17 +125,26 @@ describe('buildSourceSql — STAQPRO-365 shape guarantees', () => {
   });
 
   it('caps with the given LIMIT (positive integer)', () => {
-    expect(buildSourceSql(50)).toMatch(/LIMIT\s+50/);
-    expect(buildSourceSql(100)).toMatch(/LIMIT\s+100/);
+    expect(buildSourceSql(50).text).toMatch(/LIMIT\s+50/);
+    expect(buildSourceSql(100).text).toMatch(/LIMIT\s+100/);
   });
 
   it('clamps non-positive limits to 1 (defense-in-depth)', () => {
-    expect(buildSourceSql(0)).toMatch(/LIMIT\s+1/);
-    expect(buildSourceSql(-5)).toMatch(/LIMIT\s+1/);
+    expect(buildSourceSql(0).text).toMatch(/LIMIT\s+1/);
+    expect(buildSourceSql(-5).text).toMatch(/LIMIT\s+1/);
   });
 
   it('keeps the v1.0 final stratification (classification ASC NULLS LAST, sent_at ASC)', () => {
     expect(sql).toMatch(/inbox_classification\s+ASC\s+NULLS\s+LAST/i);
+  });
+
+  it('parameterizes the forwarded-body regex (no string interpolation into SQL)', () => {
+    // Per CLAUDE.md SQL convention: "always parameterize". The regex must
+    // travel as a query parameter, not be interpolated into the SQL text.
+    expect(sql).not.toContain(FORWARDED_BODY_REGEX_SQL);
+    expect(sql).toMatch(/\$1/);
+    expect(sql).toMatch(/\$2/);
+    expect(values).toEqual([FORWARDED_BODY_REGEX_SQL, FORWARDED_BODY_REGEX_SQL]);
   });
 });
 

@@ -211,13 +211,23 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   };
 }
 
+// Strict numeric parsing — rejects partial-numeric strings like "4096abc"
+// that Number.parseInt would silently truncate to 4096. Number(v) returns NaN
+// on any trailing garbage; the empty-string guard prevents Number('') from
+// passing as 0.
 function parseIntStrict(v: string, flag: string): number {
-  const n = Number.parseInt(v, 10);
-  if (!Number.isFinite(n)) throw new Error(`${flag} must be an integer, got: ${v}`);
+  const trimmed = v.trim();
+  if (trimmed === '') throw new Error(`${flag} must be an integer, got: ${v}`);
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new Error(`${flag} must be an integer, got: ${v}`);
+  }
   return n;
 }
 function parseFloatStrict(v: string, flag: string): number {
-  const n = Number.parseFloat(v);
+  const trimmed = v.trim();
+  if (trimmed === '') throw new Error(`${flag} must be a number, got: ${v}`);
+  const n = Number(trimmed);
   if (!Number.isFinite(n)) throw new Error(`${flag} must be a number, got: ${v}`);
   return n;
 }

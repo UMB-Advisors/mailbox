@@ -239,8 +239,19 @@ const FORWARDED_BODY_REGEX_SQL = String.raw`^[[:space:]]*(-{3,}|On[[:space:]]+\w
  * classification the order is by `sent_at` ASC (oldest first) — same
  * convention as the existing harness for reproducibility.
  */
-function buildSourceSql(limit: number): string {
-  return `
+interface SourceQuery {
+  text: string;
+  values: readonly string[];
+}
+
+// Returns a parameterized query — the forwarded-body regex is passed as $1/$2
+// rather than interpolated. Per the dashboard `CLAUDE.md` SQL convention:
+// "always parameterize — never string-concatenate user input into SQL." The
+// regex is currently a module-level constant with no user input, but the
+// parameterized form removes a correctness landmine if the regex ever
+// changes to contain SQL metacharacters (e.g., a single-quote).
+function buildSourceSql(limit: number): SourceQuery {
+  const text = `
     WITH candidates AS (
       SELECT
         sh.id                          AS sent_history_id,
@@ -255,7 +266,7 @@ function buildSourceSql(limit: number): string {
         sh.draft_sent                  AS actual_reply_body,
         sh.sent_at                     AS reply_sent_at,
         char_length(sh.draft_sent)     AS body_len,
-        (sh.draft_sent ~ '${FORWARDED_BODY_REGEX_SQL}') AS is_forwarded_head
+        (sh.draft_sent ~ $1) AS is_forwarded_head
       FROM mailbox.sent_history sh
       JOIN mailbox.inbox_messages im ON im.id = sh.inbox_message_id
       WHERE sh.source = 'backfill'
@@ -267,7 +278,7 @@ function buildSourceSql(limit: number): string {
         -- present in this corpus (operator preface + separator + chain).
         -- A reply that genuinely opens with three dashes is fine because we
         -- anchor the regex to the offset-100 tail, not the head.
-        AND SUBSTRING(sh.draft_sent FROM 101) !~ '${FORWARDED_BODY_REGEX_SQL}'
+        AND SUBSTRING(sh.draft_sent FROM 101) !~ $2
     )
     SELECT
       sent_history_id, inbox_id, inbox_message_id, inbox_thread_id,
@@ -290,6 +301,7 @@ function buildSourceSql(limit: number): string {
     ORDER BY inbox_classification ASC NULLS LAST, reply_sent_at ASC
     LIMIT ${Math.max(1, Math.floor(limit))}
   `;
+  return { text, values: [FORWARDED_BODY_REGEX_SQL, FORWARDED_BODY_REGEX_SQL] };
 }
 
 // =============================================================================
@@ -411,7 +423,8 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: postgresUrl, max: 2 });
   const rows: SourceRow[] = [];
   try {
-    const r = await pool.query<SourceRow>(buildSourceSql(args.limit));
+    const q = buildSourceSql(args.limit);
+    const r = await pool.query<SourceRow>(q.text, [...q.values]);
     rows.push(...r.rows);
   } finally {
     await pool.end();
