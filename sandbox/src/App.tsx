@@ -336,7 +336,6 @@ function App() {
   const [stars, setStars] = useState<Record<number, boolean>>({})
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(() => new Set())
   const [settings, setSettings] = useState<OperatorSettings>(() => loadSettings())
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
@@ -422,8 +421,6 @@ function App() {
     if (filters.age_bands.size > 0) {
       if (d.age_band === null || !filters.age_bands.has(d.age_band)) return false
     }
-    // Honor the legacy sidebar "hidden categories" toggle as well.
-    if (hiddenCategories.has(d.row.classification_category)) return false
     return true
   }
 
@@ -440,39 +437,15 @@ function App() {
       return aIso.localeCompare(bIso)
     }
     return [...passing].sort(cmp)
-    // matchesFilters closes over filters + hiddenCategories
+    // matchesFilters closes over filters
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [derived, filters, hiddenCategories, sort])
+  }, [derived, filters, sort])
 
   // Urgent-untouched count for the red-flag header — across the visible queue.
   const urgentCount = useMemo(
     () => filtered.filter((d) => isUrgentUntouched(d.row)).length,
     [filtered],
   )
-
-  // Legacy sidebar per-category count: derived off folderFiltered (unaffected
-  // by chip filters) so the sidebar stays a stable orientation aid.
-  const categoryCounts = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const cat of Object.keys(CATEGORY_COLORS)) c[cat] = 0
-    for (const d of folderFiltered) {
-      const cat = d.classification_category in CATEGORY_COLORS ? d.classification_category : 'unknown'
-      c[cat] = (c[cat] ?? 0) + 1
-    }
-    return c
-  }, [folderFiltered])
-
-  const toggleCategory = (cat: string) => {
-    setHiddenCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
-    setSelectedId(null)
-  }
-
-  const allHidden = hiddenCategories.size === Object.keys(CATEGORY_COLORS).length
 
   const counts = useMemo(() => {
     const c: Record<FolderKey, number> = { pending: 0, approved: 0, sent: 0, rejected: 0, all: fixtureDrafts.length }
@@ -620,46 +593,6 @@ function App() {
               <span className="flex-1 text-left">Digest preview</span>
             </button>
 
-            <div className="mt-6 flex items-center justify-between px-5 pb-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">Categories</span>
-              {hiddenCategories.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setHiddenCategories(new Set())}
-                  className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
-                >
-                  Show all
-                </button>
-              )}
-            </div>
-            {Object.keys(CATEGORY_COLORS).map((cat) => {
-              const hidden = hiddenCategories.has(cat)
-              const count = categoryCounts[cat] ?? 0
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => toggleCategory(cat)}
-                  className={clsx(
-                    'flex h-7 items-center gap-3 rounded-r-full pr-3 pl-5 text-xs transition-colors',
-                    hidden ? 'text-zinc-400 hover:bg-zinc-50' : 'text-zinc-700 hover:bg-zinc-100',
-                  )}
-                  title={hidden ? `Show ${cat}` : `Hide ${cat}`}
-                >
-                  <span
-                    className={clsx(
-                      'h-2 w-2 rounded-sm transition-opacity',
-                      CATEGORY_COLORS[cat].split(' ')[0],
-                      hidden && 'opacity-30',
-                    )}
-                  />
-                  <span className={clsx('flex-1 text-left', hidden && 'line-through decoration-zinc-300')}>{cat}</span>
-                  {count > 0 && (
-                    <span className={clsx('text-[10px]', hidden ? 'text-zinc-400' : 'text-zinc-500')}>{count}</span>
-                  )}
-                </button>
-              )
-            })}
           </aside>
         )}
 
@@ -731,28 +664,12 @@ function App() {
             <div className="min-h-0 flex-1 overflow-y-auto">
               {filtered.length === 0 && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-zinc-500">
-                  {allHidden ? (
-                    <>
-                      <span>All categories are hidden.</span>
-                      <button
-                        type="button"
-                        onClick={() => setHiddenCategories(new Set())}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
-                      >
-                        Show all categories
-                      </button>
-                    </>
-                  ) : folderFiltered.length === 0 ? (
+                  {folderFiltered.length === 0 ? (
                     <span>Nothing in {FOLDERS.find((f) => f.key === folder)?.label.toLowerCase()}.</span>
                   ) : (
-                    <>
-                      <span>
-                        No {FOLDERS.find((f) => f.key === folder)?.label.toLowerCase()} drafts match the visible categories.
-                      </span>
-                      <span className="text-xs text-zinc-400">
-                        {hiddenCategories.size} category{hiddenCategories.size === 1 ? '' : 's'} hidden
-                      </span>
-                    </>
+                    <span>
+                      No {FOLDERS.find((f) => f.key === folder)?.label.toLowerCase()} drafts match the current filters.
+                    </span>
                   )}
                 </div>
               )}
