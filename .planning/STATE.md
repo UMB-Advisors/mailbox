@@ -155,6 +155,7 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | 260511-wsi | STAQPRO-331 #1: structured reject feedback backend + sandbox UX port | 2026-05-12 | a2172c7 | [260511-wsi-staqpro-331-1-structured-reject-feedback](./quick/260511-wsi-staqpro-331-1-structured-reject-feedback/) |
 | 260512-080 | STAQPRO-331 #9 + #11: toast+undo on reject + visibility-gated 30s queue polling | 2026-05-12 | d6c95d5 | [260512-080-toast-undo-for-reject-30s-queue-polling-](./quick/260512-080-toast-undo-for-reject-30s-queue-polling-/) |
 | 260512-fwy | STAQPRO-333: KB sidecar RAG — surface uploaded-doc refs in Sources Used (delta over STAQPRO-148 infra) | 2026-05-12 | d9a48ca | [260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra](./quick/260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra/) |
+| 260518-w5c | STAQPRO-409: golden-image NVMe batch pipeline — factory-image.sh + factory-prep-nvme.sh + runbook | 2026-05-18 | 1a73517 | [260518-w5c-staqpro-409-golden-image-nvme-batch-pipe](./quick/260518-w5c-staqpro-409-golden-image-nvme-batch-pipe/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
