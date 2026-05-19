@@ -46,6 +46,7 @@ import { ClassificationOverride } from './components/ClassificationOverride'
 import { DigestPreview } from './DigestPreview'
 import { KnowledgeBasePage } from './KnowledgeBasePage'
 import { InsightsPage } from './InsightsPage'
+import { VipManagementPage, type VipMap, type VipEntry } from './VipManagementPage'
 
 type FolderKey = 'pending' | 'approved' | 'sent' | 'rejected' | 'all'
 
@@ -337,7 +338,47 @@ function buildCalendarEmbedUrl(src: string): string | null {
 function App() {
   const [folder, setFolder] = useState<FolderKey>('pending')
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [stars, setStars] = useState<Record<number, boolean>>({})
+  // STAQPRO-412 — VIP sender lookup. Replaces the old per-draft "stars" state
+  // (which was visual-only) with a per-sender VIP map that drives the urgency
+  // engine's `vip` signal. Persists to localStorage so sandbox iterations
+  // survive refresh. Phase 2 port lands `mailbox.vip_senders` + CRUD.
+  const [vips, setVips] = useState<VipMap>(() => {
+    try {
+      const raw = localStorage.getItem('mailbox-sandbox-vips-v1')
+      if (raw) return JSON.parse(raw) as VipMap
+    } catch {
+      /* ignore */
+    }
+    return {}
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('mailbox-sandbox-vips-v1', JSON.stringify(vips))
+    } catch {
+      /* ignore */
+    }
+  }, [vips])
+  const toggleVip = (addr: string) => {
+    setVips((prev) => {
+      const next: Record<string, VipEntry> = { ...prev }
+      if (addr in next) {
+        delete next[addr]
+      } else {
+        next[addr] = { reason: '', added_at: new Date().toISOString() }
+      }
+      return next
+    })
+  }
+  const addVip = (email: string, reason: string) => {
+    setVips((prev) => ({ ...prev, [email]: { reason, added_at: new Date().toISOString() } }))
+  }
+  const removeVip = (email: string) => {
+    setVips((prev) => {
+      const next = { ...prev }
+      delete next[email]
+      return next
+    })
+  }
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [settings, setSettings] = useState<OperatorSettings>(() => loadSettings())
@@ -345,7 +386,7 @@ function App() {
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
   // tuning page; 'digest' = STAQPRO-404 daily-digest email body mockup. All
   // share the top bar + sidebar; only the main area swaps.
-  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights'>('inbox')
+  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights' | 'vip'>('inbox')
 
   // STAQPRO-404 — queue filter + sort + classification-override state. The
   // filter chips, urgency badges, and the red-flag header all read off these.
@@ -389,9 +430,18 @@ function App() {
 
   // Each row paired with its derived metadata (signals, score, route, bands).
   // Derived once per folderFiltered change so filter / sort can share it.
+  // STAQPRO-412 — synthesize row.is_vip from the VIP lookup before deriving
+  // so toggling the star instantly flips the urgency signal + red-flag count.
   const derived = useMemo(
-    () => folderFiltered.map((row) => ({ row, ...rowDerived(row) })),
-    [folderFiltered],
+    () =>
+      folderFiltered.map((row) => {
+        const withVip = (row.from_addr in vips) || row.is_vip === true
+          ? { ...row, is_vip: true }
+          : row
+        return { row: withVip, ...rowDerived(withVip) }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [folderFiltered, vips],
   )
 
   // STAQPRO-404 filter chip counts — computed off the UNFILTERED derived set
@@ -630,6 +680,27 @@ function App() {
               <span className="flex-1 text-left">Insights</span>
             </button>
 
+            {/* STAQPRO-412 — VIP sender management. Star icon mirrors the
+                queue-row toggle. */}
+            <button
+              type="button"
+              onClick={() => setView('vip')}
+              className={clsx(
+                'flex h-9 items-center gap-3 rounded-r-full pr-3 pl-5 text-sm transition-colors',
+                view === 'vip'
+                  ? 'bg-indigo-50 font-medium text-indigo-900'
+                  : 'text-zinc-700 hover:bg-zinc-100',
+              )}
+            >
+              <Star className={clsx('h-4 w-4', Object.keys(vips).length > 0 && 'fill-amber-400 text-amber-500')} />
+              <span className="flex-1 text-left">VIP senders</span>
+              {Object.keys(vips).length > 0 && (
+                <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-medium text-amber-700">
+                  {Object.keys(vips).length}
+                </span>
+              )}
+            </button>
+
           </aside>
         )}
 
@@ -646,6 +717,14 @@ function App() {
         )}
         {view === 'insights' && (
           <InsightsPage onBack={() => setView('inbox')} />
+        )}
+        {view === 'vip' && (
+          <VipManagementPage
+            vips={vips}
+            onAdd={addVip}
+            onRemove={removeVip}
+            onBack={() => setView('inbox')}
+          />
         )}
         {view === 'inbox' && (
         <main className="flex min-w-0 flex-1">
@@ -720,7 +799,7 @@ function App() {
                 const d = entry.row
                 const isUnread = d.status === 'pending'
                 const isSelected = d.id === selectedId
-                const isStarred = stars[d.id] ?? false
+                const isStarred = d.from_addr in vips
                 const isChecked = checked[d.id] ?? false
                 return (
                   <button
@@ -763,9 +842,10 @@ function App() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        setStars((s) => ({ ...s, [d.id]: !s[d.id] }))
+                        toggleVip(d.from_addr)
                       }}
                       className="shrink-0 p-1 text-zinc-400 hover:text-amber-500"
+                      title={isStarred ? `Unmark ${d.from_addr} as VIP` : `Mark ${d.from_addr} as VIP`}
                     >
                       <Star className={clsx('h-4 w-4', isStarred && 'fill-amber-400 text-amber-500')} />
                     </button>
