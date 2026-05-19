@@ -25,6 +25,7 @@ import {
   PanelRightClose,
   FolderOpen,
   SlidersHorizontal,
+  BarChart3,
   BookOpen,
   FileText,
 } from 'lucide-react'
@@ -44,6 +45,7 @@ import { RedFlagHeader } from './components/RedFlagHeader'
 import { ClassificationOverride } from './components/ClassificationOverride'
 import { DigestPreview } from './DigestPreview'
 import { KnowledgeBasePage } from './KnowledgeBasePage'
+import { InsightsPage } from './InsightsPage'
 
 type FolderKey = 'pending' | 'approved' | 'sent' | 'rejected' | 'all'
 
@@ -343,7 +345,7 @@ function App() {
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
   // tuning page; 'digest' = STAQPRO-404 daily-digest email body mockup. All
   // share the top bar + sidebar; only the main area swaps.
-  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb'>('inbox')
+  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights'>('inbox')
 
   // STAQPRO-404 — queue filter + sort + classification-override state. The
   // filter chips, urgency badges, and the red-flag header all read off these.
@@ -612,6 +614,22 @@ function App() {
               <span className="flex-1 text-left">Knowledge base</span>
             </button>
 
+            {/* STAQPRO-411 — Insights / weekly value rollup. Sandbox surface
+                for the eventual /dashboard/insights route. */}
+            <button
+              type="button"
+              onClick={() => setView('insights')}
+              className={clsx(
+                'flex h-9 items-center gap-3 rounded-r-full pr-3 pl-5 text-sm transition-colors',
+                view === 'insights'
+                  ? 'bg-indigo-50 font-medium text-indigo-900'
+                  : 'text-zinc-700 hover:bg-zinc-100',
+              )}
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span className="flex-1 text-left">Insights</span>
+            </button>
+
           </aside>
         )}
 
@@ -625,6 +643,9 @@ function App() {
         )}
         {view === 'kb' && (
           <KnowledgeBasePage onBack={() => setView('inbox')} />
+        )}
+        {view === 'insights' && (
+          <InsightsPage onBack={() => setView('inbox')} />
         )}
         {view === 'inbox' && (
         <main className="flex min-w-0 flex-1">
