@@ -3,6 +3,11 @@
 // This file is a same-shape placeholder so the sandbox runs end-to-end without
 // shipping customer data into the repo. Names, companies, and addresses below
 // are fabricated.
+//
+// STAQPRO-404: Coverage matrix below — every classification category and every
+// urgency signal must hit at least one row. `is_vip` is the only signal that
+// can't be derived from existing fields; everything else (escalate / aged /
+// low_conf) is derived in `lib/urgency.ts` from existing columns.
 
 export type DraftStatus = "pending" | "approved" | "sent" | "rejected";
 
@@ -30,8 +35,23 @@ export interface DraftRow {
   sent_at?: string | null;
   approved_at?: string | null;
   prior_messages?: PriorMessage[];
+  /**
+   * STAQPRO-404: explicit fixture flag for the VIP urgency signal. The only
+   * signal that can't be derived from existing fields. In production this will
+   * be sourced from a per-counterparty VIP list (`mailbox.persona.vip_senders`
+   * or similar — out of scope for the UI exploration phase).
+   */
+  is_vip?: boolean;
 }
 
+// "Now" for the sandbox is 2026-05-18 per the project currentDate. Fixture
+// received_at values are anchored against this so the `aged` signal is
+// deterministic at fixture-time (NOT at viewing-time).
+//
+// To recompute an "X hours ago" timestamp from 2026-05-18T12:00:00Z:
+//   5h ago  → 2026-05-18T07:00:00+00:00
+//   26h ago → 2026-05-17T10:00:00+00:00
+//   30h ago → 2026-05-17T06:00:00+00:00
 export const drafts: DraftRow[] = [
   {
     id: 1,
@@ -179,5 +199,111 @@ export const drafts: DraftRow[] = [
     draft_subject: null,
     draft_body:
       "Hi —\n\nReceived; I'll route this to our partner Sam and our insurance broker for review and circle back with the signed packet inside the 14-day window. If anything in the new minimums creates a gap we'll flag it before signing.\n\n— Jordan",
+  },
+  // -------------------------------------------------------------------------
+  // STAQPRO-404 coverage rows (id ≥ 100 to stay clear of the original block).
+  // -------------------------------------------------------------------------
+  {
+    // Covers: `spam_marketing` category. Pending so the category-filter chip
+    // can demo "filter it out." Confidence 0.96 so it does NOT trip low_conf.
+    id: 101,
+    status: "pending",
+    created_at: "2026-05-18T11:30:00+00:00",
+    draft_source: "local",
+    model: "qwen3:4b-ctx4k",
+    classification_confidence: 0.96,
+    classification_category: "spam_marketing",
+    from_addr: "deals@superdealsblast.example",
+    subject: "🔥 50% off enterprise CRM — this week only",
+    received_at: "2026-05-18T11:25:00+00:00",
+    inbound_body_preview:
+      "Hi there,\n\nThis week only: 50% off our enterprise CRM platform with annual contract. Click below to schedule a demo. Limited time offer.\n\nBest,\nDealsBlast Sales Team",
+    draft_subject: null,
+    draft_body: "(no draft — spam_marketing route drops)",
+  },
+  {
+    // Covers: `aged` signal (status=pending, received_at = 5h ago).
+    // Confidence 0.93 so low_conf does NOT also fire — keep this row clean
+    // to demonstrate the single-pill (non-aggregate) UrgencyBadge.
+    id: 102,
+    status: "pending",
+    created_at: "2026-05-18T07:05:00+00:00",
+    draft_source: "local",
+    model: "qwen3:4b-ctx4k",
+    classification_confidence: 0.93,
+    classification_category: "reorder",
+    from_addr: "kim@coastalmarkets.example",
+    subject: "May restock — same lineup as April",
+    received_at: "2026-05-18T07:00:00+00:00",
+    inbound_body_preview:
+      "Hey Jordan,\n\nReady for the May restock — same lineup as April, plus we're going to try adding the cherry SKU at 4 stores. Can you confirm timing?\n\n— Kim",
+    draft_subject: null,
+    draft_body:
+      "Kim,\n\nGot it — April lineup mirrored plus 4 cases of the cherry SKU split across the four stores. Ship target is Wednesday; I'll send the PO ack with the freight quote within the hour.\n\n— Jordan",
+  },
+  {
+    // Covers: `vip` signal (is_vip=true) on a pending row that is NOT aged
+    // and NOT low_conf. Demonstrates VIP showing as a single-pill UrgencyBadge.
+    // Received 1.5h ago (NOT aged) and confidence 0.89 (NOT low_conf).
+    id: 103,
+    status: "pending",
+    created_at: "2026-05-18T10:35:00+00:00",
+    draft_source: "local",
+    model: "qwen3:4b-ctx4k",
+    classification_confidence: 0.89,
+    classification_category: "scheduling",
+    from_addr: "ceo@anchorinvest.example",
+    subject: "Quick chat next week?",
+    received_at: "2026-05-18T10:30:00+00:00",
+    is_vip: true,
+    inbound_body_preview:
+      "Jordan — got 20 minutes next week to walk through Q3 numbers? I'm flexible Tue-Thu mornings PT.\n\n— Casey",
+    draft_subject: null,
+    draft_body:
+      "Casey,\n\nAbsolutely — Tuesday 9am PT or Thursday 10am PT both work on my end. Let me know which fits and I'll send the invite.\n\n— Jordan",
+  },
+  {
+    // Covers: `low_conf` signal on a pending LOCAL-route row (id 8 already
+    // covers low_conf on a CLOUD-route row). Confidence 0.68 trips low_conf;
+    // category is `inquiry` (LOCAL) and route resolves to 'cloud' anyway
+    // because confidence < 0.75. So this also exercises the
+    // "low confidence forces cloud route" rule in routeFor.
+    id: 104,
+    status: "pending",
+    created_at: "2026-05-18T11:50:00+00:00",
+    draft_source: "cloud",
+    model: "gpt-oss:120b",
+    classification_confidence: 0.68,
+    classification_category: "inquiry",
+    from_addr: "ops@unfamiliarbrand.example",
+    subject: "Question about your packaging",
+    received_at: "2026-05-18T11:45:00+00:00",
+    inbound_body_preview:
+      "Hello,\n\nWe came across your product and have a question about whether your secondary packaging is compostable. Trying to source for our Q3 launch.\n\n— Ops, Unfamiliar Brand",
+    draft_subject: null,
+    draft_body:
+      "Hi —\n\nThe carton is curbside-recyclable but not certified compostable; the inner film is compostable in industrial facilities only. Happy to send the spec sheet — what region are you launching in?\n\n— Jordan",
+  },
+  {
+    // Covers: aggregate (>=2 signals) demo row. is_vip=true + aged (30h ago)
+    // + low_conf (0.71). 3 signals fire → UrgencyBadge renders the aggregate
+    // AlertOctagon icon with count. This is THE demo row for the aggregate
+    // badge deliverable.
+    id: 105,
+    status: "pending",
+    created_at: "2026-05-17T06:05:00+00:00",
+    draft_source: "cloud",
+    model: "gpt-oss:120b",
+    classification_confidence: 0.71,
+    classification_category: "follow_up",
+    from_addr: "founder@anchorinvest.example",
+    subject: "Re: Q3 numbers — also, board meeting prep",
+    received_at: "2026-05-17T06:00:00+00:00",
+    is_vip: true,
+    inbound_body_preview:
+      "Jordan,\n\nFollowing up on the Q3 numbers thread + I need a quick rundown of the operating margin trajectory for the board deck on Friday. Can you pull together one slide's worth of context?\n\n— Marin",
+    draft_subject: null,
+    draft_body:
+      "Marin,\n\nWill have a one-slide summary by Wednesday evening covering Q3 trajectory, the two contracts that moved out of Q3 into Q4, and the operating-margin walk vs plan.\n\nHappy to hop on a 10-min call Friday morning before the board meeting if useful.\n\n— Jordan",
   },
 ];
