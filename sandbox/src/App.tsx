@@ -25,11 +25,25 @@ import {
   PanelRightClose,
   FolderOpen,
   SlidersHorizontal,
+  BookOpen,
+  FileText,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { drafts as fixtureDrafts, type DraftRow, type DraftStatus } from './fixtures/drafts'
 import { TuningPage } from './Tuning'
+import {
+  ALL_CATEGORIES,
+  isUrgentUntouched,
+  rowDerived,
+} from './lib/urgency'
+import { FilterBar, EMPTY_FILTERS, filtersActive, type FilterState, type FilterCounts } from './components/FilterBar'
+import { SortControls, type SortKey } from './components/SortControls'
+import { UrgencyBadge } from './components/UrgencyBadge'
+import { RedFlagHeader } from './components/RedFlagHeader'
+import { ClassificationOverride } from './components/ClassificationOverride'
+import { DigestPreview } from './DigestPreview'
+import { KnowledgeBasePage } from './KnowledgeBasePage'
 
 type FolderKey = 'pending' | 'approved' | 'sent' | 'rejected' | 'all'
 
@@ -324,13 +338,21 @@ function App() {
   const [stars, setStars] = useState<Record<number, boolean>>({})
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(() => new Set())
   const [settings, setSettings] = useState<OperatorSettings>(() => loadSettings())
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
-  // tuning page (voice profile, guidelines, advanced prompt editor). Both share
-  // the top bar + sidebar; only the main area swaps.
-  const [view, setView] = useState<'inbox' | 'tuning'>('inbox')
+  // tuning page; 'digest' = STAQPRO-404 daily-digest email body mockup. All
+  // share the top bar + sidebar; only the main area swaps.
+  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb'>('inbox')
+
+  // STAQPRO-404 — queue filter + sort + classification-override state. The
+  // filter chips, urgency badges, and the red-flag header all read off these.
+  // Overrides are keyed by draft id and feed back into urgency derivation, so
+  // changing a category to/from `escalate` updates the row's signals + score
+  // in real time.
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS)
+  const [sort, setSort] = useState<SortKey>('newest')
+  const [overrides, setOverrides] = useState<Record<number, string>>({})
 
   // Persist settings to localStorage on every change so refreshes survive
   useEffect(() => {
@@ -341,42 +363,91 @@ function App() {
     }
   }, [settings])
 
+  // STAQPRO-404 — apply per-draft category overrides BEFORE urgency derivation
+  // so the filter / sort / urgency badges all reflect the corrected category
+  // immediately when the operator flips it inline.
+  const overrideRow = (d: DraftRow): DraftRow =>
+    overrides[d.id] !== undefined
+      ? { ...d, classification_category: overrides[d.id]! }
+      : d
+
   // Drafts filtered by status (folder) only — used both for the rendered list
   // (after applying category filter on top) and for per-category counts.
   const folderFiltered = useMemo(() => {
-    const sorted = [...fixtureDrafts].sort((a, b) =>
-      (b.received_at ?? b.created_at).localeCompare(a.received_at ?? a.created_at),
-    )
+    const sorted = [...fixtureDrafts]
+      .map(overrideRow)
+      .sort((a, b) =>
+        (b.received_at ?? b.created_at).localeCompare(a.received_at ?? a.created_at),
+      )
     if (folder === 'all') return sorted
     return sorted.filter((d) => d.status === folder)
-  }, [folder])
+    // overrideRow closes over `overrides`; depend on the map identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folder, overrides])
 
-  const filtered = useMemo(
-    () => folderFiltered.filter((d) => !hiddenCategories.has(d.classification_category)),
-    [folderFiltered, hiddenCategories],
+  // Each row paired with its derived metadata (signals, score, route, bands).
+  // Derived once per folderFiltered change so filter / sort can share it.
+  const derived = useMemo(
+    () => folderFiltered.map((row) => ({ row, ...rowDerived(row) })),
+    [folderFiltered],
   )
 
-  const categoryCounts = useMemo(() => {
+  // STAQPRO-404 filter chip counts — computed off the UNFILTERED derived set
+  // so chip counts don't collapse to 0 once the user starts toggling. Each
+  // count key is `<dimension>:<value>`.
+  const filterCounts: FilterCounts = useMemo(() => {
     const c: Record<string, number> = {}
-    for (const cat of Object.keys(CATEGORY_COLORS)) c[cat] = 0
-    for (const d of folderFiltered) {
-      const cat = d.classification_category in CATEGORY_COLORS ? d.classification_category : 'unknown'
-      c[cat] = (c[cat] ?? 0) + 1
+    for (const d of derived) {
+      const cat = d.row.classification_category
+      c[`category:${cat}`] = (c[`category:${cat}`] ?? 0) + 1
+      c[`status:${d.row.status}`] = (c[`status:${d.row.status}`] ?? 0) + 1
+      c[`route:${d.route}`] = (c[`route:${d.route}`] ?? 0) + 1
+      if (d.confidence_band !== null) {
+        c[`confidence:${d.confidence_band}`] = (c[`confidence:${d.confidence_band}`] ?? 0) + 1
+      }
+      if (d.age_band !== null) {
+        c[`age:${d.age_band}`] = (c[`age:${d.age_band}`] ?? 0) + 1
+      }
     }
     return c
-  }, [folderFiltered])
+  }, [derived])
 
-  const toggleCategory = (cat: string) => {
-    setHiddenCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
-    setSelectedId(null)
+  // Apply the FilterBar's multi-select sets. Empty set per dimension = pass-all.
+  const matchesFilters = (d: typeof derived[number]): boolean => {
+    if (filters.categories.size > 0 && !filters.categories.has(d.row.classification_category)) return false
+    if (filters.statuses.size > 0 && !filters.statuses.has(d.row.status)) return false
+    if (filters.routes.size > 0 && !filters.routes.has(d.route)) return false
+    if (filters.confidence_bands.size > 0) {
+      if (d.confidence_band === null || !filters.confidence_bands.has(d.confidence_band)) return false
+    }
+    if (filters.age_bands.size > 0) {
+      if (d.age_band === null || !filters.age_bands.has(d.age_band)) return false
+    }
+    return true
   }
 
-  const allHidden = hiddenCategories.size === Object.keys(CATEGORY_COLORS).length
+  // Filtered + sorted.
+  const filtered = useMemo(() => {
+    const passing = derived.filter(matchesFilters)
+    const cmp = (a: typeof derived[number], b: typeof derived[number]): number => {
+      const aIso = a.row.received_at ?? a.row.created_at
+      const bIso = b.row.received_at ?? b.row.created_at
+      if (sort === 'newest') return bIso.localeCompare(aIso)
+      if (sort === 'oldest') return aIso.localeCompare(bIso)
+      // urgency: score desc, older received_at as tiebreaker
+      if (b.urgency_score !== a.urgency_score) return b.urgency_score - a.urgency_score
+      return aIso.localeCompare(bIso)
+    }
+    return [...passing].sort(cmp)
+    // matchesFilters closes over filters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derived, filters, sort])
+
+  // Urgent-untouched count for the red-flag header — across the visible queue.
+  const urgentCount = useMemo(
+    () => filtered.filter((d) => isUrgentUntouched(d.row)).length,
+    [filtered],
+  )
 
   const counts = useMemo(() => {
     const c: Record<FolderKey, number> = { pending: 0, approved: 0, sent: 0, rejected: 0, all: fixtureDrafts.length }
@@ -384,7 +455,7 @@ function App() {
     return c
   }, [])
 
-  const selected = filtered.find((d) => d.id === selectedId) ?? null
+  const selected = filtered.find((d) => d.row.id === selectedId)?.row ?? null
 
   return (
     <div className="flex h-full flex-col bg-white text-[13px] text-zinc-800">
@@ -507,53 +578,53 @@ function App() {
               <span className="flex-1 text-left">Tuning</span>
             </button>
 
-            <div className="mt-6 flex items-center justify-between px-5 pb-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">Categories</span>
-              {hiddenCategories.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setHiddenCategories(new Set())}
-                  className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
-                >
-                  Show all
-                </button>
+            {/* STAQPRO-404 deliverable #6 — daily digest email body mockup,
+                rendered as a sandbox view via the existing view-state switch
+                (no router needed). */}
+            <button
+              type="button"
+              onClick={() => setView('digest')}
+              className={clsx(
+                'flex h-9 items-center gap-3 rounded-r-full pr-3 pl-5 text-sm transition-colors',
+                view === 'digest'
+                  ? 'bg-indigo-50 font-medium text-indigo-900'
+                  : 'text-zinc-700 hover:bg-zinc-100',
               )}
-            </div>
-            {Object.keys(CATEGORY_COLORS).map((cat) => {
-              const hidden = hiddenCategories.has(cat)
-              const count = categoryCounts[cat] ?? 0
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => toggleCategory(cat)}
-                  className={clsx(
-                    'flex h-7 items-center gap-3 rounded-r-full pr-3 pl-5 text-xs transition-colors',
-                    hidden ? 'text-zinc-400 hover:bg-zinc-50' : 'text-zinc-700 hover:bg-zinc-100',
-                  )}
-                  title={hidden ? `Show ${cat}` : `Hide ${cat}`}
-                >
-                  <span
-                    className={clsx(
-                      'h-2 w-2 rounded-sm transition-opacity',
-                      CATEGORY_COLORS[cat].split(' ')[0],
-                      hidden && 'opacity-30',
-                    )}
-                  />
-                  <span className={clsx('flex-1 text-left', hidden && 'line-through decoration-zinc-300')}>{cat}</span>
-                  {count > 0 && (
-                    <span className={clsx('text-[10px]', hidden ? 'text-zinc-400' : 'text-zinc-500')}>{count}</span>
-                  )}
-                </button>
-              )
-            })}
+            >
+              <FileText className="h-4 w-4" />
+              <span className="flex-1 text-left">Digest preview</span>
+            </button>
+
+            {/* STAQPRO-404 follow-up — Knowledge Base nav stub. Mirrors the
+                prod page at /dashboard/knowledge-base (STAQPRO-148). Sandbox
+                fidelity = layout + fixtures only. */}
+            <button
+              type="button"
+              onClick={() => setView('kb')}
+              className={clsx(
+                'flex h-9 items-center gap-3 rounded-r-full pr-3 pl-5 text-sm transition-colors',
+                view === 'kb'
+                  ? 'bg-indigo-50 font-medium text-indigo-900'
+                  : 'text-zinc-700 hover:bg-zinc-100',
+              )}
+            >
+              <BookOpen className="h-4 w-4" />
+              <span className="flex-1 text-left">Knowledge base</span>
+            </button>
+
           </aside>
         )}
 
-        {/* Main — either the 3-pane inbox or the Tuning page, depending on `view`.
+        {/* Main — 3-pane inbox, Tuning page, or Digest preview, depending on `view`.
             Pane sizes persisted to localStorage by react-resizable-panels via autoSaveId. */}
         {view === 'tuning' && (
           <TuningPage onBack={() => setView('inbox')} />
+        )}
+        {view === 'digest' && (
+          <DigestPreview onBack={() => setView('inbox')} />
+        )}
+        {view === 'kb' && (
+          <KnowledgeBasePage onBack={() => setView('inbox')} />
         )}
         {view === 'inbox' && (
         <main className="flex min-w-0 flex-1">
@@ -561,6 +632,30 @@ function App() {
           {/* List pane */}
           <Panel defaultSize={35} minSize={20} order={1}>
           <section className="flex h-full min-w-0 flex-col">
+            {/* STAQPRO-404 header band — red-flag chip on the left, sort segmented
+                control on the right (design choice: same horizontal band keeps
+                the queue header dense; FilterBar gets its own row underneath). */}
+            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-3">
+              <RedFlagHeader
+                urgentCount={urgentCount}
+                total={filtered.length}
+                onClick={() => {
+                  // One-click drill-in: filter to pending only + clear other dims.
+                  setFilters({
+                    ...EMPTY_FILTERS,
+                    statuses: new Set<DraftStatus>(['pending']),
+                  })
+                  setSort('urgency')
+                }}
+              />
+              <div className="ml-auto">
+                <SortControls sort={sort} onChange={setSort} />
+              </div>
+            </div>
+
+            {/* STAQPRO-404 — multi-select filter chips bar. */}
+            <FilterBar filters={filters} onChange={setFilters} counts={filterCounts} />
+
             {/* Toolbar */}
             <div className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-2">
               <input type="checkbox" className="ml-2 h-4 w-4 accent-indigo-600" />
@@ -572,6 +667,16 @@ function App() {
               </button>
               <div className="ml-auto flex items-center gap-1 pr-2 text-xs text-zinc-600">
                 <span>1–{filtered.length} of {filtered.length}</span>
+                {filtersActive(filters) && (
+                  <button
+                    type="button"
+                    onClick={() => setFilters(EMPTY_FILTERS)}
+                    className="rounded-full px-2 py-0.5 text-[10px] font-medium text-indigo-600 hover:bg-indigo-50"
+                    title="Clear filters"
+                  >
+                    filtered
+                  </button>
+                )}
                 <button className="rounded-full p-1.5 hover:bg-zinc-100"><ChevronLeft className="h-4 w-4" /></button>
                 <button className="rounded-full p-1.5 hover:bg-zinc-100"><ChevronRight className="h-4 w-4" /></button>
               </div>
@@ -581,32 +686,17 @@ function App() {
             <div className="min-h-0 flex-1 overflow-y-auto">
               {filtered.length === 0 && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-zinc-500">
-                  {allHidden ? (
-                    <>
-                      <span>All categories are hidden.</span>
-                      <button
-                        type="button"
-                        onClick={() => setHiddenCategories(new Set())}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
-                      >
-                        Show all categories
-                      </button>
-                    </>
-                  ) : folderFiltered.length === 0 ? (
+                  {folderFiltered.length === 0 ? (
                     <span>Nothing in {FOLDERS.find((f) => f.key === folder)?.label.toLowerCase()}.</span>
                   ) : (
-                    <>
-                      <span>
-                        No {FOLDERS.find((f) => f.key === folder)?.label.toLowerCase()} drafts match the visible categories.
-                      </span>
-                      <span className="text-xs text-zinc-400">
-                        {hiddenCategories.size} category{hiddenCategories.size === 1 ? '' : 's'} hidden
-                      </span>
-                    </>
+                    <span>
+                      No {FOLDERS.find((f) => f.key === folder)?.label.toLowerCase()} drafts match the current filters.
+                    </span>
                   )}
                 </div>
               )}
-              {filtered.map((d) => {
+              {filtered.map((entry) => {
+                const d = entry.row
                 const isUnread = d.status === 'pending'
                 const isSelected = d.id === selectedId
                 const isStarred = stars[d.id] ?? false
@@ -666,14 +756,26 @@ function App() {
                     )}
 
                     <div className="flex min-w-0 flex-1 items-center gap-2">
+                      {/* STAQPRO-404 — inline classification override (popover). */}
                       <span
-                        className={clsx(
-                          'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ring-1',
-                          CATEGORY_COLORS[d.classification_category] ?? CATEGORY_COLORS.unknown,
-                        )}
+                        onClick={(e) => e.stopPropagation()}
+                        className="shrink-0"
                       >
-                        {d.classification_category}
+                        <ClassificationOverride
+                          value={d.classification_category}
+                          onChange={(next) =>
+                            setOverrides((prev) => ({ ...prev, [d.id]: next }))
+                          }
+                          categories={ALL_CATEGORIES}
+                          pillClasses={CATEGORY_COLORS[d.classification_category] ?? CATEGORY_COLORS.unknown}
+                          optionClasses={(cat) =>
+                            CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.unknown
+                          }
+                        />
                       </span>
+
+                      {/* STAQPRO-404 — per-row urgency badge (null when 0 signals). */}
+                      <UrgencyBadge signals={entry.signals} />
 
                       <div className="flex min-w-0 flex-1 items-baseline gap-2">
                         <span className={clsx('shrink truncate', isUnread ? 'font-semibold text-zinc-900' : 'text-zinc-700')}>

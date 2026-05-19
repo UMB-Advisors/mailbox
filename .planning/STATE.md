@@ -155,6 +155,7 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | 260511-wsi | STAQPRO-331 #1: structured reject feedback backend + sandbox UX port | 2026-05-12 | a2172c7 | [260511-wsi-staqpro-331-1-structured-reject-feedback](./quick/260511-wsi-staqpro-331-1-structured-reject-feedback/) |
 | 260512-080 | STAQPRO-331 #9 + #11: toast+undo on reject + visibility-gated 30s queue polling | 2026-05-12 | d6c95d5 | [260512-080-toast-undo-for-reject-30s-queue-polling-](./quick/260512-080-toast-undo-for-reject-30s-queue-polling-/) |
 | 260512-fwy | STAQPRO-333: KB sidecar RAG — surface uploaded-doc refs in Sources Used (delta over STAQPRO-148 infra) | 2026-05-12 | d9a48ca | [260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra](./quick/260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra/) |
+| 260518-v8j | STAQPRO-404: sandbox UI exploration — filter chips, sort, override popover, urgency badge, red-flag header, digest preview | 2026-05-19 | f0a185c | [260518-v8j-staqpro-404-sandbox-ui-exploration-filte](./quick/260518-v8j-staqpro-404-sandbox-ui-exploration-filte/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
