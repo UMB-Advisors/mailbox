@@ -11,7 +11,8 @@
 // palette: zinc base, indigo active, soft pastel rings for category-specific
 // chips. Tailwind v4 utility classes only — no theme tokens needed.
 
-import { X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
 import clsx from "clsx";
 import type { DraftStatus } from "../fixtures/drafts";
 import {
@@ -65,6 +66,18 @@ interface FilterBarProps {
   filters: FilterState;
   onChange: (next: FilterState) => void;
   counts: FilterCounts;
+  /** Initial expanded state — defaults to false (collapsed). */
+  defaultExpanded?: boolean;
+}
+
+function activeFilterCount(state: FilterState): number {
+  return (
+    state.categories.size +
+    state.statuses.size +
+    state.routes.size +
+    state.confidence_bands.size +
+    state.age_bands.size
+  );
 }
 
 // Pastel-with-ring chip palette — matches the App.tsx CATEGORY_COLORS rhythm.
@@ -85,11 +98,66 @@ function toggle<T>(set: ReadonlySet<T>, value: T): Set<T> {
   return next;
 }
 
-export function FilterBar({ filters, onChange, counts }: FilterBarProps) {
+export function FilterBar({
+  filters,
+  onChange,
+  counts,
+  defaultExpanded = false,
+}: FilterBarProps) {
   const active = filtersActive(filters);
+  const activeCount = activeFilterCount(filters);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
   return (
-    <div className="flex flex-col gap-2 border-b border-zinc-200 bg-white px-3 py-2">
-      <ChipGroup label="Category">
+    <div className="flex flex-col border-b border-zinc-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-50"
+        aria-expanded={expanded}
+        title={expanded ? "Collapse filters" : "Expand filters"}
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
+        )}
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
+          Filters
+        </span>
+        {active ? (
+          <span className="inline-flex items-center rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white">
+            {activeCount} active
+          </span>
+        ) : (
+          <span className="text-[11px] text-zinc-400">none active</span>
+        )}
+        {active && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(EMPTY_FILTERS);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onChange(EMPTY_FILTERS);
+              }
+            }}
+            className="ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100"
+            title="Clear all filters"
+          >
+            <X className="h-3 w-3" />
+            Clear all
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="flex flex-col gap-2 px-3 pb-2">
+          <ChipGroup label="Category">
         {ALL_CATEGORIES.map((cat) => {
           const count = counts[`category:${cat}`] ?? 0;
           const isActive = filters.categories.has(cat);
@@ -185,18 +253,9 @@ export function FilterBar({ filters, onChange, counts }: FilterBarProps) {
             </Chip>
           );
         })}
-        {active && (
-          <button
-            type="button"
-            onClick={() => onChange(EMPTY_FILTERS)}
-            className="ml-auto inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100"
-            title="Clear all filters"
-          >
-            <X className="h-3 w-3" />
-            Clear all
-          </button>
-        )}
       </ChipGroup>
+        </div>
+      )}
     </div>
   );
 }
