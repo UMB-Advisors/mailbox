@@ -28,6 +28,7 @@ import {
   BarChart3,
   BookOpen,
   FileText,
+  History,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
@@ -48,6 +49,7 @@ import { KnowledgeBasePage } from './KnowledgeBasePage'
 import { InsightsPage } from './InsightsPage'
 import { VipManagementPage, type VipMap, type VipEntry } from './VipManagementPage'
 import { SearchResultsPage } from './SearchResultsPage'
+import { AuditPage } from './AuditPage'
 
 type FolderKey = 'pending' | 'approved' | 'sent' | 'rejected' | 'all'
 
@@ -387,7 +389,7 @@ function App() {
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
   // tuning page; 'digest' = STAQPRO-404 daily-digest email body mockup. All
   // share the top bar + sidebar; only the main area swaps.
-  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights' | 'vip' | 'search'>('inbox')
+  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights' | 'vip' | 'search' | 'audit'>('inbox')
   // STAQPRO-413 — search state. Query updates on every keystroke; pressing
   // Enter or hitting a populated query auto-switches to the search view.
   const [searchQuery, setSearchQuery] = useState('')
@@ -733,6 +735,23 @@ function App() {
               )}
             </button>
 
+            {/* STAQPRO-414 — Audit log viewer. Sandbox surface for
+                mailbox.state_transitions feed; per-draft history reachable
+                via row's draft-id pill. */}
+            <button
+              type="button"
+              onClick={() => setView('audit')}
+              className={clsx(
+                'flex h-9 items-center gap-3 rounded-r-full pr-3 pl-5 text-sm transition-colors',
+                view === 'audit'
+                  ? 'bg-indigo-50 font-medium text-indigo-900'
+                  : 'text-zinc-700 hover:bg-zinc-100',
+              )}
+            >
+              <History className="h-4 w-4" />
+              <span className="flex-1 text-left">Audit log</span>
+            </button>
+
           </aside>
         )}
 
@@ -768,6 +787,15 @@ function App() {
               setView('inbox')
             }}
             onBack={() => setView('inbox')}
+          />
+        )}
+        {view === 'audit' && (
+          <AuditPage
+            onBack={() => setView('inbox')}
+            onOpenDraft={(id) => {
+              setSelectedId(id)
+              setView('inbox')
+            }}
           />
         )}
         {view === 'inbox' && (
