@@ -131,16 +131,20 @@ export const drafts: DraftRow[] = [
       "Ravi,\n\nThanks for the nudge — the kit shipped on the 3rd and the tracking shows delivered the 6th. Let me know if it didn't reach you and I'll get a replacement out same-day.\n\nHappy to set up a 20-min call once you've had a chance to taste through it.\n\n— Jordan",
   },
   {
+    // Re-anchored to "received 2h before the 2026-05-18T12:00Z digest clock"
+    // (was 2026-05-14 — pre-anchor) so this row stays NON-aged and shows up
+    // in the digest's "Pending by category" section under `inquiry`, giving
+    // the section at least 2 category groups alongside spam_marketing (id 101).
     id: 5,
     status: "pending",
-    created_at: "2026-05-14T09:30:14+00:00",
+    created_at: "2026-05-18T10:00:14+00:00",
     draft_source: "cloud",
     model: "gpt-oss:120b",
     classification_confidence: 0.82,
     classification_category: "inquiry",
     from_addr: "priya@studiothree.example",
     subject: "Wholesale terms + lead time question",
-    received_at: "2026-05-14T09:14:48+00:00",
+    received_at: "2026-05-18T09:55:48+00:00",
     inbound_body_preview:
       "Hi — found you through a colleague. We run a small chain (4 locations) and are evaluating new vendors for Q3. Could you share your wholesale price list, MOQ, and typical lead time from PO to dock?\n\nThanks,\nPriya",
     draft_subject: null,
@@ -148,18 +152,21 @@ export const drafts: DraftRow[] = [
       "Priya,\n\nGreat to hear from you. Attaching our current wholesale sheet with MOQ and lead time at the top (10 cases per SKU, 7–10 business days from PO).\n\nIf it's useful I can drop a sample kit in the mail this week — just send the address you'd like it sent to.\n\n— Jordan",
   },
   {
+    // Anchored within the last 24h relative to the 2026-05-18T12:00Z digest
+    // clock so the digest preview's "Sent in the last 24h" section is
+    // non-empty. STAQPRO-404 Task 4 verify gate requires this.
     id: 6,
     status: "sent",
-    created_at: "2026-05-13T17:02:55+00:00",
-    approved_at: "2026-05-13T17:09:12+00:00",
-    sent_at: "2026-05-13T17:09:14+00:00",
+    created_at: "2026-05-17T17:02:55+00:00",
+    approved_at: "2026-05-17T17:09:12+00:00",
+    sent_at: "2026-05-17T17:09:14+00:00",
     draft_source: "local",
     model: "qwen3:4b-ctx4k",
     classification_confidence: 0.93,
     classification_category: "internal",
     from_addr: "sam@example-co.example",
     subject: "warehouse coverage next Friday",
-    received_at: "2026-05-13T16:50:21+00:00",
+    received_at: "2026-05-17T16:50:21+00:00",
     inbound_body_preview:
       "Jordan — I'll be out next Friday for the dentist thing. Can you cover the morning inbound window so receiving doesn't stack up?\n\n— Sam",
     draft_subject: null,
