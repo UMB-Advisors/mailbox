@@ -47,6 +47,7 @@ import { DigestPreview } from './DigestPreview'
 import { KnowledgeBasePage } from './KnowledgeBasePage'
 import { InsightsPage } from './InsightsPage'
 import { VipManagementPage, type VipMap, type VipEntry } from './VipManagementPage'
+import { SearchResultsPage } from './SearchResultsPage'
 
 type FolderKey = 'pending' | 'approved' | 'sent' | 'rejected' | 'all'
 
@@ -386,7 +387,11 @@ function App() {
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
   // tuning page; 'digest' = STAQPRO-404 daily-digest email body mockup. All
   // share the top bar + sidebar; only the main area swaps.
-  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights' | 'vip'>('inbox')
+  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb' | 'insights' | 'vip' | 'search'>('inbox')
+  // STAQPRO-413 — search state. Query updates on every keystroke; pressing
+  // Enter or hitting a populated query auto-switches to the search view.
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchDirection, setSearchDirection] = useState<'any' | 'inbound' | 'outbound'>('any')
 
   // STAQPRO-404 — queue filter + sort + classification-override state. The
   // filter chips, urgency badges, and the red-flag header all read off these.
@@ -530,9 +535,36 @@ function App() {
           <Search className="h-4 w-4 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search drafts"
+            placeholder="Search drafts + sent history"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              if (e.target.value.trim() && view !== 'search') setView('search')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && searchQuery.trim()) {
+                setView('search')
+              }
+              if (e.key === 'Escape') {
+                setSearchQuery('')
+                setView('inbox')
+              }
+            }}
             className="flex-1 bg-transparent text-sm outline-none"
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('')
+                if (view === 'search') setView('inbox')
+              }}
+              className="text-[11px] text-zinc-500 hover:text-zinc-700"
+              title="Clear search"
+            >
+              clear
+            </button>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -723,6 +755,18 @@ function App() {
             vips={vips}
             onAdd={addVip}
             onRemove={removeVip}
+            onBack={() => setView('inbox')}
+          />
+        )}
+        {view === 'search' && (
+          <SearchResultsPage
+            query={searchQuery}
+            directionFilter={searchDirection}
+            onDirectionChange={setSearchDirection}
+            onOpenDraft={(id) => {
+              setSelectedId(id)
+              setView('inbox')
+            }}
             onBack={() => setView('inbox')}
           />
         )}
