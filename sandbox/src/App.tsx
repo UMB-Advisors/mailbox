@@ -25,6 +25,7 @@ import {
   PanelRightClose,
   FolderOpen,
   SlidersHorizontal,
+  BookOpen,
   FileText,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -42,6 +43,7 @@ import { UrgencyBadge } from './components/UrgencyBadge'
 import { RedFlagHeader } from './components/RedFlagHeader'
 import { ClassificationOverride } from './components/ClassificationOverride'
 import { DigestPreview } from './DigestPreview'
+import { KnowledgeBasePage } from './KnowledgeBasePage'
 
 type FolderKey = 'pending' | 'approved' | 'sent' | 'rejected' | 'all'
 
@@ -341,7 +343,7 @@ function App() {
   // Top-level view switch. 'inbox' = default 3-pane queue; 'tuning' = system
   // tuning page; 'digest' = STAQPRO-404 daily-digest email body mockup. All
   // share the top bar + sidebar; only the main area swaps.
-  const [view, setView] = useState<'inbox' | 'tuning' | 'digest'>('inbox')
+  const [view, setView] = useState<'inbox' | 'tuning' | 'digest' | 'kb'>('inbox')
 
   // STAQPRO-404 — queue filter + sort + classification-override state. The
   // filter chips, urgency badges, and the red-flag header all read off these.
@@ -593,6 +595,23 @@ function App() {
               <span className="flex-1 text-left">Digest preview</span>
             </button>
 
+            {/* STAQPRO-404 follow-up — Knowledge Base nav stub. Mirrors the
+                prod page at /dashboard/knowledge-base (STAQPRO-148). Sandbox
+                fidelity = layout + fixtures only. */}
+            <button
+              type="button"
+              onClick={() => setView('kb')}
+              className={clsx(
+                'flex h-9 items-center gap-3 rounded-r-full pr-3 pl-5 text-sm transition-colors',
+                view === 'kb'
+                  ? 'bg-indigo-50 font-medium text-indigo-900'
+                  : 'text-zinc-700 hover:bg-zinc-100',
+              )}
+            >
+              <BookOpen className="h-4 w-4" />
+              <span className="flex-1 text-left">Knowledge base</span>
+            </button>
+
           </aside>
         )}
 
@@ -603,6 +622,9 @@ function App() {
         )}
         {view === 'digest' && (
           <DigestPreview onBack={() => setView('inbox')} />
+        )}
+        {view === 'kb' && (
+          <KnowledgeBasePage onBack={() => setView('inbox')} />
         )}
         {view === 'inbox' && (
         <main className="flex min-w-0 flex-1">
