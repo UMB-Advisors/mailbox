@@ -22,11 +22,10 @@
 
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
-import { extractAddress, isOperatorAddress } from './preclass';
+import { extractAddress, isOperatorAddress, OPERATOR_INBOX_EXCEPTIONS } from './preclass';
 
 export interface OwnershipOpts {
   thread_id: string | null | undefined;
-  current_to: string | undefined;
   // Injectable clock so tests can pin the window deterministically.
   now?: Date;
 }
@@ -90,10 +89,15 @@ export async function operatorOwnsThread(opts: OwnershipOpts): Promise<Ownership
       LIMIT 100
     `.execute(db);
 
-    // Filter to operator-side rows only.
+    // Filter to operator-side rows only. Role-inbox exceptions (sales@, etc.)
+    // are addresses the appliance drafts FOR, not personal operators — a reply
+    // from them does NOT mean a human owns the thread, so exclude them here
+    // (mirrors precheckSelfLoop's OPERATOR_INBOX_EXCEPTIONS guard).
     const operatorRows = rows.rows.filter((r) => {
       const addr = extractAddress(r.from_addr);
-      return addr && isOperatorAddress(addr);
+      if (!addr) return false;
+      if (OPERATOR_INBOX_EXCEPTIONS.includes(addr)) return false;
+      return isOperatorAddress(addr);
     });
 
     if (operatorRows.length === 0) {

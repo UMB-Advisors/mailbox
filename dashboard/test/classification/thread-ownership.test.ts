@@ -17,23 +17,20 @@ describe('operatorOwnsThread — pure logic (no DB)', () => {
   });
 
   it('returns owned:false, reason:no_thread_id when thread_id is null', async () => {
-    const result = await operatorOwnsThread({ thread_id: null, current_to: undefined });
+    const result = await operatorOwnsThread({ thread_id: null });
     expect(result.owned).toBe(false);
     expect(result.reason).toBe('no_thread_id');
   });
 
   it('returns owned:false, reason:no_thread_id when thread_id is empty string', async () => {
-    const result = await operatorOwnsThread({ thread_id: '', current_to: undefined });
+    const result = await operatorOwnsThread({ thread_id: '' });
     expect(result.owned).toBe(false);
     expect(result.reason).toBe('no_thread_id');
   });
 
   it('returns owned:false, reason:disabled when kill switch is set', async () => {
     process.env.OPERATOR_THREAD_GUARD_DISABLE = '1';
-    const result = await operatorOwnsThread({
-      thread_id: 'thread-abc',
-      current_to: 'operator@heronlabsinc.com',
-    });
+    const result = await operatorOwnsThread({ thread_id: 'thread-abc' });
     expect(result.owned).toBe(false);
     expect(result.reason).toBe('disabled');
   });
@@ -42,10 +39,7 @@ describe('operatorOwnsThread — pure logic (no DB)', () => {
     process.env.OPERATOR_THREAD_GUARD_DISABLE = '0';
     // Without DB, will either succeed or return db_unavailable — either way,
     // the kill switch must NOT return 'disabled'.
-    const result = await operatorOwnsThread({
-      thread_id: 'thread-xyz',
-      current_to: 'operator@heronlabsinc.com',
-    });
+    const result = await operatorOwnsThread({ thread_id: 'thread-xyz' });
     expect(result.reason).not.toBe('disabled');
   });
 });
@@ -130,11 +124,7 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
       sent_at: oneHourAgo,
     });
 
-    const result = await operatorOwnsThread({
-      thread_id: threadId,
-      current_to: 'jt@heronlabsinc.com',
-      now,
-    });
+    const result = await operatorOwnsThread({ thread_id: threadId, now });
 
     expect(result.owned).toBe(true);
     expect(result.reason).toBe('operator_owns_thread');
@@ -153,11 +143,7 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
       sent_at: twentySixHoursAgo,
     });
 
-    const result = await operatorOwnsThread({
-      thread_id: threadId,
-      current_to: 'jt@heronlabsinc.com',
-      now,
-    });
+    const result = await operatorOwnsThread({ thread_id: threadId, now });
 
     expect(result.owned).toBe(false);
     expect(result.reason).toBe('lapsed');
@@ -174,11 +160,7 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
       received_at: new Date('2026-05-20T09:00:00Z'),
     });
 
-    const result = await operatorOwnsThread({
-      thread_id: threadId,
-      current_to: 'jt@heronlabsinc.com',
-      now,
-    });
+    const result = await operatorOwnsThread({ thread_id: threadId, now });
 
     expect(result.owned).toBe(false);
     expect(result.reason).toBe('no_operator_msg');
@@ -197,17 +179,13 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
       received_at: twoHoursAgo,
     });
 
-    const result = await operatorOwnsThread({
-      thread_id: threadId,
-      current_to: 'jt@heronlabsinc.com',
-      now,
-    });
+    const result = await operatorOwnsThread({ thread_id: threadId, now });
 
     expect(result.owned).toBe(true);
     expect(result.reason).toBe('operator_owns_thread');
   });
 
-  it('owned:true uses any operator-domain address, not just current_to', async () => {
+  it('owned:true uses any operator-domain address, not just the inbound recipient', async () => {
     const threadId = `${tag}-any-op`;
     const now = new Date('2026-05-20T10:00:00Z');
     const thirtyMinutesAgo = new Date('2026-05-20T09:30:00Z');
@@ -220,14 +198,32 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
       sent_at: thirtyMinutesAgo,
     });
 
-    const result = await operatorOwnsThread({
-      thread_id: threadId,
-      current_to: 'jt@heronlabsinc.com', // different from the sender
-      now,
-    });
+    const result = await operatorOwnsThread({ thread_id: threadId, now });
 
     expect(result.owned).toBe(true);
     expect(result.reason).toBe('operator_owns_thread');
+  });
+
+  it('owned:false when only a role-inbox exception (sales@) replied — appliance drafts FOR it', async () => {
+    // UMB-154 / Linus review fix: OPERATOR_INBOX_EXCEPTIONS addresses are the
+    // inboxes the appliance drafts for, so a reply from them must NOT mark the
+    // thread "owned" (mirrors precheckSelfLoop). Otherwise a sales@ reply would
+    // suppress the very drafts the appliance exists to produce.
+    const threadId = `${tag}-role-inbox`;
+    const now = new Date('2026-05-20T10:00:00Z');
+    const oneHourAgo = new Date('2026-05-20T09:00:00Z');
+
+    await insertSentRow({
+      thread_id: threadId,
+      from_addr: 'sales@heronlabsinc.com', // default OPERATOR_INBOX_EXCEPTIONS member
+      to_addr: 'prospect@gmail.com',
+      sent_at: oneHourAgo,
+    });
+
+    const result = await operatorOwnsThread({ thread_id: threadId, now });
+
+    expect(result.owned).toBe(false);
+    expect(result.reason).toBe('no_operator_msg');
   });
 
   it('respects OPERATOR_THREAD_WINDOW_HOURS env override', async () => {
@@ -244,12 +240,12 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
     });
 
     // Default window (24h) → owned
-    const defaultResult = await operatorOwnsThread({ thread_id: threadId, current_to: undefined, now });
+    const defaultResult = await operatorOwnsThread({ thread_id: threadId, now });
     expect(defaultResult.owned).toBe(true);
 
     // Narrow window (1h) → lapsed
     process.env.OPERATOR_THREAD_WINDOW_HOURS = '1';
-    const narrowResult = await operatorOwnsThread({ thread_id: threadId, current_to: undefined, now });
+    const narrowResult = await operatorOwnsThread({ thread_id: threadId, now });
     expect(narrowResult.owned).toBe(false);
     expect(narrowResult.reason).toBe('lapsed');
 

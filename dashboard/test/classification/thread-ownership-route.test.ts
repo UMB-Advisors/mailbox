@@ -135,6 +135,32 @@ describe('POST /api/internal/classification-normalize — thread-ownership wirin
     expect(body.suppression_reason).toBeNull();
   });
 
+  it('returns 500 (does NOT suppress) when operatorOwnsThread throws', async () => {
+    // operatorOwnsThread catches its own DB errors internally (→ db_unavailable),
+    // so a throw here means an unexpected bug. The route's outer try/catch must
+    // surface it as 500 — n8n fails that classify cycle and retries next poll
+    // (message_id dedup), rather than silently dropping a legitimate draft.
+    mockOwnsThread.mockRejectedValue(new Error('unexpected boom'));
+
+    const { POST } = await import('@/app/api/internal/classification-normalize/route');
+    const res = await POST(
+      fakeRequest({
+        body: {
+          raw: JSON.stringify({ category: 'inquiry', confidence: 0.88 }),
+          from: 'customer@gmail.com',
+          to: 'jt@heronlabsinc.com',
+          thread_id: 'thread-throws',
+        },
+      }),
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    // Must NOT have produced a suppressed/dropped result on the error path.
+    expect(body.route).toBeUndefined();
+    expect(body.suppression_reason).toBeUndefined();
+  });
+
   it('thread_id is accepted by the schema (no 400)', async () => {
     mockOwnsThread.mockResolvedValue({ owned: false, reason: 'no_operator_msg' });
 

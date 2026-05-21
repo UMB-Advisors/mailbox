@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // (saves a DB query on every spam/noreply/self-loop path) or if no
     // thread_id was provided (can't prove ownership without it → fail open).
     if (result.route !== 'drop' && thread_id) {
-      const ownership = await operatorOwnsThread({ thread_id, current_to: to });
+      const ownership = await operatorOwnsThread({ thread_id });
       if (ownership.owned) {
         const suppressed = {
           ...result,
