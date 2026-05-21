@@ -156,6 +156,7 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | 260512-080 | STAQPRO-331 #9 + #11: toast+undo on reject + visibility-gated 30s queue polling | 2026-05-12 | d6c95d5 | [260512-080-toast-undo-for-reject-30s-queue-polling-](./quick/260512-080-toast-undo-for-reject-30s-queue-polling-/) |
 | 260512-fwy | STAQPRO-333: KB sidecar RAG — surface uploaded-doc refs in Sources Used (delta over STAQPRO-148 infra) | 2026-05-12 | d9a48ca | [260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra](./quick/260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra/) |
 | 260518-v8j | STAQPRO-404: sandbox UI exploration — filter chips, sort, override popover, urgency badge, red-flag header, digest preview | 2026-05-19 | f0a185c | [260518-v8j-staqpro-404-sandbox-ui-exploration-filte](./quick/260518-v8j-staqpro-404-sandbox-ui-exploration-filte/) |
+| 260520-ulr | UMB-153 + UMB-154: pre-draft operator-domain filters (self-loop drop + operator-owns-thread drop) | 2026-05-21 | daf9664 | [260520-ulr-umb-153-umb-154-pre-draft-operator-domai](./quick/260520-ulr-umb-153-umb-154-pre-draft-operator-domai/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
