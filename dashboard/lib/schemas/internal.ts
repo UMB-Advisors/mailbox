@@ -36,15 +36,21 @@ export const classificationPromptBodySchema = z.object({
 
 export type ClassificationPromptBody = z.infer<typeof classificationPromptBodySchema>;
 
-// POST /api/internal/classification-normalize — { raw?, from?, to? }.
+// POST /api/internal/classification-normalize — { raw?, from?, to?, thread_id? }.
 // `from` / `to` feed the deterministic operator-domain preclass (DR-50).
+// `thread_id` feeds the async operator-owns-thread guard (UMB-154). The n8n
+// Normalize node must add a `thread_id` line to jsonBody for UMB-154 to fire
+// in production — see deploy note in the SUMMARY. Without it the guard is
+// dormant (no thread_id → no DB query → drafts normally).
 export const classificationNormalizeBodySchema = z.object({
   raw: z.string().optional().default(''),
   from: z.string().optional(),
   to: z.string().optional(),
+  thread_id: z.string().optional(),
 });
 
 export type ClassificationNormalizeBody = z.infer<typeof classificationNormalizeBodySchema>;
+
 
 // POST /api/internal/llm/api/generate — Ollama-shape /api/generate body
 // forwarded to the local runtime (ollama or llama.cpp, per
