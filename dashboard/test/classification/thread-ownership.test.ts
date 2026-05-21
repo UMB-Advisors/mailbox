@@ -79,8 +79,10 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
     const msgId = `sent-${Math.random().toString(36).slice(2, 12)}`;
     await pool().query(
       `INSERT INTO mailbox.sent_history
-         (message_id, thread_id, from_addr, to_addr, subject, draft_sent, sent_at)
-       VALUES ($1, $2, $3, $4, 'Re: test', 'body text', $5)`,
+         (message_id, thread_id, from_addr, to_addr, subject, draft_sent,
+          draft_source, classification_category, classification_confidence, sent_at)
+       VALUES ($1, $2, $3, $4, 'Re: test', 'body text',
+               'cloud', 'follow_up', 0.9, $5)`,
       [msgId, opts.thread_id, opts.from_addr, opts.to_addr, opts.sent_at],
     );
     return msgId;
