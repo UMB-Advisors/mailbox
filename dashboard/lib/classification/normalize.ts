@@ -12,7 +12,7 @@
 // generating a draft. Noreply is checked BEFORE operator-domain so a
 // noreply address that happens to live on the operator domain still drops.
 
-import { type PreclassContext, precheck, precheckNoReply } from './preclass';
+import { type PreclassContext, precheck, precheckNoReply, precheckSelfLoop } from './preclass';
 import { CATEGORIES, type Category, type Route, routeFor } from './prompt';
 
 export interface ClassificationResult {
@@ -27,7 +27,17 @@ export interface ClassificationResult {
   think_stripped: boolean;
   raw_output: string;
   preclass_applied: boolean;
-  preclass_source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern' | null;
+  preclass_source:
+    | 'operator-domain'
+    | 'operator-allowlist'
+    | 'noreply-pattern'
+    | 'operator-self-loop'
+    | 'operator-owns-thread'
+    | null;
+  // Why the draft was suppressed (distinct from generic spam). Populated when
+  // precheckSelfLoop fires ('self_loop') or when the async thread-ownership
+  // guard fires ('operator_owns_thread'). null for all other paths.
+  suppression_reason: 'self_loop' | 'operator_owns_thread' | null;
 }
 
 type ResultWithoutRoute = Omit<ClassificationResult, 'route'>;
@@ -98,6 +108,7 @@ export function normalizeClassifierOutput(
       raw_output: safe,
       preclass_applied: false,
       preclass_source: null,
+      suppression_reason: null,
     },
     ctx,
   );
@@ -112,26 +123,64 @@ function fallback(raw: string, think_stripped: boolean): ResultWithoutRoute {
     raw_output: raw,
     preclass_applied: false,
     preclass_source: null,
+    suppression_reason: null,
   };
 }
 
 function applyPreclass(result: ResultWithoutRoute, ctx: PreclassContext): ClassificationResult {
-  // Noreply check runs first: a notifications@operator.com address still
-  // belongs in `spam_marketing`, not `internal`.
-  const hit = precheckNoReply(ctx) ?? precheck(ctx);
-  const withPreclass: ResultWithoutRoute = hit
-    ? {
-        ...result,
-        category: hit.category,
-        confidence: hit.confidence,
-        preclass_applied: true,
-        preclass_source: hit.source,
-      }
-    : result;
-  // Compute route last so it reflects the post-preclass (category, confidence).
-  // `spam_marketing` → 'drop', `confidence < 0.75` → 'cloud' safety net, etc.
+  // Evaluation order: noreply → self-loop → operator-domain.
+  //
+  // noreply first: a notifications@operator.com address still belongs in
+  // `spam_marketing`, not `internal`.
+  //
+  // self-loop second (UMB-153): from=operator-domain, to=external → the
+  // operator's outbound looped back. Must run before operator-domain so a
+  // self-loop isn't silently promoted to `internal → local → draft`.
+  //
+  // operator-domain last: from=operator, to=operator → legit internal mail.
+  const noReplyHit = precheckNoReply(ctx);
+  if (noReplyHit) {
+    return {
+      ...result,
+      category: noReplyHit.category,
+      confidence: noReplyHit.confidence,
+      preclass_applied: true,
+      preclass_source: noReplyHit.source,
+      suppression_reason: null,
+      route: routeFor(noReplyHit.category, noReplyHit.confidence),
+    };
+  }
+
+  const selfLoopHit = precheckSelfLoop(ctx);
+  if (selfLoopHit) {
+    return {
+      ...result,
+      category: selfLoopHit.category,
+      confidence: selfLoopHit.confidence,
+      preclass_applied: true,
+      preclass_source: selfLoopHit.source,
+      suppression_reason: 'self_loop',
+      route: routeFor(selfLoopHit.category, selfLoopHit.confidence),
+    };
+  }
+
+  const operatorHit = precheck(ctx);
+  if (operatorHit) {
+    return {
+      ...result,
+      category: operatorHit.category,
+      confidence: operatorHit.confidence,
+      preclass_applied: true,
+      preclass_source: operatorHit.source,
+      suppression_reason: null,
+      route: routeFor(operatorHit.category, operatorHit.confidence),
+    };
+  }
+
+  // No preclass fired — pass through the parsed result unchanged.
   return {
-    ...withPreclass,
-    route: routeFor(withPreclass.category, withPreclass.confidence),
+    ...result,
+    suppression_reason: null,
+    route: routeFor(result.category, result.confidence),
   };
 }

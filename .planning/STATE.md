@@ -156,6 +156,10 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | 260512-080 | STAQPRO-331 #9 + #11: toast+undo on reject + visibility-gated 30s queue polling | 2026-05-12 | d6c95d5 | [260512-080-toast-undo-for-reject-30s-queue-polling-](./quick/260512-080-toast-undo-for-reject-30s-queue-polling-/) |
 | 260512-fwy | STAQPRO-333: KB sidecar RAG — surface uploaded-doc refs in Sources Used (delta over STAQPRO-148 infra) | 2026-05-12 | d9a48ca | [260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra](./quick/260512-fwy-staqpro-333-kb-sidecar-rag-chunker-extra/) |
 | 260518-vsx | STAQPRO-410: mDNS/Avahi discovery + Caddy LAN listener for first-boot LAN access | 2026-05-18 | 94c75bd | [260518-vsx-staqpro-410-mdns-avahi-discovery-for-fir](./quick/260518-vsx-staqpro-410-mdns-avahi-discovery-for-fir/) |
+| 260518-wfv | STAQPRO-225: factory-flash v0.1.0 runbook — SDK Manager Jetson-Linux-only Approach A | 2026-05-18 | 7958c99 | [260518-wfv-staqpro-225-sdk-manager-jetson-linux-onl](./quick/260518-wfv-staqpro-225-sdk-manager-jetson-linux-onl/) |
+| 260518-w5c | STAQPRO-409: golden-image NVMe batch pipeline — factory-image.sh + factory-prep-nvme.sh + runbook | 2026-05-18 | 1a73517 | [260518-w5c-staqpro-409-golden-image-nvme-batch-pipe](./quick/260518-w5c-staqpro-409-golden-image-nvme-batch-pipe/) |
+| 260518-v8j | STAQPRO-404: sandbox UI exploration — filter chips, sort, override popover, urgency badge, red-flag header, digest preview | 2026-05-19 | f0a185c | [260518-v8j-staqpro-404-sandbox-ui-exploration-filte](./quick/260518-v8j-staqpro-404-sandbox-ui-exploration-filte/) |
+| 260520-ulr | UMB-153 + UMB-154: pre-draft operator-domain filters (self-loop drop + operator-owns-thread drop) | 2026-05-21 | daf9664 | [260520-ulr-umb-153-umb-154-pre-draft-operator-domai](./quick/260520-ulr-umb-153-umb-154-pre-draft-operator-domai/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 

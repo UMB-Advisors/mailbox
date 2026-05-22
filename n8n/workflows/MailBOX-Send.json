@@ -13,7 +13,36 @@
         [
           {
             "index": 0,
+            "node": "Acquire Send Lock",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Acquire Send Lock": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Lock Acquired?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Lock Acquired?": {
+      "main": [
+        [
+          {
+            "index": 0,
             "node": "Gmail Reply",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Respond Already Attempted",
             "type": "main"
           }
         ]
@@ -82,7 +111,7 @@
       ]
     }
   },
-  "description": "Webhook receives a draft_id, loads the draft, IF guard skips Gmail Reply when sent_gmail_message_id is set, otherwise sends and marks the draft as sent.",
+  "description": "Webhook receives a draft_id, loads the draft, IF guard skips Gmail Reply when sent_gmail_message_id is set. Otherwise: CAS-acquires a send lock via send_attempt_at IS NULL update (STAQPRO-IDEM-2026-05-22 — closes the Mark-Sent-partial-failure dupe class), then Gmail Reply, then Mark Sent. Lock-not-acquired branch returns 409 'already attempted; verify in Gmail Sent.'",
   "id": "mailbox-send",
   "isArchived": false,
   "meta": {
@@ -115,6 +144,12 @@
         "operation": "executeQuery",
         "options": {},
         "query": "SELECT\n  d.id            AS draft_id,\n  d.draft_subject AS draft_subject,\n  d.draft_body    AS draft_body,\n  d.status        AS status,\n  d.sent_gmail_message_id,\n  d.inbox_message_id,\n  m.message_id,\n  m.thread_id,\n  m.from_addr,\n  m.to_addr,\n  m.subject       AS original_subject\nFROM mailbox.drafts d\nJOIN mailbox.inbox_messages m ON d.inbox_message_id = m.id\nWHERE d.id = {{ Number($json.body.draft_id) }}\n  AND d.status IN ('approved', 'edited');"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "JFX4tvrffvKnTouV",
+          "name": "MailBox Postgres"
+        }
       },
       "position": [
         432,
@@ -240,11 +275,20 @@
               "id": "sent_gmail_message_id",
               "required": false,
               "type": "string"
+            },
+            {
+              "canBeUsedToMatch": false,
+              "display": true,
+              "displayName": "send_attempt_at",
+              "id": "send_attempt_at",
+              "required": false,
+              "type": "dateTime"
             }
           ],
           "value": {
             "error_message": null,
             "id": "={{ $('Load Draft').item.json.draft_id }}",
+            "send_attempt_at": null,
             "sent_gmail_message_id": "={{ $('Gmail Reply').item?.json?.id ?? $('Load Draft').item.json.sent_gmail_message_id }}",
             "status": "sent",
             "updated_at": "={{ $now.toISO() }}"
@@ -263,8 +307,14 @@
           "value": "drafts"
         }
       },
+      "credentials": {
+        "postgres": {
+          "id": "JFX4tvrffvKnTouV",
+          "name": "MailBox Postgres"
+        }
+      },
       "position": [
-        1328,
+        1600,
         320
       ],
       "type": "n8n-nodes-base.postgres",
@@ -279,7 +329,7 @@
         "responseBody": "={{ { success: true, draft_id: $('Load Draft').item.json.draft_id, sent_at: $now.toISO() } }}"
       },
       "position": [
-        1568,
+        1808,
         320
       ],
       "type": "n8n-nodes-base.respondToWebhook",
@@ -305,7 +355,7 @@
         }
       },
       "position": [
-        1088,
+        1408,
         240
       ],
       "type": "n8n-nodes-base.gmail",
@@ -322,6 +372,79 @@
       },
       "position": [
         1088,
+        480
+      ],
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1
+    },
+    {
+      "alwaysOutputData": true,
+      "id": "a1c11ea7-5e2f-4f7d-87aa-1d2db98c2026",
+      "name": "Acquire Send Lock",
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- STAQPRO-IDEM-2026-05-22: CAS-acquire the send lock BEFORE Gmail Reply.\n-- Sets send_attempt_at = NOW() iff it's currently NULL. If 0 rows return,\n-- a prior attempt is in flight (or crashed mid-send) — refuse to re-fire\n-- Gmail Reply. Operator must verify in Gmail Sent + clear send_attempt_at\n-- manually before another retry can proceed.\nUPDATE mailbox.drafts\nSET send_attempt_at = NOW(),\n    updated_at      = NOW()\nWHERE id = {{ Number($('Load Draft').item.json.draft_id) }}\n  AND status IN ('approved', 'edited')\n  AND send_attempt_at IS NULL\nRETURNING id;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "JFX4tvrffvKnTouV",
+          "name": "MailBox Postgres"
+        }
+      },
+      "position": [
+        1056,
+        320
+      ],
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5
+    },
+    {
+      "id": "b2e34e3b-7a18-4ad3-9c5e-9c3e5cf3a226",
+      "name": "Lock Acquired?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "lock-row-returned",
+              "leftValue": "={{ $json.id }}",
+              "operator": {
+                "operation": "exists",
+                "singleValue": true,
+                "type": "number"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "options": {}
+      },
+      "position": [
+        1216,
+        320
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3
+    },
+    {
+      "id": "c3e72d52-8b4a-4f9c-b3c5-30a18a4c2226",
+      "name": "Respond Already Attempted",
+      "parameters": {
+        "options": {
+          "responseCode": 409
+        },
+        "respondWith": "json",
+        "responseBody": "={{ { success: false, error: 'send_attempt_at already set — possible duplicate. Verify in Gmail Sent, then clear mailbox.drafts.send_attempt_at to retry.', draft_id: $('Load Draft').item.json.draft_id } }}"
+      },
+      "position": [
+        1344,
         480
       ],
       "type": "n8n-nodes-base.respondToWebhook",

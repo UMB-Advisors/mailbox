@@ -221,6 +221,53 @@ n8n's encrypted credential store lives in the `credentials_entity` Postgres tabl
 - **Workflow JSON deploy = `docker compose restart n8n`**. `n8n import:workflow` defaults to `active=false` — don't import without reactivating + restarting (STAQPRO-135 deploy hit this; customer #1 dark for ~2 minutes). Deploy invocation: `n8n import:workflow ...` + `n8n update:workflow --active=true` + `docker compose restart n8n` in a single SSH session.
 - **`n8n update:workflow --active=...` is a no-op at runtime without a container restart** — it persists to the DB but the live runtime keeps the cached activation state.
 
+### MailBOX-Send idempotency lock (migration 025, 2026-05-22)
+
+`mailbox.drafts.send_attempt_at TIMESTAMPTZ` is the CAS lock that closes the
+**Mark Sent partial-failure dupe class** (2026-05-22 incident: draft 212 sent
+3× to Dustin via M2 execs 5202/5203/5209 because Mark Sent crashed after
+Gmail Reply succeeded, leaving `sent_gmail_message_id=NULL` so the
+`Already Sent?` IF returned FALSE on retry).
+
+Workflow flow under the lock:
+
+1. `Acquire Send Lock` runs an `UPDATE ... WHERE send_attempt_at IS NULL
+   RETURNING id`. If 0 rows return, lock is held by a prior attempt.
+2. `Lock Acquired?` IF: TRUE → `Gmail Reply`. FALSE → `Respond Already
+   Attempted` (HTTP 409, body explains operator recovery).
+3. `Mark Sent` clears `send_attempt_at` back to `NULL` on success alongside
+   the `status='sent'` flip — keeping the column self-cleaning for the
+   normal-path.
+
+**409 response surfaces to operator via existing path.** `transitions.ts`
+already persists `webhookResult.error` to `drafts.error_message`
+(`lib/transitions.ts:109`) on any non-2xx webhook response. The 409 body
+("send_attempt_at already set — possible duplicate. Verify in Gmail Sent,
+then clear mailbox.drafts.send_attempt_at to retry.") lands in
+`drafts.error_message` automatically and `StuckApproved.tsx` surfaces it
+verbatim — no UI code change needed.
+
+**Operator recovery from a 409:**
+
+1. Verify in Gmail Sent whether the reply actually went out (check the
+   thread on the customer's underlying Gmail account).
+2. If sent: manually flip `status='sent'` and clear the lock —
+   `UPDATE mailbox.drafts SET status='sent', send_attempt_at=NULL,
+   sent_gmail_message_id='<gmail-msg-id-from-Sent>' WHERE id=<draft_id>;`
+   (Set `mailbox.actor='operator'` first so the state-transitions trigger
+   records who did this.)
+3. If NOT sent: clear the lock to allow a retry —
+   `UPDATE mailbox.drafts SET send_attempt_at=NULL WHERE id=<draft_id>;`
+   then click Retry in StuckApproved.
+4. NEVER clear the lock without verifying in Gmail Sent — clearing
+   prematurely re-introduces the 3-dupes class.
+
+**Dashboard TODO (not yet wired):** add a "Clear send_attempt_at" button
+to StuckApproved gated behind a "I verified in Gmail Sent" checkbox, so
+operators don't need raw SQL access. Until then, the manual SQL above is
+the only recovery path. File as STAQPRO follow-up when prioritizing
+customer #3 onboarding UX.
+
 ### If we ever rip out n8n
 
 This contract is the spec for the replacement. A ~100-line `setInterval` poll loop in the dashboard plus a Gmail OAuth library (`googleapis`) plus a small webhook router would replace it. STAQPRO-187 (post-customer-#2 spike, gated on customer #2 stable + STAQPRO-133 + STAQPRO-185) tracks the proof-of-concept. The boundary is intentionally narrow: **2 webhooks one direction, 7 routes the other, 2 credentials.** Total surface fits on this page.

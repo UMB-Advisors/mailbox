@@ -53,7 +53,7 @@ export interface PreclassContext {
 export interface PreclassResult {
   category: Category;
   confidence: number;
-  source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern';
+  source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern' | 'operator-self-loop';
 }
 
 // STAQPRO-260 — deterministic noreply preclass.
@@ -136,16 +136,28 @@ function noreplyPreclassEnabled(): boolean {
   return process.env.NOREPLY_PRECLASS_DISABLE !== '1';
 }
 
-function extractAddress(raw: string | undefined): string {
+export function extractAddress(raw: string | undefined): string {
   if (!raw) return '';
   const angle = raw.match(/<([^>]+)>/);
   const addr = (angle ? angle[1] : raw).trim().toLowerCase();
   return addr;
 }
 
-function extractDomain(addr: string): string {
+export function extractDomain(addr: string): string {
   const at = addr.lastIndexOf('@');
   return at >= 0 ? addr.slice(at + 1) : '';
+}
+
+/**
+ * Returns true when the given (already-lowercased) address belongs to the
+ * operator — either via OPERATOR_ALLOWLIST (full address) or OPERATOR_DOMAINS
+ * (domain match). Single definition shared by precheck and precheckSelfLoop.
+ */
+export function isOperatorAddress(addr: string): boolean {
+  if (!addr) return false;
+  if (OPERATOR_ALLOWLIST.includes(addr)) return true;
+  const domain = extractDomain(addr);
+  return Boolean(domain && OPERATOR_DOMAINS.includes(domain));
 }
 
 export function precheck(ctx: PreclassContext): PreclassResult | null {
@@ -169,6 +181,45 @@ export function precheck(ctx: PreclassContext): PreclassResult | null {
   }
 
   return null;
+}
+
+// UMB-153 — synchronous self-loop guard.
+//
+// When the operator's own outbound email (from: operator-domain) loops back
+// as an inbound addressed to a NON-operator recipient, it is a self-loop:
+// the appliance received a copy of something the operator sent, not a message
+// that needs a reply. Generating a draft in that case produces role-confused,
+// spammy responses (live draft-154 case on M1).
+//
+// Rule: suppress when from is operator-side AND to is present AND to is NOT
+// operator-side. Legit op1→op2 internal mail (both sides operator-domain)
+// returns null so it still drafts normally.
+//
+// Fail-open: missing/empty from or to → null (can't prove a self-loop; prefer
+// drafting over silent suppression on incomplete data).
+//
+// Kill switch: OPERATOR_SELF_LOOP_DISABLE=1 mirrors NOREPLY_PRECLASS_DISABLE.
+export function precheckSelfLoop(ctx: PreclassContext): PreclassResult | null {
+  if (process.env.OPERATOR_SELF_LOOP_DISABLE === '1') return null;
+
+  const fromAddr = extractAddress(ctx.from);
+  if (!fromAddr) return null;
+
+  const toAddr = extractAddress(ctx.to);
+  if (!toAddr) return null;
+
+  // Role-inbox exceptions: sales@, support@ etc. receive prospect mail through
+  // the operator domain. Don't suppress their inbound copies.
+  if (OPERATOR_INBOX_EXCEPTIONS.includes(fromAddr)) return null;
+
+  // from must be operator-side to be a candidate self-loop.
+  if (!isOperatorAddress(fromAddr)) return null;
+
+  // If to is ALSO operator-side this is legit internal mail (op1 → op2) — pass.
+  if (isOperatorAddress(toAddr)) return null;
+
+  // from is operator-side, to is external: this is the looped-back outbound.
+  return { category: 'spam_marketing', confidence: 1, source: 'operator-self-loop' };
 }
 
 // STAQPRO-260 — drop emails from automated senders before they reach the
