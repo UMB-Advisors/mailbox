@@ -325,6 +325,33 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     }
   }
 
+  // STAQPRO-IDEM-2026-05-22 — clear the MailBOX-Send CAS lock so a retry
+  // can proceed. Caller must have already verified in Gmail Sent that the
+  // reply did NOT actually go out (StuckApproved gates the click behind a
+  // verification checkbox). The route requires `verified_in_gmail_sent: true`
+  // as an explicit body attestation; this handler always sends it.
+  async function fireClearLock(draft: DraftWithMessage) {
+    setBusy({ draftId: draft.id, kind: 'retry' });
+    try {
+      const res = await fetch(apiUrl(`/api/drafts/${draft.id}/clear-send-attempt`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified_in_gmail_sent: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `Clear lock failed (${res.status})`);
+      setToast({ kind: 'success', text: 'Lock cleared — safe to retry' });
+      fetchData(true);
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'Clear lock failed',
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function onEditSave(body: string, subject: string | null) {
     if (!editing) return;
     setBusy({ draftId: editing.id, kind: 'edit' });
@@ -566,6 +593,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
                 drafts={stuckApprovedFiltered}
                 busyId={busyRetryId}
                 onRetry={fireRetry}
+                onClearLock={fireClearLock}
                 cooldownActive={cooldown.is_active}
                 cooldownSafeAt={cooldown.recommended_safe_at}
               />
