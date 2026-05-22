@@ -1,4 +1,7 @@
-# MailBox Provisioning Runbook v0.1.0
+# MailBox Provisioning Runbook v0.2.0
+
+**Revision history:**
+- v0.2.0 (2026-05-18): added §1.5 mDNS / Avahi discovery (STAQPRO-410) — mDNS-first first-boot UX, Tailscale coexistence, hostile-router fallback
 
 **Status:** SKELETON — fill during 2026-05-02 walkthrough on customer #1 appliance, validate by reproducing on customer #2 (gates M3).
 
@@ -47,6 +50,65 @@ Collect from the customer **before** the unit ships:
 `TODO:` Capture exact NVMe partition commands run on customer #1 (parted? sgdisk?). Existing `Install Guide/Install.md` covers flash + first-boot but stops short of the partition step.
 
 `TODO:` Decide whether SDK Manager flashing stays manual or whether we ship pre-flashed eMMC images to customers.
+
+---
+
+## 1.5 mDNS / Avahi discovery (STAQPRO-410)
+
+**Goal:** After this step, a customer on the same LAN can open `https://mailbox.local/` in any browser and reach the dashboard. No SSH, no IP lookup. Required for the onboarding wizard (STAQPRO-152) to be usable by non-technical customers.
+
+Run this step AFTER `jetson-bootstrap-ssh.sh` and BEFORE the Tailscale `tailscale up` in §2. Idempotent — safe to re-run.
+
+### a. Run factory-bootstrap.sh
+
+    sudo bash ./scripts/factory-bootstrap.sh
+
+This installs `avahi-daemon` + `avahi-utils`, sets the system hostname to `mailbox` (so avahi advertises as `mailbox.local`), drops the service record into `/etc/avahi/services/mailbox.service`, and enables the daemon via systemd.
+
+**Safety gate:** The script refuses to run if `tailscale status` shows the host already enrolled under a `mailboxN` name (e.g. `mailbox1`, `mailbox2`). This protects M1 and M2 from accidental re-bootstrap. factory-bootstrap.sh is for **customer #3+ fresh appliances only**.
+
+### b. Verify from the workstation (on the same LAN as the appliance)
+
+    avahi-resolve -n mailbox.local
+    # → mailbox.local  192.168.50.x
+
+    dig @224.0.0.251 -p 5353 mailbox.local
+    # → ANSWER section with the appliance IP
+
+If `avahi-resolve` is not installed on the workstation:
+- **Ubuntu/Debian:** `sudo apt-get install -y avahi-utils`
+- **macOS:** Bonjour is built in — just `ping mailbox.local` (no extra install needed; Safari and Chrome resolve `.local` natively)
+
+### c. Browser first-touch
+
+Open `https://mailbox.local/` in Safari or Chrome. Expect a **one-time cert warning** — Caddy's local CA issued the certificate, which is not in the OS trust store by default. Click "Proceed anyway" / "Show Details → visit this website" (Chrome) or "Show Details → visit this website" (Safari). After the basic_auth prompt (credentials from the 1Password MailBOX vault), the dashboard queue loads.
+
+The cert warning appears once per browser profile. Subsequent visits go straight to the dashboard.
+
+### d. Tailscale `--accept-dns` coexistence
+
+Tailscale's MagicDNS is a **unicast** resolver at `100.100.100.100`. It does not use mDNS multicast. The default `--accept-dns=true` does not hijack `.local` — avahi and Tailscale resolve different namespaces cleanly.
+
+**Verify on the appliance after running `tailscale up` in §2:**
+
+    avahi-resolve -n mailbox.local      # must still answer
+    getent hosts mailbox1.tail377a9a.ts.net   # tailnet name still resolves
+
+If `.local` stops resolving after Tailscale enrollment, the issue is on the workstation side (e.g. `nss-mdns` disabled, or a corporate DNS config overriding `.local`). The appliance is not the problem.
+
+### e. Hostile-router fallback
+
+Some consumer routers and most VLAN-segmented enterprise networks block mDNS multicast across subnets. If `avahi-resolve` from the workstation returns `"Failed to resolve host name mailbox.local: Timeout reached"`, fall through to:
+
+1. **Router DHCP table.** Log into the customer's router admin UI and find the Jetson by MAC OUI (`4c:bb:47` = NVIDIA Ethernet PHY, `3c:6d:66` = ASUSTek — see CLAUDE.md "Hardware deltas").
+2. **`ip addr` on the appliance.** During white-glove install, Dustin is already SSH'd in — `ip -o -4 addr show scope global` prints the IP. Dictate that to the customer.
+3. **Direct-LAN cable.** Plug a laptop directly into the appliance's spare ethernet port and use the workstation→Jetson direct-LAN profile documented in CLAUDE.md "Deployment Target" (`10.42.0.0/24`).
+
+### f. Why static `mailbox.local` for v1
+
+One appliance per customer site = no collision risk in practice. Avahi auto-appends a numeric suffix on conflict (`mailbox-2.local`), but don't promise that to customers as the supported path — STAQPRO-409 (slug-stamping) is the proper fix.
+
+`TODO:` After STAQPRO-409 ships, replace `mailbox.local` references in this section with `<customer-slug>.local` and add a note about re-running `factory-bootstrap.sh` to re-stamp the avahi record. Update `MAILBOX_LAN_HOSTNAME` in `.env` on the appliance at the same time.
 
 ---
 
