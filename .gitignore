@@ -41,8 +41,8 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Claude Code / agent worktrees
-.claude/worktrees/
+# Claude Code / agent runtime artifacts (worktrees, scheduled_tasks.lock, etc.)
+.claude/
 
 # Large binaries that shouldn't be in git
 *.zst
