@@ -50,18 +50,32 @@ set -euo pipefail
 
 # ── arg parsing ──────────────────────────────────────────────────────────────
 DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
-  shift
+DELETE_MODE=0
+# Flags may appear in any order before positional args.
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --delete)  DELETE_MODE=1; shift ;;
+    *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+  esac
+done
+
+if [[ $DELETE_MODE -eq 1 ]]; then
+  expected_args=1
+  usage_args="<customer-slug>"
+else
+  expected_args=2
+  usage_args="<customer-slug> <lan-ip>"
 fi
 
-if [[ $# -ne 2 ]]; then
+if [[ $# -ne $expected_args ]]; then
   cat <<EOF >&2
-Usage: $0 [--dry-run] <customer-slug> <lan-ip>
+Usage: $0 [--dry-run] [--delete] $usage_args
 
   customer-slug   lowercase letters, digits, hyphens; matches ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$
                   (DNS label rules + a 32-char internal cap)
   lan-ip          IPv4 address inside the customer LAN (the appliance's static IP)
+                  (omitted in --delete mode)
 
 Required env: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, MAILBOX_SHARED_DOMAIN
 EOF
@@ -69,12 +83,19 @@ EOF
 fi
 
 CUSTOMER_SLUG="$1"
-LAN_IP="$2"
+LAN_IP="${2:-}"
 
 # ── env validation ───────────────────────────────────────────────────────────
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required (Zone:DNS:Edit scope)}"
 : "${CLOUDFLARE_ZONE_ID:?CLOUDFLARE_ZONE_ID is required (Cloudflare zone overview → Zone ID)}"
 : "${MAILBOX_SHARED_DOMAIN:?MAILBOX_SHARED_DOMAIN is required (the Staqs-owned root, staqs.io)}"
+
+# jq is required — audit 2026-05-22 (UMB-191) closed the silent-skip path
+# where the zone-name safety check disappeared on workstations without jq.
+command -v jq >/dev/null 2>&1 || {
+  echo "ERROR: jq is required. Install with 'brew install jq' or 'apt-get install jq'." >&2
+  exit 1
+}
 
 CF_RECORD_TTL="${CF_RECORD_TTL:-60}"
 CF_RECORD_COMMENT="${CF_RECORD_COMMENT:-MailBOX appliance — STAQPRO-183}"
@@ -88,28 +109,37 @@ if ! [[ "$CUSTOMER_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
   exit 3
 fi
 
-# IPv4: four 0-255 octets. Good enough for static LAN IPs; we don't support
-# IPv6 LAN provisioning yet (no live appliance uses it).
-if ! [[ "$LAN_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo "ERROR: lan-ip '$LAN_IP' is not a valid IPv4 address." >&2
-  exit 3
-fi
-IFS='.' read -r o1 o2 o3 o4 <<< "$LAN_IP"
-for octet in "$o1" "$o2" "$o3" "$o4"; do
-  if (( octet < 0 || octet > 255 )); then
-    echo "ERROR: lan-ip '$LAN_IP' has an octet out of range." >&2
+# IPv4 validation only applies in provision mode (delete mode has no IP arg).
+# Good enough for static LAN IPs; we don't support IPv6 LAN provisioning yet
+# (no live appliance uses it).
+if [[ $DELETE_MODE -eq 0 ]]; then
+  if ! [[ "$LAN_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    echo "ERROR: lan-ip '$LAN_IP' is not a valid IPv4 address." >&2
     exit 3
   fi
-done
+  IFS='.' read -r o1 o2 o3 o4 <<< "$LAN_IP"
+  for octet in "$o1" "$o2" "$o3" "$o4"; do
+    if (( octet < 0 || octet > 255 )); then
+      echo "ERROR: lan-ip '$LAN_IP' has an octet out of range." >&2
+      exit 3
+    fi
+  done
+fi
 
 # Hostname assembly
 RECORD_NAME="${CUSTOMER_SLUG}.mailbox.${MAILBOX_SHARED_DOMAIN}"
 
-echo "→ Provisioning DNS for MailBOX appliance"
-echo "  Hostname : $RECORD_NAME"
-echo "  Target   : $LAN_IP"
-echo "  TTL      : ${CF_RECORD_TTL}s"
-echo "  Zone     : $CLOUDFLARE_ZONE_ID"
+if [[ $DELETE_MODE -eq 1 ]]; then
+  echo "→ Deleting DNS for MailBOX appliance"
+  echo "  Hostname : $RECORD_NAME"
+  echo "  Zone     : $CLOUDFLARE_ZONE_ID"
+else
+  echo "→ Provisioning DNS for MailBOX appliance"
+  echo "  Hostname : $RECORD_NAME"
+  echo "  Target   : $LAN_IP"
+  echo "  TTL      : ${CF_RECORD_TTL}s"
+  echo "  Zone     : $CLOUDFLARE_ZONE_ID"
+fi
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "  Mode     : DRY RUN (no API calls)"
 fi
@@ -157,8 +187,12 @@ cf_explain_failure() {
 if [[ $DRY_RUN -eq 1 ]]; then
   echo
   echo "Would call: GET    /zones/$CLOUDFLARE_ZONE_ID/dns_records?type=A&name=$RECORD_NAME"
-  echo "Would call: POST   /zones/$CLOUDFLARE_ZONE_ID/dns_records   (if absent)"
-  echo "       or   PUT    /zones/$CLOUDFLARE_ZONE_ID/dns_records/<id>   (if present)"
+  if [[ $DELETE_MODE -eq 1 ]]; then
+    echo "Would call: DELETE /zones/$CLOUDFLARE_ZONE_ID/dns_records/<id>   (if present)"
+  else
+    echo "Would call: POST   /zones/$CLOUDFLARE_ZONE_ID/dns_records   (if absent)"
+    echo "       or   PUT    /zones/$CLOUDFLARE_ZONE_ID/dns_records/<id>   (if present)"
+  fi
   echo
   echo "Dry run complete. No changes made."
   exit 0
@@ -175,6 +209,24 @@ if [[ "$CF_HTTP_STATUS" != "200" ]]; then
 fi
 echo "  ✓ Token active"
 
+# Audit 2026-05-22 (UMB-191): warn if the token can see more than the target
+# zone. CF doesn't let us scope below the zone, but a token issued with
+# broader scope (account-wide, multi-zone) is an audit red flag — per-appliance
+# tokens should resolve to exactly 1 zone.
+echo "→ Checking token scope blast radius …"
+scope_body="$(cf_api GET /zones)"
+if [[ "$CF_HTTP_STATUS" == "200" ]]; then
+  scope_count="$(printf '%s' "$scope_body" | jq -r '.result | length')"
+  if (( scope_count > 1 )); then
+    echo "  ⚠ WARN: token can access $scope_count zones; expected exactly 1." >&2
+    echo "  ⚠       Re-issue with Zone:DNS:Edit scoped to a single zone." >&2
+  else
+    echo "  ✓ Token scoped to exactly 1 zone"
+  fi
+else
+  echo "  (scope inspection unavailable — HTTP $CF_HTTP_STATUS)" >&2
+fi
+
 # ── 2. zone sanity check (token can access this specific zone) ───────────────
 echo "→ Verifying zone access …"
 zone_body="$(cf_api GET "/zones/${CLOUDFLARE_ZONE_ID}")"
@@ -183,18 +235,18 @@ if [[ "$CF_HTTP_STATUS" != "200" ]]; then
   echo "  → Check CLOUDFLARE_ZONE_ID and that the token's zone scope matches." >&2
   exit 2
 fi
-if command -v jq >/dev/null 2>&1; then
-  zone_name="$(printf '%s' "$zone_body" | jq -r '.result.name // empty')"
-  if [[ -n "$zone_name" ]]; then
-    # Sanity-check: the hostname should be inside this zone.
-    if [[ "$RECORD_NAME" != *"$zone_name" ]]; then
-      echo "ERROR: zone '$zone_name' does not cover '$RECORD_NAME'." >&2
-      echo "       Either MAILBOX_SHARED_DOMAIN or CLOUDFLARE_ZONE_ID is wrong." >&2
-      exit 3
-    fi
-    echo "  ✓ Zone $zone_name covers $RECORD_NAME"
-  fi
+zone_name="$(printf '%s' "$zone_body" | jq -r '.result.name // empty')"
+if [[ -z "$zone_name" ]]; then
+  echo "ERROR: could not parse zone name from Cloudflare response." >&2
+  exit 2
 fi
+# Sanity-check: the hostname should be inside this zone.
+if [[ "$RECORD_NAME" != *"$zone_name" ]]; then
+  echo "ERROR: zone '$zone_name' does not cover '$RECORD_NAME'." >&2
+  echo "       Either MAILBOX_SHARED_DOMAIN or CLOUDFLARE_ZONE_ID is wrong." >&2
+  exit 3
+fi
+echo "  ✓ Zone $zone_name covers $RECORD_NAME"
 
 # ── 3. look for an existing record ───────────────────────────────────────────
 echo "→ Checking for existing A record …"
@@ -204,18 +256,30 @@ if [[ "$CF_HTTP_STATUS" != "200" ]]; then
   exit 2
 fi
 
-EXISTING_ID=""
-EXISTING_IP=""
-if command -v jq >/dev/null 2>&1; then
-  EXISTING_ID="$(printf '%s' "$list_body" | jq -r '.result[0].id // empty')"
-  EXISTING_IP="$(printf '%s' "$list_body" | jq -r '.result[0].content // empty')"
-else
-  echo "  WARN: jq not installed — falling back to grep parsing (best-effort)." >&2
-  EXISTING_ID="$(printf '%s' "$list_body" | grep -oE '"id":"[a-f0-9]{32}"' | head -1 | cut -d'"' -f4 || true)"
-  EXISTING_IP="$(printf '%s' "$list_body" | grep -oE '"content":"([0-9]{1,3}\.){3}[0-9]{1,3}"' | head -1 | cut -d'"' -f4 || true)"
+EXISTING_ID="$(printf '%s' "$list_body" | jq -r '.result[0].id // empty')"
+EXISTING_IP="$(printf '%s' "$list_body" | jq -r '.result[0].content // empty')"
+
+# ── 4. delete mode short-circuit ─────────────────────────────────────────────
+if [[ $DELETE_MODE -eq 1 ]]; then
+  if [[ -z "$EXISTING_ID" ]]; then
+    echo "  ✓ No A record for $RECORD_NAME — nothing to delete."
+    echo
+    echo "✓ Done. $RECORD_NAME (already absent)"
+    exit 0
+  fi
+  echo "  ↻ Deleting record $EXISTING_ID ($EXISTING_IP) …"
+  del_body="$(cf_api DELETE "/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${EXISTING_ID}")"
+  if [[ "$CF_HTTP_STATUS" != "200" ]]; then
+    cf_explain_failure "$del_body"
+    exit 2
+  fi
+  echo "  ✓ Deleted"
+  echo
+  echo "✓ Done. $RECORD_NAME (removed)"
+  exit 0
 fi
 
-# ── 4. payload assembly ──────────────────────────────────────────────────────
+# ── 5. payload assembly ──────────────────────────────────────────────────────
 # proxied=false is essential — Cloudflare proxy would intercept the LAN-only IP
 # and break the DNS-01 challenge for Caddy. NC-25 requires non-proxied DNS.
 payload="$(cat <<EOF
@@ -247,7 +311,10 @@ if [[ -n "$EXISTING_ID" ]]; then
 else
   echo "  + No existing record, creating …"
   new_body="$(cf_api POST "/zones/${CLOUDFLARE_ZONE_ID}/dns_records" "$payload")"
-  if [[ "$CF_HTTP_STATUS" != "200" ]]; then
+  # Cloudflare returns HTTP 201 Created on a successful POST (PUT returns 200).
+  # The previous "!= 200" check made every first-time provision exit 2 with a
+  # false API error — UMB-191 audit 2026-05-22.
+  if [[ "$CF_HTTP_STATUS" != "200" && "$CF_HTTP_STATUS" != "201" ]]; then
     cf_explain_failure "$new_body"
     exit 2
   fi
