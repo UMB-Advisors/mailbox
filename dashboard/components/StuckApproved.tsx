@@ -216,29 +216,29 @@ export function StuckApproved({
                   </div>
                 ) : (
                   <button
-                  type="button"
-                  onClick={() => handleClick(draft)}
-                  disabled={isBusy || cooldownActive}
-                  title={
-                    cooldownActive
-                      ? 'Gmail rate-limited — retry will be blocked until the cooldown clears'
-                      : undefined
-                  }
-                  className={`inline-flex items-center gap-1.5 rounded border px-3 py-1.5 font-sans text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                    isArmed
-                      ? 'border-accent-red bg-accent-red/10 text-accent-red hover:bg-accent-red/20'
-                      : 'border-accent-orange/40 text-accent-orange hover:bg-accent-orange/10'
-                  }`}
-                >
-                  <RotateCcw size={12} />
-                  {isBusy
-                    ? 'Retrying…'
-                    : cooldownActive
-                      ? 'Retry (cooldown active)'
-                      : isArmed
-                        ? 'Click again to re-send'
-                        : 'Retry (verify Gmail first)'}
-                </button>
+                    type="button"
+                    onClick={() => handleClick(draft)}
+                    disabled={isBusy || cooldownActive}
+                    title={
+                      cooldownActive
+                        ? 'Gmail rate-limited — retry will be blocked until the cooldown clears'
+                        : undefined
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded border px-3 py-1.5 font-sans text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      isArmed
+                        ? 'border-accent-red bg-accent-red/10 text-accent-red hover:bg-accent-red/20'
+                        : 'border-accent-orange/40 text-accent-orange hover:bg-accent-orange/10'
+                    }`}
+                  >
+                    <RotateCcw size={12} />
+                    {isBusy
+                      ? 'Retrying…'
+                      : cooldownActive
+                        ? 'Retry (cooldown active)'
+                        : isArmed
+                          ? 'Click again to re-send'
+                          : 'Retry (verify Gmail first)'}
+                  </button>
                 )}
               </li>
             );
