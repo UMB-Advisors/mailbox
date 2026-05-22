@@ -79,6 +79,19 @@ export type RejectBody = z.infer<typeof rejectBodySchema>;
 export const undoRejectBodySchema = z.object({}).strict();
 export type UndoRejectBody = z.infer<typeof undoRejectBodySchema>;
 
+// POST /api/drafts/[id]/clear-send-attempt — STAQPRO-IDEM-2026-05-22 follow-up.
+// Operator-driven clear of the MailBOX-Send CAS lock (drafts.send_attempt_at).
+// Body REQUIRES `verified_in_gmail_sent: true` so the operator has to
+// acknowledge they checked Gmail Sent and confirmed the reply did NOT go out
+// — clearing the lock without that check re-introduces the 3-dupes class.
+// Strict so future fields (e.g. an audit note) require an explicit schema add.
+export const clearSendAttemptBodySchema = z
+  .object({
+    verified_in_gmail_sent: z.literal(true),
+  })
+  .strict();
+export type ClearSendAttemptBody = z.infer<typeof clearSendAttemptBodySchema>;
+
 // POST /api/drafts/[id]/edit — body { draft_body: string, draft_subject?: string }.
 const MAX_BODY = 10_000;
 export const editBodySchema = z.object({
