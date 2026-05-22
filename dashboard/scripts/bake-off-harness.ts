@@ -418,7 +418,7 @@ async function main(): Promise<void> {
       args.expect_function_call,
     );
     results.push(result);
-    await appendFile(jsonlPath, JSON.stringify(result) + '\n');
+    await appendFile(jsonlPath, `${JSON.stringify(result)}\n`);
     if ((i + 1) % 10 === 0 || i === traces.length - 1) {
       const okSoFar = results.filter((r) => r.status === 'ok').length;
       console.log(
