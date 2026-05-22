@@ -1008,6 +1008,13 @@ CREATE INDEX IF NOT EXISTS job_runs_failures_idx
   ON mailbox.job_runs(finished_at DESC)
   WHERE status IN ('failed', 'partial');
 
+-- migration 025 — STAQPRO-IDEM-2026-05-22 send-attempt CAS lock
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS send_attempt_at TIMESTAMPTZ NULL;
+CREATE INDEX IF NOT EXISTS idx_drafts_send_attempt_at
+  ON mailbox.drafts (send_attempt_at)
+  WHERE send_attempt_at IS NOT NULL;
+
 --
 -- PostgreSQL database dump complete
 --
