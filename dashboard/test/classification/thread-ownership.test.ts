@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeTestPool, getTestPool, HAS_DB } from '../helpers/db';
 import { operatorOwnsThread } from '@/lib/classification/thread-ownership';
+import { closeTestPool, getTestPool, HAS_DB } from '../helpers/db';
 
 // UMB-154 — operator-owns-thread guard.
 // Covers the live draft-158 case: jt@heronlabsinc.com replied to
@@ -102,14 +102,8 @@ dbDescribe('operatorOwnsThread — DB-backed', () => {
   // Cleanup by tag pattern
   afterEach(async () => {
     if (!tag) return;
-    await pool().query(
-      `DELETE FROM mailbox.sent_history WHERE thread_id LIKE $1`,
-      [`${tag}%`],
-    );
-    await pool().query(
-      `DELETE FROM mailbox.inbox_messages WHERE thread_id LIKE $1`,
-      [`${tag}%`],
-    );
+    await pool().query(`DELETE FROM mailbox.sent_history WHERE thread_id LIKE $1`, [`${tag}%`]);
+    await pool().query(`DELETE FROM mailbox.inbox_messages WHERE thread_id LIKE $1`, [`${tag}%`]);
   });
 
   it('owned:true when operator replied 1h ago (draft-158 case)', async () => {

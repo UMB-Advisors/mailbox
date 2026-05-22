@@ -32,7 +32,13 @@ export interface OwnershipOpts {
 
 export interface OwnershipResult {
   owned: boolean;
-  reason: 'operator_owns_thread' | 'lapsed' | 'no_operator_msg' | 'no_thread_id' | 'db_unavailable' | 'disabled';
+  reason:
+    | 'operator_owns_thread'
+    | 'lapsed'
+    | 'no_operator_msg'
+    | 'no_thread_id'
+    | 'db_unavailable'
+    | 'disabled';
   // ISO-8601 string of the most recent operator-domain message in this thread.
   // Present only when owned:true or lapsed.
   last_operator_reply_at?: string;

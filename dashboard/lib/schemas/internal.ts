@@ -51,7 +51,6 @@ export const classificationNormalizeBodySchema = z.object({
 
 export type ClassificationNormalizeBody = z.infer<typeof classificationNormalizeBodySchema>;
 
-
 // POST /api/internal/llm/api/generate — Ollama-shape /api/generate body
 // forwarded to the local runtime (ollama or llama.cpp, per
 // LOCAL_INFERENCE_RUNTIME). STAQPRO-338 / DR-25.

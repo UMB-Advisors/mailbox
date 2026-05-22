@@ -27,7 +27,13 @@ export interface ClassificationResult {
   think_stripped: boolean;
   raw_output: string;
   preclass_applied: boolean;
-  preclass_source: 'operator-domain' | 'operator-allowlist' | 'noreply-pattern' | 'operator-self-loop' | 'operator-owns-thread' | null;
+  preclass_source:
+    | 'operator-domain'
+    | 'operator-allowlist'
+    | 'noreply-pattern'
+    | 'operator-self-loop'
+    | 'operator-owns-thread'
+    | null;
   // Why the draft was suppressed (distinct from generic spam). Populated when
   // precheckSelfLoop fires ('self_loop') or when the async thread-ownership
   // guard fires ('operator_owns_thread'). null for all other paths.
