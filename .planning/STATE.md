@@ -158,6 +158,7 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | 260518-wfv | STAQPRO-225: factory-flash v0.1.0 runbook — SDK Manager Jetson-Linux-only Approach A | 2026-05-18 | 7958c99 | [260518-wfv-staqpro-225-sdk-manager-jetson-linux-onl](./quick/260518-wfv-staqpro-225-sdk-manager-jetson-linux-onl/) |
 | 260518-w5c | STAQPRO-409: golden-image NVMe batch pipeline — factory-image.sh + factory-prep-nvme.sh + runbook | 2026-05-18 | 1a73517 | [260518-w5c-staqpro-409-golden-image-nvme-batch-pipe](./quick/260518-w5c-staqpro-409-golden-image-nvme-batch-pipe/) |
 | 260518-v8j | STAQPRO-404: sandbox UI exploration — filter chips, sort, override popover, urgency badge, red-flag header, digest preview | 2026-05-19 | f0a185c | [260518-v8j-staqpro-404-sandbox-ui-exploration-filte](./quick/260518-v8j-staqpro-404-sandbox-ui-exploration-filte/) |
+| 260520-ulr | UMB-153 + UMB-154: pre-draft operator-domain filters (self-loop drop + operator-owns-thread drop) | 2026-05-21 | daf9664 | [260520-ulr-umb-153-umb-154-pre-draft-operator-domai](./quick/260520-ulr-umb-153-umb-154-pre-draft-operator-domai/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
