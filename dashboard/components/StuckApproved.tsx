@@ -1,9 +1,16 @@
 'use client';
 
-import { AlertTriangle, ChevronDown, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, KeyRound, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { DraftWithMessage } from '@/lib/types';
 import { TimeAgo } from './TimeAgo';
+
+// STAQPRO-IDEM-2026-05-22 — when MailBOX-Send returns 409 because send_attempt_at
+// is already set, transitions.ts persists the 409 body into drafts.error_message.
+// Match the exact substring from the workflow's Respond Already Attempted node
+// to switch the row UI into "lock held" mode with a verification-gated Clear
+// Lock button.
+const LOCK_HELD_MARKER = 'send_attempt_at already set';
 
 // STAQPRO-202 — surfaces drafts stuck at status='approved' for >5 min.
 // Two scenarios produce this state:
@@ -23,12 +30,20 @@ export function StuckApproved({
   drafts,
   busyId,
   onRetry,
+  onClearLock,
   cooldownActive = false,
   cooldownSafeAt = null,
 }: {
   drafts: DraftWithMessage[];
   busyId: number | null;
   onRetry: (draft: DraftWithMessage) => void;
+  // STAQPRO-IDEM-2026-05-22 — operator-driven clear of the MailBOX-Send CAS
+  // lock (drafts.send_attempt_at). Only invoked from the "lock held" row UI
+  // after the operator ticks the Gmail Sent verification checkbox. Optional
+  // because not every consumer of StuckApproved needs the lock-clear path
+  // (e.g. archive views); when omitted, the row falls back to the original
+  // Retry-only behavior.
+  onClearLock?: (draft: DraftWithMessage) => void;
   // STAQPRO-331 #5 — disable retry while system-wide Gmail cooldown is
   // active. The retry route also gates server-side (lib/transitions.ts),
   // but blocking the click prevents the dashboard 502+toast flicker and
@@ -44,6 +59,20 @@ export function StuckApproved({
   const [open, setOpen] = useState(true);
   const [armedId, setArmedId] = useState<number | null>(null);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // STAQPRO-IDEM-2026-05-22 — per-row "I verified in Gmail Sent" checkbox state.
+  // Gating the Clear Lock click behind explicit verification is the whole
+  // point of the lock — without this checkbox we'd be one keystroke away from
+  // re-introducing the 3-dupes class on a draft Gmail actually delivered.
+  const [verifiedSentIds, setVerifiedSentIds] = useState<Set<number>>(() => new Set());
+  function toggleVerified(id: number) {
+    setVerifiedSentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(
     () => () => {
@@ -97,6 +126,12 @@ export function StuckApproved({
           {drafts.map((draft) => {
             const isArmed = armedId === draft.id;
             const isBusy = busyId === draft.id;
+            // STAQPRO-IDEM-2026-05-22 — error_message carries the 409 body
+            // from MailBOX-Send's Respond Already Attempted node. Detect the
+            // marker and switch into "lock held" mode for this row.
+            const lockHeld =
+              onClearLock != null && !!draft.error_message?.includes(LOCK_HELD_MARKER);
+            const isVerifiedSent = verifiedSentIds.has(draft.id);
             return (
               <li key={draft.id} className="p-3">
                 <div className="mb-1 flex items-baseline justify-between gap-3">
@@ -140,13 +175,47 @@ export function StuckApproved({
                     </time>
                   </p>
                 )}
-                {isArmed && (
+                {isArmed && !lockHeld && (
                   <p className="mb-2 font-sans text-xs text-accent-orange">
                     May have already sent — verify in your Gmail Sent folder before re-sending.
                     Click again within {ARM_WINDOW_MS / 1000}s to confirm.
                   </p>
                 )}
-                <button
+                {/* STAQPRO-IDEM-2026-05-22 — lock-held branch. Replaces the
+                    Retry button entirely (Retry would just 409 again until
+                    the lock is cleared). Operator must tick the Gmail-Sent
+                    verification checkbox before Clear Lock enables. */}
+                {lockHeld && onClearLock ? (
+                  <div className="space-y-2">
+                    <p className="font-sans text-xs text-accent-orange">
+                      The send lock is held. The reply may have already been delivered.{' '}
+                      <strong>Open your Gmail Sent folder for this thread and verify.</strong>
+                    </p>
+                    <label className="flex items-start gap-2 font-sans text-xs text-ink-muted">
+                      <input
+                        type="checkbox"
+                        checked={isVerifiedSent}
+                        onChange={() => toggleVerified(draft.id)}
+                        disabled={isBusy}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        I verified in Gmail Sent — the reply did <strong>not</strong> go out.
+                        Clearing the lock will allow another Retry to fire.
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => onClearLock(draft)}
+                      disabled={!isVerifiedSent || isBusy}
+                      className="inline-flex items-center gap-1.5 rounded border border-accent-orange/40 px-3 py-1.5 font-sans text-xs text-accent-orange transition-colors hover:bg-accent-orange/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <KeyRound size={12} />
+                      {isBusy ? 'Clearing…' : 'Clear lock'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
                   type="button"
                   onClick={() => handleClick(draft)}
                   disabled={isBusy || cooldownActive}
@@ -170,6 +239,7 @@ export function StuckApproved({
                         ? 'Click again to re-send'
                         : 'Retry (verify Gmail first)'}
                 </button>
+                )}
               </li>
             );
           })}

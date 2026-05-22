@@ -75,7 +75,9 @@ export interface Drafts {
   rag_retrieval_reason: Generated<string>;
   received_at: string | null;
   references: string | null;
+  send_attempt_at: string | null;
   sent_at: string | null;
+  sent_gmail_message_id: string | null;
   status: Generated<string>;
   subject: string | null;
   thread_id: string | null;

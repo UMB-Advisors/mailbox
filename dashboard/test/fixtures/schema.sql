@@ -1008,6 +1008,12 @@ CREATE INDEX IF NOT EXISTS job_runs_failures_idx
   ON mailbox.job_runs(finished_at DESC)
   WHERE status IN ('failed', 'partial');
 
+-- migration 015 catch-up — STAQPRO-202 sent_gmail_message_id outbound idempotency key
+-- (Migration shipped to prod 2026-05-03 but the fixture was never updated. Caught
+--  during 2026-05-22 hand-patch of schema.ts which also lacked the column.)
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS sent_gmail_message_id TEXT;
+
 -- migration 025 — STAQPRO-IDEM-2026-05-22 send-attempt CAS lock
 ALTER TABLE mailbox.drafts
   ADD COLUMN IF NOT EXISTS send_attempt_at TIMESTAMPTZ NULL;
