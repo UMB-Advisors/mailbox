@@ -3,9 +3,13 @@
 **Issue:** [MBOX-291](https://linear.app/staqs/issue/MBOX-291) (epic [MBOX-290](https://linear.app/staqs/issue/MBOX-290), gate [MBOX-292](https://linear.app/staqs/issue/MBOX-292))
 **Version:** v0.2 — 2026-05-22 (added empirical reproduction on MB2)
 **Rig:** MB2 (`mailbox.staqs.io`, `192.168.50.11`), repurposed from the live MailBOX appliance
-**Status:** Task 1 complete. Tasks 2–4 reproduced on MB2 — **gateway up & stable; sandbox blocked by a glibc mismatch (new finding).** See "Empirical reproduction" below.
+**Status:** Tasks 1–4 **COMPLETE on MB2 — full stack green end-to-end** (gateway + dashboard up, NIM cloud round-trip HTTP 200) via a documented compat-mount workaround. Task 5 (golden-image steps) captured below + in the runbook.
 
-> **Headline update (2026-05-22 reproduction):** The iptables/k3s gateway crash (#404/#539) **did NOT reproduce** on current OpenShell 0.0.44 — the gateway came up healthy on `:8080`. Instead, a **different Jetson blocker** surfaced: OpenShell 0.0.44's dynamically-linked `openshell-gateway`/`openshell-sandbox` binaries require **glibc 2.39**, but JetPack 6.2 ships **glibc 2.35**. The gateway works around this (runs in an `ubuntu:24.04` compat container) but the **sandbox fails to start** (`exec openshell-sandbox: is a directory`), so the dashboard (`:18789`) never comes up. **This empirically confirms the "pin the version, don't float `latest`" recommendation.**
+> **Headline (2026-05-22 reproduction → GREEN):**
+> 1. The iptables/k3s gateway crash (#404/#539) **did NOT reproduce** on current OpenShell 0.0.44 — gateway healthy on `:8080`. The vendored `fix-iptables-jetson.sh` was not needed.
+> 2. The real Jetson blocker is **glibc**: OpenShell 0.0.44's dynamic `openshell-gateway`/`openshell-sandbox` need **glibc 2.39**; JetPack 6.2 ships **2.35**. The gateway self-heals (runs in an `ubuntu:24.04` compat container), but the compat container broke the **sandbox** bind-mount → `exec openshell-sandbox: is a directory` → no dashboard.
+> 3. **Version-pin escape: not viable** — no installable glibc-≤2.35 OpenShell+NemoClaw stack still exists (see table below).
+> 4. **Compat-mount workaround: WORKS** — materialize the staged `openshell-sandbox` binary at the host path the compat-gateway hands to dockerd. Result: sandbox starts, dashboard live on `:18789`, NIM round-trip returns HTTP 200. **Full stack runs on JetPack 6.2.** (Unsupported/fragile — must be baked + version-pinned for the golden image; Ubuntu-24.04 base remains the durable fix.)
 
 ---
 
@@ -138,6 +142,31 @@ Pinning to a glibc-≤2.35 OpenShell would avoid the compat container and (likel
    - **(B) Narrow workaround on JetPack 6.2:** make the host `openshell-sandbox` binary resolvable at the path the compat-container gateway passes to dockerd (populate/symlink the expected host source path), or run the gateway natively (not in the compat container) with a glibc-2.39 shim. Fragile, unsupported, upstream-fragile.
    - **(C) Wait for upstream** to publish musl/static gateway+sandbox or fix compat-mode mounting (track NemoClaw/OpenShell; the Jetson platform target is "on the roadmap").
 4. **Do NOT pin `latest`.** Empirically confirmed: floating versions broke the known-good March path via the glibc bump.
+
+### Compat-mount workaround — SUCCESS (full stack green on JetPack 6.2, 2026-05-22)
+
+**Result:** sandbox `my-assistant` started, dashboard live on `127.0.0.1:18789`, OpenShell gateway on `:8080`, OpenClaw launched inside the sandbox, onboard reported *"Deployment verified — gateway and dashboard are healthy"*, and a direct NIM round-trip returned **HTTP 200** (`nvidia/nemotron-3-super-120b-a12b`). So the appliance **does** run end-to-end on JetPack 6.2 with this fix.
+
+**Root cause:** the gateway runs in an `ubuntu:24.04` compat container (host glibc 2.35 < required 2.39). When it creates the sandbox container via the host docker socket, it bind-mounts the sandbox runtime binary from a content-addressed staged path **`/root/.local/share/openshell/docker-supervisor/sha256-<hash>/openshell-sandbox`**. That path exists *inside the compat container* but not on the host, so dockerd auto-creates an **empty directory** at the host path → `exec "/opt/openshell/bin/openshell-sandbox": is a directory`.
+
+**Fix (run after the first failed `nemoclaw onboard`, before re-onboarding):**
+```bash
+GW=nemoclaw-openshell-gateway
+# discover the staged path (hash is content-addressed to the sandbox binary build)
+P=$(docker exec "$GW" sh -lc 'ls -d /root/.local/share/openshell/docker-supervisor/sha256-*/openshell-sandbox' | head -1)
+docker cp "$GW:$P" /tmp/oss-sandbox            # extract the real binary
+sudo rm -rf "$P"                               # remove the empty dir dockerd created on the HOST
+sudo install -m 0755 /tmp/oss-sandbox "$P"     # place the real binary as a FILE at the host path
+# then re-onboard (cached build → fast):
+NEMOCLAW_PROVIDER=build NVIDIA_API_KEY=<key> NEMOCLAW_POLICY_TIER=balanced \
+  nemoclaw onboard --non-interactive --yes-i-accept-third-party-software --yes
+```
+The mounted binary is glibc-2.39 but runs fine **inside** the sandbox container (glibc-2.39 base); only the host-side mount-source resolution was broken.
+
+**Caveats (must address before relying on it for the golden image):**
+- **Unsupported & fragile.** Depends on compat-container internals + a content-addressed staged path. An OpenShell version bump changes the `sha256-<hash>` and could change the mechanism entirely → re-derive each version.
+- **Persistence:** the file lives under host `/root/...`; confirm it survives reboot/OTA and re-stage on gateway recreate. Bake it into the M4 golden-image build (build-time, not first-boot).
+- **The durable fix is still (A): an Ubuntu-24.04 / glibc-2.39 base** — it removes the compat container entirely and this whole workaround with it.
 
 ## Next steps (Tasks 2–5, on MB2)
 
