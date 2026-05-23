@@ -21,6 +21,7 @@ import {
   Check,
   Inbox,
   type LucideIcon,
+  MessageSquare,
   Send,
   Settings as SettingsIcon,
   Tags,
@@ -30,7 +31,7 @@ import {
 import { apiUrl } from '@/lib/api';
 
 export type FolderKey = 'queue' | 'approved' | 'sent' | 'rejected' | 'all';
-export type SurfaceSlug = 'classifications' | 'knowledge-base' | 'status' | 'settings';
+export type SurfaceSlug = 'chat' | 'classifications' | 'knowledge-base' | 'status' | 'settings';
 export type SidebarActive =
   | { kind: 'folder'; folder: FolderKey }
   | { kind: 'surface'; surface: SurfaceSlug };
@@ -57,6 +58,7 @@ const FOLDERS: FolderEntry[] = [
 ];
 
 const SURFACES: SurfaceEntry[] = [
+  { slug: 'chat', href: '/chat', label: 'Chat', icon: MessageSquare },
   { slug: 'classifications', href: '/classifications', label: 'Classifications', icon: Tags },
   { slug: 'knowledge-base', href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
   { slug: 'status', href: '/status', label: 'Status', icon: Wrench },
