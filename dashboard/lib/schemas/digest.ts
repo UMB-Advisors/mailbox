@@ -9,9 +9,7 @@ import { z } from 'zod';
 // between the GET and the POST landing on different sides of midnight).
 
 // YYYY-MM-DD local calendar day (the digest_sends.sent_on key).
-const localDaySchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'sent_on must be a YYYY-MM-DD date');
+const localDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'sent_on must be a YYYY-MM-DD date');
 
 export const digestRecordBodySchema = z.object({
   sent_on: localDaySchema,

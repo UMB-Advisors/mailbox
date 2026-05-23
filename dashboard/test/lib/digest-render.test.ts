@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DigestPayload } from '@/lib/queries-digest';
 import { renderDigest } from '@/lib/digest/render';
+import type { DigestPayload } from '@/lib/queries-digest';
 
 // MBOX-132 — pure unit tests for the digest HTML renderer (no DB). Covers the
 // subject line, section presence/suppression, deep-link behavior, and HTML
@@ -64,7 +64,10 @@ describe('renderDigest', () => {
       ],
       oldest_pending: [],
     };
-    const withUrl = renderDigest(payload, { now: NOW, queueUrl: 'https://m.staqs.io/dashboard/queue' });
+    const withUrl = renderDigest(payload, {
+      now: NOW,
+      queueUrl: 'https://m.staqs.io/dashboard/queue',
+    });
     expect(withUrl.html).toContain('https://m.staqs.io/dashboard/queue?focus=42');
 
     const noUrl = renderDigest(payload, { now: NOW, queueUrl: null });

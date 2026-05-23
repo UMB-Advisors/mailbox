@@ -75,10 +75,7 @@ export async function getDigestPayload(opts: DigestPayloadOptions = {}): Promise
   const countRows = await db
     .selectFrom('drafts as d')
     .where('d.status', 'in', QUEUE_STATUSES)
-    .select((eb) => [
-      'd.classification_category as category',
-      eb.fn.countAll<string>().as('count'),
-    ])
+    .select((eb) => ['d.classification_category as category', eb.fn.countAll<string>().as('count')])
     .groupBy('d.classification_category')
     .orderBy('count', 'desc')
     .execute();

@@ -164,14 +164,14 @@ dbDescribe('digest payload + de-dupe ledger — real Postgres', () => {
   it('de-dupe guard is per-day — a different day claims independently', async () => {
     const dayA = '2999-12-30';
     const dayB = '2999-12-29';
-    expect(await recordDigestSendIfFirstToday({ sent_on: dayA, recipient: null, subject: null })).toBe(
-      true,
-    );
-    expect(await recordDigestSendIfFirstToday({ sent_on: dayB, recipient: null, subject: null })).toBe(
-      true,
-    );
-    expect(await recordDigestSendIfFirstToday({ sent_on: dayA, recipient: null, subject: null })).toBe(
-      false,
-    );
+    expect(
+      await recordDigestSendIfFirstToday({ sent_on: dayA, recipient: null, subject: null }),
+    ).toBe(true);
+    expect(
+      await recordDigestSendIfFirstToday({ sent_on: dayB, recipient: null, subject: null }),
+    ).toBe(true);
+    expect(
+      await recordDigestSendIfFirstToday({ sent_on: dayA, recipient: null, subject: null }),
+    ).toBe(false);
   });
 });

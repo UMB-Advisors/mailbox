@@ -54,7 +54,10 @@ export interface RenderedDigest {
   html: string;
 }
 
-export function renderDigest(payload: DigestPayload, opts: RenderDigestOptions = {}): RenderedDigest {
+export function renderDigest(
+  payload: DigestPayload,
+  opts: RenderDigestOptions = {},
+): RenderedDigest {
   const now = opts.now ?? new Date();
   const queueUrl = opts.queueUrl?.trim() || null;
 
