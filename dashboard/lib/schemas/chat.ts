@@ -52,3 +52,18 @@ export const chatRetrieveSchema = z.object({
 });
 
 export type ChatRetrieve = z.infer<typeof chatRetrieveSchema>;
+
+// MBOX-287 — POST /api/internal/chat/send. The single orchestration endpoint
+// the /dashboard/chat page consumes: it persists the user turn, retrieves
+// corpus context (MBOX-283), assembles the prompt, streams the LOCAL model
+// (MBOX-284, returned to the browser as SSE), then persists the assistant turn
+// (MBOX-285). Body is just the conversation id + the new user message; the
+// model, retrieval, and persistence are all server-side (no cloud field — chat
+// is strictly local, DR-53). 4000-char cap bounds a single chat turn; retrieval
+// itself caps the embed input further (chatRetrieveSchema, 2000).
+export const chatSendSchema = z.object({
+  conversation_id: z.coerce.number().int().positive(),
+  content: z.string().trim().min(1, 'content (non-empty string) required').max(4000),
+});
+
+export type ChatSend = z.infer<typeof chatSendSchema>;
