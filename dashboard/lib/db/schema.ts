@@ -110,9 +110,9 @@ export interface JobRuns {
   error_message: string | null;
   finished_at: string;
   host: string | null;
-  id: Generated<string>;
+  id: Generated<Int8>;
   job_name: string;
-  result_json: unknown | null;
+  result_json: Json | null;
   rows_processed: Generated<number>;
   started_at: string;
   status: string;
@@ -223,6 +223,14 @@ export interface SystemState {
   id: Generated<number>;
 }
 
+export interface UserFilterPreferences {
+  id: Generated<number>;
+  key: string;
+  operator_id: string | null;
+  updated_at: Generated<string>;
+  value: Generated<Json>;
+}
+
 export interface VDraftingMetrics {
   classification_category: string | null;
   day: string | null;
@@ -255,6 +263,7 @@ export interface DB {
   sent_history: SentHistory;
   state_transitions: StateTransitions;
   system_state: SystemState;
+  user_filter_preferences: UserFilterPreferences;
   v_drafting_metrics: VDraftingMetrics;
   v_override_rate: VOverrideRate;
 }
