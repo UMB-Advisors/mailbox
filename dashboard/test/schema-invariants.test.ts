@@ -118,6 +118,19 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   );
 
   it.skipIf(!DB_URL)(
+    'classification_log.category CHECK matches CATEGORIES — the MBOX-123 operator override appends a classification_log row, so its category set must equal the canonical CATEGORIES (migration 002)',
+    async () => {
+      const allowed = await getCheckValues(
+        pool!,
+        'classification_log',
+        'classification_log_category_check',
+      );
+      const expected = [...CATEGORIES];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
     'kb_documents.status CHECK matches KB_DOC_STATUSES (STAQPRO-148, migration 014)',
     async () => {
       const allowed = await getCheckValues(pool!, 'kb_documents', 'kb_documents_status_check');

@@ -57,6 +57,7 @@ CRUD (operator-facing, basic_auth gated by Caddy):
 - `app/api/drafts/[id]/reject/route.ts` — `POST` reject
 - `app/api/drafts/[id]/edit/route.ts` — `PATCH` edit body before approve
 - `app/api/drafts/[id]/retry/route.ts` — `POST` re-run draft generation
+- `app/api/drafts/[id]/classification/route.ts` — `PATCH` operator classification override (MBOX-123). Body `{ category, reason? }` (zod `classificationOverrideBodySchema`, `category` anchored to `CATEGORIES`). In one txn: relabels `drafts.classification_category`, writes the denorm `inbox_messages.classification`, and appends a `mailbox.classification_log` row (`model_version='operator-override'`, `confidence=1.0`, `raw_output=reason`) — the classification_log append is the audit record for the relabel. **v1 = relabel only, no re-draft** (STAQPRO-403 open question resolved per MBOX-123 recommendation; the draft body is left alone, operator hits Edit/Reject separately if intent changed). Sets the `mailbox.actor`/`mailbox.transition_reason` GUCs for convention even though the migration-009 `state_transitions` trigger fires only on `status` changes (a relabel doesn't touch status → no state_transitions row by design).
 
 Internal (n8n-facing, docker network only):
 - `app/api/internal/classification-prompt/route.ts` — assemble classify prompt for the Qwen3 call
@@ -142,7 +143,7 @@ All routes live on `http://mailbox-dashboard:3001/...` over the docker network. 
 - **Caller**: `MailBOX-Classify`, `Normalize` node
 - **Schema**: `classificationNormalizeBodySchema` — `{ raw?: string, from?: string, to?: string }`. `from`/`to` feed the deterministic operator-domain preclass per DR-50.
 - **Response**: `ClassificationResult` from `lib/classification/normalize.ts` — `{ category, confidence, route, json_parse_ok, think_stripped, raw_output, preclass_applied, preclass_source }`. `route` (`'local' | 'cloud' | 'drop'`) is `routeFor(category, confidence)` applied AFTER preclass, so a noreply override → `spam_marketing` produces `route='drop'`. Prior versions of this doc listed `reason` / `persona_key` — those were never emitted; corrected.
-- **Side effects**: read-only at the route level. The classification log row (`mailbox.classification_log`) is written by n8n's `Shape Log Row` + Postgres node downstream, not by this route.
+- **Side effects**: read-only at the route level. The classification log row (`mailbox.classification_log`) is written by n8n's `Shape Log Row` + Postgres node downstream, not by this route. **Note (MBOX-123)**: the model-classify path is no longer the *only* writer of `classification_log` — the operator-facing `PATCH /api/drafts/[id]/classification` (CRUD route, see "Routes (App Router)") also appends a row on a manual override, tagged `model_version='operator-override'`. The n8n classify path and the operator-override path are the two writers; both append, never mutate.
 - **Related shadow knob**: `MAILBOX_LOCAL_MODEL_OVERRIDE` (read by `lib/drafting/router.ts:pickEndpoint`, not by this route) swaps the local draft model for A/B testing (e.g., `qwen3:4b-ctx4k` → `qwen3.5:4b-ctx4k`). Cloud route is unaffected. Default unset = baseline. See plan `~/.claude/plans/could-mailbox-realistically-live-shimmering-bubble.md`.
 
 #### `POST /api/internal/draft-prompt` — assemble drafting prompt + RAG retrieval
