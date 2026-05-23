@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Inbox,
   Send,
@@ -38,9 +38,13 @@ import {
   ALL_CATEGORIES,
   isUrgentUntouched,
   rowDerived,
+  type AgeBand,
+  type ConfidenceBand,
+  type Route,
 } from './lib/urgency'
 import { FilterBar, EMPTY_FILTERS, filtersActive, type FilterState, type FilterCounts } from './components/FilterBar'
 import { SortControls, type SortKey } from './components/SortControls'
+import { usePreference } from './lib/usePreference'
 import { UrgencyBadge } from './components/UrgencyBadge'
 import { RedFlagHeader } from './components/RedFlagHeader'
 import { ClassificationOverride } from './components/ClassificationOverride'
@@ -240,6 +244,45 @@ async function callRedraft(
 // Production would store this in mailbox.persona.statistical_markers.appointment_url.
 const SETTINGS_STORAGE_KEY = 'mailbox-sandbox-settings-v1'
 
+// MBOX-133 — preference keys for the durable filter/sort state. These match the
+// dotted-namespace shape the GET/PUT /api/operator/preferences/[key] routes
+// accept (lowercase segments, see PREFERENCE_KEY_RE in the dashboard).
+const PREF_QUEUE_FILTERS = 'queue.filters'
+const PREF_QUEUE_SORT = 'queue.sort'
+
+// FilterState holds Sets, which don't JSON-serialize. Project to/from a plain
+// string-array shape for persistence; the deserialize casts string arrays back
+// to the typed Sets (the chip components only ever feed in valid values).
+interface SerializedFilters {
+  categories: string[]
+  statuses: string[]
+  routes: string[]
+  confidence_bands: string[]
+  age_bands: string[]
+}
+
+function serializeFilters(f: FilterState): SerializedFilters {
+  return {
+    categories: [...f.categories],
+    statuses: [...f.statuses],
+    routes: [...f.routes],
+    confidence_bands: [...f.confidence_bands],
+    age_bands: [...f.age_bands],
+  }
+}
+
+function deserializeFilters(s: SerializedFilters): FilterState {
+  return {
+    categories: new Set(s.categories ?? []),
+    statuses: new Set((s.statuses ?? []) as DraftStatus[]),
+    routes: new Set((s.routes ?? []) as Route[]),
+    confidence_bands: new Set((s.confidence_bands ?? []) as ConfidenceBand[]),
+    age_bands: new Set((s.age_bands ?? []) as AgeBand[]),
+  }
+}
+
+const EMPTY_SERIALIZED_FILTERS: SerializedFilters = serializeFilters(EMPTY_FILTERS)
+
 type RightPaneTab = 'calendar' | 'drive'
 
 interface OperatorSettings {
@@ -400,8 +443,21 @@ function App() {
   // Overrides are keyed by draft id and feed back into urgency derivation, so
   // changing a category to/from `escalate` updates the row's signals + score
   // in real time.
-  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS)
-  const [sort, setSort] = useState<SortKey>('newest')
+  // MBOX-133 — filter + sort now persist via usePreference(): server-backed
+  // (GET/PUT /api/operator/preferences/[key]) with localStorage fallback so the
+  // selection survives a refresh. The hook stores the serializable projection;
+  // we adapt to/from FilterState (Sets) at this boundary so the rest of the
+  // component keeps the same filters/setFilters/sort/setSort API.
+  const { value: filtersRaw, setValue: setFiltersRaw } = usePreference<SerializedFilters>(
+    PREF_QUEUE_FILTERS,
+    EMPTY_SERIALIZED_FILTERS,
+  )
+  const filters = useMemo(() => deserializeFilters(filtersRaw), [filtersRaw])
+  const setFilters = useCallback(
+    (next: FilterState) => setFiltersRaw(serializeFilters(next)),
+    [setFiltersRaw],
+  )
+  const { value: sort, setValue: setSort } = usePreference<SortKey>(PREF_QUEUE_SORT, 'newest')
   const [overrides, setOverrides] = useState<Record<number, string>>({})
 
   // Persist settings to localStorage on every change so refreshes survive
