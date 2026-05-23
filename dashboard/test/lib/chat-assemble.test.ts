@@ -4,9 +4,32 @@ import {
   buildContextBlock,
   buildSystemPrompt,
   historyToModelMessages,
+  renderApplianceStatsBlock,
 } from '@/lib/chat/assemble';
+import type { ApplianceStatsContext } from '@/lib/queries-chat-stats';
 import type { ChatRetrievalResult } from '@/lib/rag/chat-retrieve';
 import type { ChatMessage } from '@/lib/types';
+
+const sampleStats: ApplianceStatsContext = {
+  inbound: {
+    total: 951,
+    last_24h: 12,
+    last_7d: 88,
+    last_30d: 410,
+    earliest_received_at: '2026-01-02T08:00:00Z',
+    latest_received_at: '2026-05-23T09:15:00Z',
+  },
+  categories: [
+    { category: 'reorder', count: 320 },
+    { category: 'inquiry', count: 210 },
+  ],
+  top_senders: [
+    { addr: 'orders@acme.com', count: 140 },
+    { addr: 'jane@partner.io', count: 75 },
+  ],
+  top_recipients: [{ addr: 'orders@acme.com', count: 60 }],
+  queue: { pending: 3, approved: 1, sent: 900, rejected: 12 },
+};
 
 // MBOX-287 — pure message-assembly tests. The DR-56 / SM-74 invariant is the
 // load-bearing one: no document/grounding claim is constructed when retrieval
@@ -59,6 +82,76 @@ describe('buildSystemPrompt — retrieval gating (DR-56 / SM-74)', () => {
     const prompt = buildSystemPrompt(reason);
     expect(prompt).toContain('Do NOT claim');
     expect(prompt).not.toContain('past email messages are provided');
+  });
+});
+
+describe('persona — MBOX-307 accurate self-description + no confabulation', () => {
+  // The bug this fixes: the model claimed "email content is not stored on the
+  // device." The persona must affirmatively state the box DOES store email
+  // locally, and must forbid inventing stats/capabilities.
+  it.each([
+    'ok',
+    'below_floor',
+    'embed_unavailable',
+  ] as const)('persona states email is stored locally + forbids fabrication (reason=%s)', (reason) => {
+    const prompt = buildSystemPrompt(reason);
+    expect(prompt).toMatch(/stores.*email.*locally/i);
+    expect(prompt).toContain('Never invent statistics');
+    // It must point the model at the stats block for operational questions.
+    expect(prompt).toContain('appliance-statistics block');
+  });
+
+  it('plain suffix no longer tells the model to "answer from general knowledge"', () => {
+    // The dropped line was the direct cause of the capability confabulation.
+    expect(buildSystemPrompt('below_floor')).not.toContain('general knowledge');
+  });
+
+  it('plain suffix still permits operational answers from the stats block', () => {
+    expect(buildSystemPrompt('below_floor')).toContain('operational questions');
+  });
+});
+
+describe('renderApplianceStatsBlock — MBOX-307', () => {
+  it('renders totals, windows, categories, senders, recipients, queue', () => {
+    const block = renderApplianceStatsBlock(sampleStats);
+    expect(block).toContain('Appliance stats (live');
+    expect(block).toContain('951 total');
+    expect(block).toContain('last 24h: 12');
+    expect(block).toContain('reorder 320');
+    expect(block).toContain('orders@acme.com (140)');
+    expect(block).toContain('Top outbound recipients: orders@acme.com (60)');
+    expect(block).toContain('3 pending, 1 approved, 900 sent, 12 rejected');
+  });
+
+  it('returns null when stats are unavailable (do not render misleading zeros)', () => {
+    expect(renderApplianceStatsBlock(null)).toBeNull();
+  });
+
+  it('stays tight for the 4096-ctx model (≤ 25 lines)', () => {
+    const block = renderApplianceStatsBlock(sampleStats);
+    expect(block).not.toBeNull();
+    expect((block as string).split('\n').length).toBeLessThanOrEqual(25);
+  });
+
+  it('handles empty tables gracefully (zeros, no sender/category lines)', () => {
+    const empty: ApplianceStatsContext = {
+      inbound: {
+        total: 0,
+        last_24h: 0,
+        last_7d: 0,
+        last_30d: 0,
+        earliest_received_at: null,
+        latest_received_at: null,
+      },
+      categories: [],
+      top_senders: [],
+      top_recipients: [],
+      queue: { pending: 0, approved: 0, sent: 0, rejected: 0 },
+    };
+    const block = renderApplianceStatsBlock(empty);
+    expect(block).toContain('0 total');
+    expect(block).not.toContain('By category');
+    expect(block).not.toContain('Top inbound senders');
   });
 });
 
@@ -118,10 +211,43 @@ describe('assembleChatMessages', () => {
       userContent: 'random question',
       retrieval: belowFloorRetrieval,
     });
-    expect(out).toHaveLength(2); // system + user only
+    expect(out).toHaveLength(2); // system + user only (no stats passed)
     expect(out[0].role).toBe('system');
     expect(out[0].content).toContain('Do NOT claim');
     expect(out.some((m) => m.content.includes('Relevant past messages'))).toBe(false);
     expect(out[1]).toEqual({ role: 'user', content: 'random question' });
+  });
+
+  it('MBOX-307: stats block injected as a system turn after the persona, even below the floor', () => {
+    const out = assembleChatMessages({
+      history: [],
+      userContent: 'how many emails have we ingested?',
+      retrieval: belowFloorRetrieval,
+      stats: sampleStats,
+    });
+    // [ system(persona) , system(stats) , user ]
+    expect(out).toHaveLength(3);
+    expect(out[0].role).toBe('system');
+    expect(out[1].role).toBe('system');
+    expect(out[1].content).toContain('Appliance stats (live');
+    expect(out[1].content).toContain('951 total');
+    expect(out[out.length - 1]).toEqual({
+      role: 'user',
+      content: 'how many emails have we ingested?',
+    });
+  });
+
+  it('MBOX-307: stats block is distinct from and ordered before the RAG context block', () => {
+    const out = assembleChatMessages({
+      history: [],
+      userContent: 'what did the supplier say?',
+      retrieval: okRetrieval,
+      stats: sampleStats,
+    });
+    const statsIdx = out.findIndex((m) => m.content.includes('Appliance stats (live'));
+    const ragIdx = out.findIndex((m) => m.content.includes('Relevant past messages'));
+    expect(statsIdx).toBeGreaterThanOrEqual(0);
+    expect(ragIdx).toBeGreaterThanOrEqual(0);
+    expect(statsIdx).toBeLessThan(ragIdx);
   });
 });
