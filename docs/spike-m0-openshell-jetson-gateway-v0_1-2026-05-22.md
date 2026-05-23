@@ -116,7 +116,28 @@ With **cloud inference and no local LLM**, the 8GB unified-RAM memory risk that 
 **Revised risk read for the gate (MBOX-292):**
 - The originally-feared iptables/k3s gateway bug is **not the blocker** on current OpenShell.
 - The real blocker is **version coupling: OpenShell ≥ (the release that bumped to glibc 2.39) is incompatible with JetPack 6.2's glibc 2.35 at the sandbox layer.** Options: (a) **pin OpenShell/NemoClaw to a glibc-2.35-era release** (the community known-good window, ~OpenShell 0.0.13, Mar 2026) and re-test; (b) move the appliance base to a JetPack/Ubuntu-24.04 (glibc 2.39) image when available for Orin Nano; (c) fix the sandbox-binary mount under compat mode (upstream-ish).
-- **Decisive next experiment:** pin an older OpenShell/NemoClaw and re-onboard — if the sandbox starts (no compat container needed), the full path is green and we just version-pin for the golden image.
+### Version-pin experiment — result: NOT VIABLE (verified by binary inspection, 2026-05-22)
+
+Pinning to a glibc-≤2.35 OpenShell would avoid the compat container and (likely) the sandbox-mount break. But the artifacts don't exist to do it cleanly:
+
+| OpenShell | gateway/sandbox max GLIBC | downloadable (aarch64 gnu)? |
+|---|---|---|
+| `dev` tag (2026-03-18) | **2.30** ✅ runs on 2.35 | yes (rolling tag only) |
+| 0.0.7 / 0.0.13 / 0.0.20 / 0.0.24 / 0.0.26 / 0.0.30 | — | **404 — no Linux assets published** |
+| 0.0.34 / 0.0.35 / 0.0.39 / 0.0.44 | **2.39** ❌ | yes |
+
+- NemoClaw version→OpenShell pin: `v0.0.1`→0.0.7 & `v0.0.10`→0.0.24 download from **`releases/latest`** (moving → now grabs glibc-2.39); `v0.0.20`→0.0.24 and `lkg`/`latest`→0.0.39 pin by version, but **0.0.24 assets are 404** and **0.0.39 is glibc 2.39**.
+- Net: the only glibc-compatible binary still downloadable is the rolling **`dev`** build, which NemoClaw 0.1.0's blueprint won't accept (it pins OpenShell `0.0.44`). **No installable, self-consistent OpenShell+NemoClaw stack runs on JetPack 6.2 (glibc 2.35).**
+
+### Recommendation for the gate (MBOX-292) — updated
+
+1. **The gateway/iptables risk is retired** — does not reproduce on current OpenShell; the vendored `fix-iptables-jetson.sh` is not needed on 0.0.44.
+2. **The binding constraint is glibc.** Current OpenShell (≥~0.0.34) is built against glibc 2.39 (Fedora-44 base) with **no musl/static gateway+sandbox variant**. JetPack 6.2 = Ubuntu 22.04 = glibc 2.35. The gateway tolerates this via an `ubuntu:24.04` compat container, but the **sandbox cannot start** (compat-container bind-mount of the host `openshell-sandbox` binary resolves wrong).
+3. **Paths forward (pick at the gate):**
+   - **(A) Move the appliance base to glibc 2.39 — i.e., a newer JetPack on Ubuntu 24.04 (JetPack 7 / L4T r38).** Verify Orin Nano Super support + that the Super-mode/40-TOPS profile is available there. This is the clean, durable fix and the strongest recommendation. *(Feeds back into MBOX-293's "flash JetPack 6.2.2" baseline — that baseline likely needs to change to a 24.04-based JetPack.)*
+   - **(B) Narrow workaround on JetPack 6.2:** make the host `openshell-sandbox` binary resolvable at the path the compat-container gateway passes to dockerd (populate/symlink the expected host source path), or run the gateway natively (not in the compat container) with a glibc-2.39 shim. Fragile, unsupported, upstream-fragile.
+   - **(C) Wait for upstream** to publish musl/static gateway+sandbox or fix compat-mode mounting (track NemoClaw/OpenShell; the Jetson platform target is "on the roadmap").
+4. **Do NOT pin `latest`.** Empirically confirmed: floating versions broke the known-good March path via the glibc bump.
 
 ## Next steps (Tasks 2–5, on MB2)
 
