@@ -1,0 +1,202 @@
+import { sql } from 'kysely';
+import { getKysely } from '@/lib/db';
+import { getQueueWithUrgency } from '@/lib/queries';
+import type { ClassificationCategory, DraftStatus, UrgencySignal } from '@/lib/types';
+
+// MBOX-132 — daily digest payload query. Assembles the once-per-day operator
+// digest body from the live queue: a count by category, the urgent-untouched
+// list (reusing MBOX-134's urgency engine so the digest's "needs your eyes"
+// section matches the dashboard's red-flag exactly), and the oldest-pending
+// tail. Pure read; no writes. The HTML renderer (lib/digest/render.ts) and the
+// decision route (app/api/internal/digest/route.ts) consume this.
+//
+// Reuse note: urgent_untouched is derived from getQueueWithUrgency (lib/
+// queries.ts) — the same SQL urgency surface the dashboard ships — so there is
+// ONE urgency rule SoT (lib/urgency.ts:evaluateUrgency mirrored set-wise in
+// SQL). The digest does not re-implement urgency.
+
+// The "queue" slice the digest reports on — operator-actionable drafts. Matches
+// getQueueWithUrgency's default (pending + edited): rows still awaiting the
+// operator. 'sent'/'approved'/'rejected' are out of the digest's scope.
+const QUEUE_STATUSES: DraftStatus[] = ['pending', 'edited'];
+
+// A single draft as it appears in the digest body. Lean projection — just what
+// the email renders (no thread history, no full body). `age_hours` is rounded
+// to one decimal for display; `signals` is populated only on urgent rows.
+export interface DigestDraftItem {
+  draft_id: number;
+  from_addr: string | null;
+  subject: string | null;
+  snippet: string | null;
+  category: ClassificationCategory | null;
+  age_hours: number;
+  signals: UrgencySignal[];
+}
+
+export interface CategoryCount {
+  category: ClassificationCategory | null;
+  count: number;
+}
+
+export interface DigestPayload {
+  // Count of queue drafts grouped by classification_category, descending by
+  // count. Drives the "pending by category" headline + section.
+  counts_by_category: CategoryCount[];
+  // Urgent drafts still awaiting the operator (any urgency signal fired), newest
+  // urgency-first. Drives the red "needs your eyes" section.
+  urgent_untouched: DigestDraftItem[];
+  // The oldest pending drafts (FIFO — what's been waiting longest), capped.
+  // Drives the "oldest waiting" tail so nothing rots silently in the queue.
+  oldest_pending: DigestDraftItem[];
+}
+
+export interface DigestPayloadOptions {
+  // Cap on each list. Defaults keep the email glanceable on a phone.
+  urgentLimit?: number;
+  oldestLimit?: number;
+  // Injected for tests; defaults to process.env (urgency thresholds).
+  env?: Record<string, string | undefined>;
+}
+
+const DEFAULT_URGENT_LIMIT = 10;
+const DEFAULT_OLDEST_LIMIT = 10;
+
+function clampLimit(v: number | undefined, fallback: number): number {
+  return Math.min(Math.max(Math.trunc(v ?? fallback) || fallback, 1), 50);
+}
+
+export async function getDigestPayload(opts: DigestPayloadOptions = {}): Promise<DigestPayload> {
+  const env = opts.env ?? process.env;
+  const urgentLimit = clampLimit(opts.urgentLimit, DEFAULT_URGENT_LIMIT);
+  const oldestLimit = clampLimit(opts.oldestLimit, DEFAULT_OLDEST_LIMIT);
+  const db = getKysely();
+
+  // counts_by_category — one set-based GROUP BY over the queue slice.
+  const countRows = await db
+    .selectFrom('drafts as d')
+    .where('d.status', 'in', QUEUE_STATUSES)
+    .select((eb) => [
+      'd.classification_category as category',
+      eb.fn.countAll<string>().as('count'),
+    ])
+    .groupBy('d.classification_category')
+    .orderBy('count', 'desc')
+    .execute();
+
+  const counts_by_category: CategoryCount[] = countRows.map((r) => ({
+    category: (r.category as ClassificationCategory | null) ?? null,
+    count: Number(r.count),
+  }));
+
+  // urgent_untouched — reuse the urgency SQL surface, then keep only urgent rows
+  // and project to the lean digest item shape. getQueueWithUrgency caps its own
+  // fetch; we slice to urgentLimit after filtering so the cap is on URGENT rows,
+  // not on the pre-filter fetch. Fetch the full queue (cap 200) so the urgent
+  // filter sees everything.
+  const queue = await getQueueWithUrgency(QUEUE_STATUSES, 200, env);
+  const urgent_untouched: DigestDraftItem[] = queue
+    .filter((row) => row.urgency.urgent)
+    .slice(0, urgentLimit)
+    .map((row) => ({
+      draft_id: row.id,
+      from_addr: row.message.from_addr,
+      subject: row.message.subject ?? row.draft_subject,
+      snippet: row.message.snippet,
+      // The draft's classification_category isn't on the curated Draft view;
+      // read the message-level denormalized classification (kept in sync from
+      // classification_log per CLAUDE.md). Same enum domain.
+      category: (row.message.classification as ClassificationCategory | null) ?? null,
+      age_hours: ageHoursFrom(row.created_at),
+      signals: row.urgency.signals,
+    }));
+
+  // oldest_pending — the FIFO tail. Only 'pending' (not 'edited' — an edited
+  // draft has already been touched by the operator, so it's not "waiting
+  // untouched"). Oldest created_at first.
+  const oldestRows = await db
+    .selectFrom('drafts as d')
+    .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
+    .where('d.status', '=', 'pending')
+    .select([
+      'd.id as draft_id',
+      'd.classification_category as category',
+      'd.created_at as created_at',
+      'm.from_addr as from_addr',
+      'm.subject as subject',
+      'm.snippet as snippet',
+      sql<number>`EXTRACT(EPOCH FROM (NOW() - d.created_at)) / 3600.0`.as('age_hours_raw'),
+    ])
+    .orderBy('d.created_at', 'asc')
+    .limit(oldestLimit)
+    .execute();
+
+  const oldest_pending: DigestDraftItem[] = oldestRows.map((r) => ({
+    draft_id: r.draft_id,
+    from_addr: r.from_addr,
+    subject: r.subject,
+    snippet: r.snippet,
+    category: (r.category as ClassificationCategory | null) ?? null,
+    age_hours: roundHours(Number(r.age_hours_raw)),
+    signals: [],
+  }));
+
+  return { counts_by_category, urgent_untouched, oldest_pending };
+}
+
+// ── digest_sends ledger (migration 029) — once-per-day de-dupe guard ────────
+//
+// recordDigestSendIfFirstToday is the idempotency primitive. It attempts an
+// INSERT ... ON CONFLICT (sent_on) DO NOTHING; the constraint
+// (digest_sends_sent_on_uniq) makes the second call for the same local day a
+// no-op. Returns true when THIS call won the day (a row was inserted → safe to
+// send), false when the day was already claimed (skip — already sent). The race
+// is resolved in Postgres, so concurrent schedule ticks / operator re-fires
+// cannot both win.
+
+export interface DigestSendRecord {
+  sent_on: string; // YYYY-MM-DD local day
+  recipient: string | null;
+  subject: string | null;
+}
+
+export async function recordDigestSendIfFirstToday(rec: DigestSendRecord): Promise<boolean> {
+  const db = getKysely();
+  const row = await db
+    .insertInto('digest_sends')
+    .values({
+      sent_on: rec.sent_on,
+      recipient: rec.recipient,
+      subject: rec.subject,
+    })
+    .onConflict((oc) => oc.column('sent_on').doNothing())
+    .returning('id')
+    .executeTakeFirst();
+  // executeTakeFirst returns undefined when ON CONFLICT DO NOTHING suppressed
+  // the insert (the day was already claimed). A defined row → we claimed it.
+  return row !== undefined;
+}
+
+// Read-only check used by the render/decision route to report whether today's
+// digest has already been sent WITHOUT claiming the day (the actual claim
+// happens via recordDigestSendIfFirstToday after the send). Lets the route
+// answer "should_send" before n8n fires Gmail.
+export async function hasDigestSentOn(sentOn: string): Promise<boolean> {
+  const db = getKysely();
+  const row = await db
+    .selectFrom('digest_sends')
+    .select('id')
+    .where('sent_on', '=', sentOn)
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+// created_at is a TIMESTAMPTZ surfaced as an ISO string (pg type-parser
+// override). Compute age in hours against now, rounded to one decimal.
+function ageHoursFrom(createdAt: string): number {
+  const ms = Date.now() - new Date(createdAt).getTime();
+  return roundHours(ms / (1000 * 60 * 60));
+}
+
+function roundHours(h: number): number {
+  return Math.round(Math.max(h, 0) * 10) / 10;
+}
