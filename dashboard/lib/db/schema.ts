@@ -25,6 +25,26 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
 export type Numeric = ColumnType<string, number | string, number | string>;
 
+export interface ChatConversations {
+  created_at: Generated<string>;
+  id: Generated<number>;
+  title: string | null;
+  updated_at: Generated<string>;
+}
+
+export interface ChatMessages {
+  content: string;
+  conversation_id: number;
+  created_at: Generated<string>;
+  id: Generated<number>;
+  input_tokens: number | null;
+  model: string | null;
+  output_tokens: number | null;
+  rag_context_refs: Generated<Json>;
+  rag_retrieval_reason: Generated<string>;
+  role: string;
+}
+
 export interface ClassificationLog {
   category: string;
   confidence: number;
@@ -250,6 +270,8 @@ export interface VOverrideRate {
 }
 
 export interface DB {
+  chat_conversations: ChatConversations;
+  chat_messages: ChatMessages;
   classification_log: ClassificationLog;
   draft_feedback: DraftFeedback;
   drafts: Drafts;

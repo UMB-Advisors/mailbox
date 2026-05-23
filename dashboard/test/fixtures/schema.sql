@@ -1037,6 +1037,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS user_filter_preferences_operator_key_uidx
   ON mailbox.user_filter_preferences(operator_id, key)
   WHERE operator_id IS NOT NULL;
 
+-- migration 027 — MBOX-285 chat history persistence (conversations + messages)
+CREATE TABLE IF NOT EXISTS mailbox.chat_conversations (
+  id          SERIAL PRIMARY KEY,
+  title       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.chat_messages (
+  id                   SERIAL PRIMARY KEY,
+  conversation_id      INTEGER NOT NULL
+                         REFERENCES mailbox.chat_conversations(id) ON DELETE CASCADE,
+  role                 TEXT NOT NULL,
+  content              TEXT NOT NULL,
+  model                TEXT,
+  input_tokens         INTEGER,
+  output_tokens        INTEGER,
+  rag_context_refs     JSONB NOT NULL DEFAULT '[]'::jsonb,
+  rag_retrieval_reason TEXT NOT NULL DEFAULT 'none',
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT chat_messages_role_check CHECK (
+    role IN ('user', 'assistant', 'system')
+  ),
+  CONSTRAINT chat_messages_content_not_blank CHECK (length(trim(content)) > 0)
+);
+CREATE INDEX IF NOT EXISTS chat_messages_conversation_id_created_at_idx
+  ON mailbox.chat_messages(conversation_id, created_at);
+
 --
 -- PostgreSQL database dump complete
 --

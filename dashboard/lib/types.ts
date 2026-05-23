@@ -16,6 +16,8 @@
 
 import type { Selectable } from 'kysely';
 import type {
+  ChatConversations as ChatConversationsRow_,
+  ChatMessages as ChatMessagesRow_,
   ClassificationLog as ClassificationLogRow_,
   DraftFeedback as DraftFeedbackRow_,
   Drafts as DraftsRow_,
@@ -112,6 +114,14 @@ export const REJECT_REASON_LABELS: Record<RejectReasonCode, string> = {
   dont_reply: "Don't reply",
   other: 'Other',
 };
+
+// chat_messages.role enum (MBOX-285, parent epic MBOX-282). Mirrored against
+// the CHECK constraint in migrations/027-create-chat-history-v1-2026-05-22.sql;
+// the schema-invariants test asserts they stay in sync. 'system' is reserved
+// for the local-chat system prompt turn when MBOX-287 persists it.
+export const CHAT_MESSAGE_ROLES = ['user', 'assistant', 'system'] as const;
+
+export type ChatMessageRole = (typeof CHAT_MESSAGE_ROLES)[number];
 
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
@@ -273,6 +283,30 @@ export interface Onboarding {
   lived_at: string | null;
 }
 
+// ── Chat history views (MBOX-285, local-model chat surface) ─────────────────
+
+export interface ChatConversation {
+  id: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  conversation_id: number;
+  role: ChatMessageRole;
+  content: string;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  // Qdrant point UUIDs that augmented an assistant turn (empty [] otherwise) —
+  // same shape/semantics as Draft/SentHistory rag_context_refs.
+  rag_context_refs: unknown[];
+  rag_retrieval_reason: string;
+  created_at: string;
+}
+
 // ── Full DB row shapes (re-exports of kysely-codegen output) ────────────────
 //
 // Use these when you need a column the curated view doesn't expose. The
@@ -289,3 +323,5 @@ export type PersonaRow = Selectable<PersonaRow_>;
 export type OnboardingRow = Selectable<OnboardingRow_>;
 export type KbDocumentRow = Selectable<KbDocumentsRow_>;
 export type DraftFeedbackRow = Selectable<DraftFeedbackRow_>;
+export type ChatConversationRow = Selectable<ChatConversationsRow_>;
+export type ChatMessageRow = Selectable<ChatMessagesRow_>;
