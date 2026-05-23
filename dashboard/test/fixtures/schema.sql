@@ -1064,6 +1064,22 @@ CREATE TABLE IF NOT EXISTS mailbox.chat_messages (
 CREATE INDEX IF NOT EXISTS chat_messages_conversation_id_created_at_idx
   ON mailbox.chat_messages(conversation_id, created_at);
 
+-- migration 028 — MBOX-134 VIP sender list (urgency engine backing table)
+CREATE TABLE IF NOT EXISTS mailbox.vip_senders (
+  id              SERIAL PRIMARY KEY,
+  email_or_domain TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  added_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  added_by        TEXT,
+  note            TEXT,
+  CONSTRAINT vip_senders_kind_check CHECK (kind IN ('email', 'domain')),
+  CONSTRAINT vip_senders_value_not_blank CHECK (length(trim(email_or_domain)) > 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vip_senders_value_kind_uidx
+  ON mailbox.vip_senders(email_or_domain, kind);
+CREATE INDEX IF NOT EXISTS vip_senders_kind_idx
+  ON mailbox.vip_senders(kind);
+
 --
 -- PostgreSQL database dump complete
 --
