@@ -2,7 +2,12 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
 import { PREFERENCE_KEY_RE } from '../lib/schemas/preferences';
-import { CHAT_MESSAGE_ROLES, KB_DOC_STATUSES, REJECT_REASON_CODES } from '../lib/types';
+import {
+  CHAT_MESSAGE_ROLES,
+  KB_DOC_STATUSES,
+  REJECT_REASON_CODES,
+  VIP_SENDER_KINDS,
+} from '../lib/types';
 
 // Highest-leverage test for STAQPRO-133. Asserts that the live Postgres
 // CHECK constraints match (or are compatible with) the TS-side constants.
@@ -165,6 +170,29 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
       expect(def).toMatch(/\(conversation_id, created_at\)/);
     },
   );
+
+  it.skipIf(!DB_URL)(
+    'vip_senders.kind CHECK matches VIP_SENDER_KINDS (MBOX-134, migration 028)',
+    async () => {
+      const allowed = await getCheckValues(pool!, 'vip_senders', 'vip_senders_kind_check');
+      const expected = [...VIP_SENDER_KINDS];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
+    'vip_senders has the (email_or_domain, kind) unique index (MBOX-134, migration 028)',
+    async () => {
+      const def = await getIndexDef(pool!, 'vip_senders_value_kind_uidx');
+      expect(def).toMatch(/CREATE UNIQUE INDEX/i);
+      expect(def).toMatch(/\(email_or_domain, kind\)/);
+    },
+  );
+
+  it('VIP_SENDER_KINDS from lib/types.ts has no duplicates and is non-empty', () => {
+    expect(VIP_SENDER_KINDS.length).toBeGreaterThan(0);
+    expect(new Set(VIP_SENDER_KINDS).size).toBe(VIP_SENDER_KINDS.length);
+  });
 
   it('CHAT_MESSAGE_ROLES from lib/types.ts has no duplicates and is non-empty', () => {
     expect(CHAT_MESSAGE_ROLES.length).toBeGreaterThan(0);
