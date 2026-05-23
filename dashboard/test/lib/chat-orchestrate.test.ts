@@ -57,6 +57,22 @@ function baseDeps(overrides: Partial<ChatSendDeps> = {}): {
   const deps: ChatSendDeps = {
     retrieveForChat: async () => okRetrieval,
     getConversationMessages: async () => [],
+    // MBOX-307 — canned stats so the default DB-backed helper is never hit in
+    // this hermetic suite (no real Postgres available here).
+    getApplianceStats: async () => ({
+      inbound: {
+        total: 5,
+        last_24h: 1,
+        last_7d: 3,
+        last_30d: 5,
+        earliest_received_at: '2026-01-01T00:00:00Z',
+        latest_received_at: '2026-05-23T00:00:00Z',
+      },
+      categories: [{ category: 'reorder', count: 5 }],
+      top_senders: [{ addr: 'a@example.com', count: 5 }],
+      top_recipients: [{ addr: 'b@example.com', count: 2 }],
+      queue: { pending: 1, approved: 0, sent: 4, rejected: 0 },
+    }),
     appendMessage: appendMessage as unknown as ChatSendDeps['appendMessage'],
     streamChat: () =>
       scriptStream([
@@ -135,6 +151,23 @@ describe('runChatTurn — retrieval gating (SM-74)', () => {
     const assistantCall = appendMessage.mock.calls[0][0];
     expect(assistantCall.rag_context_refs).toEqual([]);
     expect(assistantCall.rag_retrieval_reason).toBe('below_floor');
+  });
+});
+
+describe('runChatTurn — appliance stats (MBOX-307)', () => {
+  it('a stats query failure degrades to no block and does NOT abort the turn', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { deps } = baseDeps({
+      getApplianceStats: async () => {
+        throw new Error('aggregate boom');
+      },
+    });
+    const events = await collect(
+      runChatTurn({ conversationId: 1, content: 'how many emails?', skipUserPersist: true }, deps),
+    );
+    // Turn still streams + persists despite the stats failure.
+    expect(events.map((e) => e.type)).toEqual(['token', 'token', 'done', 'saved']);
+    errSpy.mockRestore();
   });
 });
 
