@@ -148,3 +148,91 @@ export interface LlmRuntimeErrorPayload {
   upstream_status?: number;
   upstream_detail?: string;
 }
+
+// ── Interactive streaming (MBOX-284 / DR-25 streaming consumer) ──────────
+//
+// The non-streaming envelopes above stay the contract for the draft pipeline
+// (n8n calls /api/chat with stream:false). The shapes below model the
+// token-by-token path used by the chat UI (MBOX-287). They are LOCAL-ONLY by
+// construction (DR-53 / SM-73): the streaming relay only ever talks to the
+// runtime selected by LOCAL_INFERENCE_RUNTIME — there is no cloud baseUrl seam.
+//
+// `StreamEvent` is the normalized internal event the relay yields regardless
+// of which upstream wire shape served it (llama.cpp OpenAI SSE deltas or
+// Ollama NDJSON chunks). The SSE serializer turns these into
+// `event: <type>\ndata: <json>\n\n` frames for the browser.
+
+/** A normalized streaming event the dashboard relay yields to the browser. */
+export type StreamEvent = StreamTokenEvent | StreamDoneEvent | StreamErrorEvent;
+
+/** One incremental chunk of assistant text. `delta` is append-only. */
+export interface StreamTokenEvent {
+  type: 'token';
+  delta: string;
+}
+
+/** Terminal success event carrying final metadata for persistence (MBOX-285). */
+export interface StreamDoneEvent {
+  type: 'done';
+  /** The model that actually served the turn (configured local model name). */
+  model: string;
+  /** Reason the runtime stopped, normalized to Ollama's vocabulary. */
+  done_reason?: 'stop' | 'length';
+  /** Prompt (input) token count when the runtime reports it. */
+  prompt_eval_count?: number;
+  /** Generated (output) token count when the runtime reports it. */
+  eval_count?: number;
+}
+
+/**
+ * Terminal failure event. `code` distinguishes a genuine local-runtime outage
+ * ('local_unavailable' — the SM-70/AC "box unavailable" case) from a malformed
+ * upstream stream ('upstream_malformed'). The chat UI must render
+ * 'local_unavailable' distinctly from a normal empty response (AC requirement).
+ */
+export interface StreamErrorEvent {
+  type: 'error';
+  code: 'local_unavailable' | 'upstream_malformed';
+  detail: string;
+  runtime: RuntimeKind;
+}
+
+/** A streaming /api/chat request. Mirrors OllamaChatRequest but stream:true. */
+export interface OllamaChatStreamRequest {
+  model: string;
+  messages: readonly OllamaChatMessage[];
+  stream: true;
+  options?: Record<string, unknown>;
+}
+
+// ── Upstream streaming chunk shapes (internal, what the relay parses) ────
+
+/** One NDJSON line from Ollama's /api/chat stream:true response. */
+export interface OllamaChatStreamChunk {
+  model: string;
+  created_at?: string;
+  message?: { role: 'assistant'; content: string };
+  done: boolean;
+  done_reason?: string;
+  prompt_eval_count?: number;
+  eval_count?: number;
+}
+
+/** One `data:` frame payload from llama.cpp's /v1/chat/completions SSE. */
+export interface LlamaCppOpenAIStreamChunk {
+  id?: string;
+  object?: string;
+  model?: string;
+  choices: ReadonlyArray<{
+    index?: number;
+    delta?: { role?: 'assistant'; content?: string };
+    finish_reason?: string | null;
+  }>;
+  /** llama.cpp attaches usage/timings on the final chunk when stream_options
+   *  request it; both are tolerated-absent. */
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
+  timings?: LlamaCppTimings;
+}

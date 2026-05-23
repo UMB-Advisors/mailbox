@@ -93,6 +93,29 @@ export const llmChatBodySchema = z
 
 export type LlmChatBody = z.infer<typeof llmChatBodySchema>;
 
+// POST /api/internal/llm/api/chat/stream — interactive token streaming for the
+// chat UI (MBOX-284). LOCAL-ONLY (DR-53 / SM-73): the route ignores any
+// caller-supplied baseUrl/runtime and always targets the local runtime selected
+// by LOCAL_INFERENCE_RUNTIME, so no field here can redirect to a cloud model.
+// `model` is accepted for telemetry parity with the non-streaming body but the
+// route overrides the upstream model with the configured local model name.
+export const llmChatStreamBodySchema = z
+  .object({
+    model: z.string().trim().min(1).optional(),
+    messages: z
+      .array(
+        z.object({
+          role: z.enum(['system', 'user', 'assistant']),
+          content: z.string(),
+        }),
+      )
+      .min(1, 'messages (non-empty array) required'),
+    options: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strip();
+
+export type LlmChatStreamBody = z.infer<typeof llmChatStreamBodySchema>;
+
 // POST /api/internal/inbox-messages — STAQPRO-135 ingest endpoint that
 // replaces n8n's `Insert Inbox (skip dupes)` Postgres node. Field shape
 // mirrors what n8n's `Extract Fields` set node already produces; tightening
