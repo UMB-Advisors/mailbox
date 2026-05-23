@@ -71,7 +71,14 @@
 
   # Dashboard approval queue. STAQPRO-131: behind the basic_auth above.
   handle /dashboard/* {
-    reverse_proxy mailbox-dashboard:3001
+    # flush_interval -1: flush every write immediately so SSE (the
+    # /dashboard/chat token stream, MBOX-284/287) reaches the browser as
+    # tokens generate. Without it Caddy buffers the stream; during a long
+    # generation no bytes flow, the idle TCP connection is dropped, and the
+    # browser shows ERR_CONNECTION_TIMED_OUT. Harmless for normal responses.
+    reverse_proxy mailbox-dashboard:3001 {
+      flush_interval -1
+    }
   }
 
   # n8n editor + any other paths (incl. /webhook/*) — same auth gate.
@@ -120,7 +127,14 @@
   redir / /dashboard/queue 308
 
   handle /dashboard/* {
-    reverse_proxy mailbox-dashboard:3001
+    # flush_interval -1: flush every write immediately so SSE (the
+    # /dashboard/chat token stream, MBOX-284/287) reaches the browser as
+    # tokens generate. Without it Caddy buffers the stream; during a long
+    # generation no bytes flow, the idle TCP connection is dropped, and the
+    # browser shows ERR_CONNECTION_TIMED_OUT. Harmless for normal responses.
+    reverse_proxy mailbox-dashboard:3001 {
+      flush_interval -1
+    }
   }
 
   handle {
