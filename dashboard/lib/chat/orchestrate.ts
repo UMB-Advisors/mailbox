@@ -44,6 +44,10 @@ import {
   getConversationMessages as getConversationMessagesImpl,
 } from '@/lib/queries-chat';
 import {
+  type ApplianceStatsContext,
+  getApplianceStatsContext as getApplianceStatsContextImpl,
+} from '@/lib/queries-chat-stats';
+import {
   type ChatRetrievalResult,
   retrieveForChat as retrieveForChatImpl,
 } from '@/lib/rag/chat-retrieve';
@@ -109,6 +113,11 @@ export interface ChatSendDeps {
   retrieveForChat?: (query: string) => Promise<ChatRetrievalResult>;
   getConversationMessages?: (conversationId: number) => Promise<ChatMessage[]>;
   appendMessage?: typeof appendMessageImpl;
+  // MBOX-307 — live appliance stats injected into the chat context for
+  // operational/aggregate questions. Defaults to the real aggregate query;
+  // tests pass a canned object. A throw here degrades to no stats block (the
+  // turn is not aborted) — see runChatTurn.
+  getApplianceStats?: () => Promise<ApplianceStatsContext>;
   // Returns the normalized StreamEvent generator for the assembled messages.
   // Defaults to the real local-runtime relay (streamLocalChat) wired to the
   // on-device runtime config.
@@ -140,6 +149,7 @@ export async function* runChatTurn(
   const retrieveForChat = deps.retrieveForChat ?? retrieveForChatImpl;
   const getConversationMessages = deps.getConversationMessages ?? getConversationMessagesImpl;
   const appendMessage = deps.appendMessage ?? appendMessageImpl;
+  const getApplianceStats = deps.getApplianceStats ?? getApplianceStatsContextImpl;
   const streamChat =
     deps.streamChat ??
     ((messages: OllamaChatMessage[]) => defaultStreamChat(messages, deps.signal));
@@ -161,6 +171,17 @@ export async function* runChatTurn(
   //    reason degrades to plain chat (SM-74), it does not abort the turn.
   const retrieval = await retrieveForChat(content);
 
+  // 2b. Compute the live appliance-stats block (MBOX-307) so operational/
+  //     aggregate questions are answered from real numbers. A failure here is
+  //     non-fatal: degrade to no stats block (null) rather than aborting the
+  //     turn — chat must keep working if the aggregate query hiccups.
+  let stats: ApplianceStatsContext | null = null;
+  try {
+    stats = await getApplianceStats();
+  } catch (error) {
+    console.error('runChatTurn — appliance-stats query failed (degrading to no block):', error);
+  }
+
   // 3. Load prior history (now includes the just-persisted user turn; drop it
   //    from priming since assembleChatMessages appends the user turn itself).
   const fullHistory = await getConversationMessages(input.conversationId);
@@ -170,6 +191,7 @@ export async function* runChatTurn(
     history: priorHistory,
     userContent: content,
     retrieval,
+    stats,
   });
 
   // 4. Stream the local model, relaying tokens and capturing the answer + the
