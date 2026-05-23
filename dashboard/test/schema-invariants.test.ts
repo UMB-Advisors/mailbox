@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
 import { PREFERENCE_KEY_RE } from '../lib/schemas/preferences';
-import { KB_DOC_STATUSES, REJECT_REASON_CODES } from '../lib/types';
+import { CHAT_MESSAGE_ROLES, KB_DOC_STATUSES, REJECT_REASON_CODES } from '../lib/types';
 
 // Highest-leverage test for STAQPRO-133. Asserts that the live Postgres
 // CHECK constraints match (or are compatible with) the TS-side constants.
@@ -147,6 +147,29 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
       expect(def).toMatch(/WHERE \(operator_id IS NULL\)/i);
     },
   );
+
+  it.skipIf(!DB_URL)(
+    'chat_messages.role CHECK matches CHAT_MESSAGE_ROLES (MBOX-285, migration 027)',
+    async () => {
+      const allowed = await getCheckValues(pool!, 'chat_messages', 'chat_messages_role_check');
+      const expected = [...CHAT_MESSAGE_ROLES];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
+    'chat_messages has the (conversation_id, created_at) read index (MBOX-285, migration 027)',
+    async () => {
+      const def = await getIndexDef(pool!, 'chat_messages_conversation_id_created_at_idx');
+      expect(def).toMatch(/CREATE INDEX/i);
+      expect(def).toMatch(/\(conversation_id, created_at\)/);
+    },
+  );
+
+  it('CHAT_MESSAGE_ROLES from lib/types.ts has no duplicates and is non-empty', () => {
+    expect(CHAT_MESSAGE_ROLES.length).toBeGreaterThan(0);
+    expect(new Set(CHAT_MESSAGE_ROLES).size).toBe(CHAT_MESSAGE_ROLES.length);
+  });
 
   it('PREFERENCE_KEY_RE accepts dotted lowercase keys and rejects junk', () => {
     expect(PREFERENCE_KEY_RE.test('queue.filters')).toBe(true);
