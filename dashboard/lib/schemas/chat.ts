@@ -40,3 +40,15 @@ export const chatMessagesQuerySchema = z.object({
 });
 
 export type ChatMessagesQuery = z.infer<typeof chatMessagesQuerySchema>;
+
+// MBOX-283 — POST /api/internal/chat/retrieve. Query-scoped top-k retrieval
+// over the email_messages Qdrant collection to ground a chat answer. The
+// route embeds `query` and returns the above-floor hits + their point UUIDs;
+// MBOX-287 renders them as sources and persists the UUIDs into
+// chat_messages.rag_context_refs (MBOX-285). 2000-char cap keeps the embed
+// input bounded (embed.ts truncates further to EMBED_MAX_CHARS regardless).
+export const chatRetrieveSchema = z.object({
+  query: z.string().trim().min(1, 'query (non-empty string) required').max(2000),
+});
+
+export type ChatRetrieve = z.infer<typeof chatRetrieveSchema>;
