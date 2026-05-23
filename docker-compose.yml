@@ -210,6 +210,31 @@ services:
       LOCAL_INFERENCE_RUNTIME: ${LOCAL_INFERENCE_RUNTIME:-ollama}
       LLAMA_CPP_BASE_URL: ${LLAMA_CPP_BASE_URL:-http://llama-cpp:8080}
       LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:-qwen3-4b-instruct-2507}
+      # MBOX-306 — env vars read by dashboard code (lib/drafting/router.ts,
+      # lib/drafting/thread-history.ts, lib/rag/retrieve.ts) but previously NOT
+      # forwarded into the container, so setting them in .env silently no-op'd
+      # (no dotenv loader in the dashboard runtime). Defaults below mirror the
+      # code defaults exactly, so behavior is unchanged when the var is unset.
+      #
+      # Cloud-route RAG privacy gate (default off per root CLAUDE.md "RAG
+      # retrieval → Privacy gate"). Until this was forwarded the gate could not
+      # be flipped on via .env at all — cloud-route drafts always fell back to
+      # persona-stub. Default '' (not '1'): code checks `=== '1'`, so '' is off.
+      RAG_CLOUD_ROUTE_ENABLED: ${RAG_CLOUD_ROUTE_ENABLED:-}
+      # Cloud drafter model + base URL overrides (router.ts:39-40). Documented
+      # in CLAUDE.md as the override knob but ignored until forwarded.
+      OLLAMA_CLOUD_MODEL: ${OLLAMA_CLOUD_MODEL:-gpt-oss:120b}
+      OLLAMA_CLOUD_BASE_URL: ${OLLAMA_CLOUD_BASE_URL:-https://ollama.com}
+      # RAG retrieval tunables (retrieve.ts:154-200, STAQPRO-191/221/222).
+      # Forwarded so they are .env-tunable; defaults match retrieve.ts so unset
+      # = current behavior. EXCLUDE_SAME_THREAD is on unless explicitly '0'
+      # (code checks `!== '0'`), so the '1' default preserves the on-state.
+      RAG_RETRIEVE_TOP_K: ${RAG_RETRIEVE_TOP_K:-3}
+      RAG_RETRIEVE_TOP_K_OUTBOUND: ${RAG_RETRIEVE_TOP_K_OUTBOUND:-2}
+      RAG_RETRIEVE_TOP_K_INBOUND: ${RAG_RETRIEVE_TOP_K_INBOUND:-1}
+      RAG_MIN_INBOUND_CHARS: ${RAG_MIN_INBOUND_CHARS:-40}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.70}
+      RAG_RETRIEVE_EXCLUDE_SAME_THREAD: ${RAG_RETRIEVE_EXCLUDE_SAME_THREAD:-1}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
