@@ -5,7 +5,7 @@
 **Inference:** CLOUD only (NVIDIA NIM) — no local LLM.
 **Reviewed against:** NemoClaw installer `nvidia.com/nemoclaw.sh`, `scripts/install.sh`, `scripts/setup-jetson.sh` (all on `main`), and the **vendored** `scripts/openclaw/fix-iptables-jetson.sh` (from closed PR #560).
 
-> **Why the manual patch:** the gateway-image iptables-legacy fix (PR #560) was **closed unmerged**. `setup-jetson.sh` (on main) handles host `br_netfilter`/sysctl, but **not** the gateway container's `iptables-nft → legacy` swap. On Jetson, k3s runs *inside* the gateway container, so a host-level fix can't help it — the image must be rebuilt. See `docs/spike-m0-openshell-jetson-gateway-v0_1-2026-05-22.md`.
+> **Reality on OpenShell 0.0.44 (reproduced 2026-05-22, MB2):** the iptables/k3s gateway crash (#404/#539) does **NOT** occur — `fix-iptables-jetson.sh` is **not needed**. The actual blocker is **glibc**: 0.0.44's `openshell-gateway`/`openshell-sandbox` need glibc 2.39, JetPack 6.2 ships 2.35. The gateway self-heals (runs in an `ubuntu:24.04` compat container) but the **sandbox bind-mount breaks** → apply `scripts/openclaw/fix-sandbox-mount-jetson.sh` (step 4). Full details + the durable Ubuntu-24.04 recommendation: `docs/spike-m0-openshell-jetson-gateway-v0_1-2026-05-22.md`.
 
 ---
 
@@ -42,34 +42,48 @@ sudo nemoclaw setup-jetson      # or: sudo bash <repo>/scripts/setup-jetson.sh
 # /etc/modules-load.d/nemoclaw.conf + /etc/sysctl.d/99-nemoclaw.conf
 ```
 
-## 4. Onboard → gateway crash → patch → re-onboard (the Jetson loop)
+## 4. Onboard → sandbox-mount fix → re-onboard (the real JetPack-6.2 loop)
 
-`nemoclaw onboard` starts the OpenShell gateway (k3s in a container). On Jetson the **first** start crashes
-on `RULE_INSERT failed` because the gateway image uses `iptables-nft`. Patch the now-cached image, then re-onboard.
+Inference (NVIDIA NIM cloud) is configured **at onboard time via env** — provider value is **`build`** (not `nvidia-nim`), key env **`NVIDIA_API_KEY`**, default model `nvidia/nemotron-3-super-120b-a12b`. The gateway comes up fine (in an `ubuntu:24.04` compat container); the **first sandbox start fails** on the glibc compat-mount bug, so apply the fix and re-onboard.
 
 ```bash
-# first onboard attempt (non-interactive); gateway will crash on Jetson
-NEMOCLAW_POLICY_TIER=balanced \
-  nemoclaw onboard --non-interactive --yes-i-accept-third-party-software || true
+export PATH="$HOME/.local/bin:$PATH"; . "$HOME/.nvm/nvm.sh"; nvm use 22
+export NEMOCLAW_PROVIDER=build NVIDIA_API_KEY=<nvapi-key> NEMOCLAW_POLICY_TIER=balanced NEMOCLAW_NON_INTERACTIVE=1
 
-# patch the crashed gateway image in place (re-tags same name → next start uses it)
-sudo bash scripts/openclaw/fix-iptables-jetson.sh nemoclaw
+# 1st onboard: gateway up, sandbox image builds (~5 min), then sandbox START fails:
+#   exec "/opt/openshell/bin/openshell-sandbox": is a directory
+nemoclaw onboard --non-interactive --yes-i-accept-third-party-software --yes || true
 
-# re-onboard — recreates the gateway from the patched local image
-NEMOCLAW_POLICY_TIER=balanced \
-  nemoclaw onboard --non-interactive --yes-i-accept-third-party-software
+# fix the host-side bind-mount source (materialize the staged sandbox binary)
+sudo bash scripts/openclaw/fix-sandbox-mount-jetson.sh nemoclaw-openshell-gateway
+
+# re-onboard (build cached → fast): sandbox starts, dashboard :18789 live
+nemoclaw onboard --non-interactive --yes-i-accept-third-party-software --yes
 ```
 
-> Use `nemoclaw onboard` to (re)create the gateway/sandbox — **not** `openshell gateway start --recreate` directly (per upstream warning; doing so detaches OpenShell from NemoClaw management).
+> `fix-iptables-jetson.sh` is **NOT needed** on OpenShell 0.0.44 (no iptables/k3s crash). It's kept vendored only as a fallback for older OpenShell.
+> Use `nemoclaw onboard` to (re)create the gateway/sandbox — **not** `openshell gateway start --recreate` directly (detaches OpenShell from NemoClaw management).
 
 ## 5. Cloud inference — NVIDIA NIM (Task 3)
 
+Inference is already set by step 4's `NEMOCLAW_PROVIDER=build` + `NVIDIA_API_KEY`. Verify the round-trip:
+
 ```bash
-# provider + key (NIM key from build.nvidia.com / NGC) — exact flag/env confirmed at run time
-openshell inference set --provider nvidia-nim --api-key "$NVIDIA_NIM_API_KEY" --model <nim-model>
-# round-trip test
-bash scripts/test-inference.sh         # (ships on main) or a direct gateway prompt
+# direct NIM check (proves key+model+endpoint) — returns HTTP 200 with a completion
+python3 - <<'PY'
+import urllib.request, json, os
+body=json.dumps({"model":"nvidia/nemotron-3-super-120b-a12b",
+  "messages":[{"role":"user","content":"ping"}],"max_tokens":16}).encode()
+req=urllib.request.Request("https://integrate.api.nvidia.com/v1/chat/completions", data=body,
+  headers={"Authorization":"Bearer "+os.environ["NVIDIA_API_KEY"],"Content-Type":"application/json"})
+r=urllib.request.urlopen(req,timeout=90); print("HTTP",r.status, json.load(r)["model"])
+PY
+# end-to-end via the agent: open the dashboard at http://127.0.0.1:18789/ and chat,
+# or `nemoclaw my-assistant dashboard-url --quiet` for an authenticated URL.
+# To change model/provider later: nemoclaw inference set --model <m> --provider build --sandbox my-assistant
 ```
+
+> The default NIM model `nvidia/nemotron-3-super-120b-a12b` is a **reasoning** model (emits chain-of-thought). Fine for round-trip validation; for the drafting path, handle/strip reasoning or pick a non-reasoning NIM model.
 
 ## 6. Verify (Done-when)
 
