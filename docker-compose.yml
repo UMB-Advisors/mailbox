@@ -235,6 +235,14 @@ services:
       RAG_MIN_INBOUND_CHARS: ${RAG_MIN_INBOUND_CHARS:-40}
       RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.70}
       RAG_RETRIEVE_EXCLUDE_SAME_THREAD: ${RAG_RETRIEVE_EXCLUDE_SAME_THREAD:-1}
+      # MBOX-283 — chat retrieval tunables (lib/rag/chat-retrieve.ts). Query-
+      # scoped top-k over email_messages with a relevance floor for the
+      # /dashboard/chat surface (MBOX-282). Separate knobs from the draft-path
+      # RAG_* vars so chat can pull a wider source set without disturbing the
+      # draft-prompt token budget. Defaults match chat-retrieve.ts so unset =
+      # current behavior (per the MBOX-306 forward-or-no-op rule).
+      CHAT_RETRIEVE_TOP_K: ${CHAT_RETRIEVE_TOP_K:-4}
+      CHAT_RETRIEVE_SCORE_FLOOR: ${CHAT_RETRIEVE_SCORE_FLOOR:-0.65}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
