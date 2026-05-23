@@ -58,6 +58,14 @@ export interface ClassificationLog {
   think_stripped: Generated<boolean>;
 }
 
+export interface DigestSends {
+  id: Generated<number>;
+  recipient: string | null;
+  sent_at: Generated<string>;
+  sent_on: string;
+  subject: string | null;
+}
+
 export interface DraftFeedback {
   draft_id: number;
   free_text: string | null;
@@ -282,6 +290,7 @@ export interface DB {
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
   classification_log: ClassificationLog;
+  digest_sends: DigestSends;
   draft_feedback: DraftFeedback;
   drafts: Drafts;
   inbox_messages: InboxMessages;
