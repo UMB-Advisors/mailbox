@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '@/lib/api';
+import type { Category } from '@/lib/classification/prompt';
 import { type DraftWithMessage, REJECT_REASON_LABELS } from '@/lib/types';
 import type { ActionKind } from './ActionButtons';
 import { AppShell } from './AppShell';
@@ -374,6 +375,41 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     }
   }
 
+  // MBOX-123 — operator classification override (relabel only). PATCHes the
+  // new category, optimistically patches the selected draft's message
+  // classification in local state for instant feedback, then re-syncs. Unlike
+  // approve/reject this does NOT auto-advance or remove the draft — the
+  // operator is correcting the label, not actioning the draft. Re-draft on
+  // override is intentionally out of scope for v1 (STAQPRO-403 / MBOX-123).
+  async function fireReclassify(draft: DraftWithMessage, category: Category) {
+    // No-op if the category didn't change (the popover already guards this,
+    // but belt-and-suspenders against a programmatic call).
+    if (draft.message.classification === category) return;
+    try {
+      const res = await fetch(apiUrl(`/api/drafts/${draft.id}/classification`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `reclassify failed (${res.status})`);
+      // Optimistic local patch so the pill updates without waiting for the
+      // next poll. fetchData(true) below reconciles against the server.
+      setDrafts((list) =>
+        list.map((d) =>
+          d.id === draft.id ? { ...d, message: { ...d.message, classification: category } } : d,
+        ),
+      );
+      setToast({ kind: 'success', text: `Reclassified as ${category}` });
+      fetchData(true);
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'reclassify failed',
+      });
+    }
+  }
+
   // STAQPRO-331 #8 — apply pending-queue sort. Server returns newest-first
   // (created_at DESC); 'oldest' flips it so overdue rows surface at the top.
   // Archive folders (approved/sent/rejected) stay in server order — there's
@@ -655,6 +691,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
                   onApprove={() => fireAction('approve', selected)}
                   onEdit={() => setEditing(selected)}
                   onReject={(payload) => fireReject(payload, selected)}
+                  onReclassify={(category) => fireReclassify(selected, category)}
                   rejectPopoverOpen={rejectPopoverOpen}
                   onRejectPopoverChange={setRejectPopoverOpen}
                 />

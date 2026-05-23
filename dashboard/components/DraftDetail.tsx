@@ -1,6 +1,8 @@
 import { Check, Send, X } from 'lucide-react';
+import type { Category } from '@/lib/classification/prompt';
 import type { DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
+import { ClassificationOverride } from './ClassificationOverride';
 import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
 import type { RejectPayload } from './RejectPopover';
@@ -16,6 +18,7 @@ export function DraftDetail({
   onApprove,
   onEdit,
   onReject,
+  onReclassify,
   rejectPopoverOpen,
   onRejectPopoverChange,
 }: {
@@ -26,6 +29,8 @@ export function DraftDetail({
   onEdit: () => void;
   // STAQPRO-331 #1 — reject now carries structured feedback.
   onReject: (payload: RejectPayload) => void;
+  // MBOX-123 — operator classification override (relabel only, no re-draft).
+  onReclassify: (category: Category) => void;
   // Optional controlled-popover hooks from QueueClient (lets the 'x'
   // keyboard shortcut open the popover instead of firing reject directly).
   rejectPopoverOpen?: boolean;
@@ -80,6 +85,13 @@ export function DraftDetail({
             classification={draft.message.classification}
             confidence={draft.message.confidence}
           />
+          {/* MBOX-123 — inline classification override. Relabel only (no
+              re-draft): if the override changes intent, the operator hits
+              Edit or Reject separately. Read-only (archive) folders show the
+              category via RoutingBadge but don't expose the override control. */}
+          {!readOnly && draft.message.classification && (
+            <ClassificationOverride value={draft.message.classification} onChange={onReclassify} />
+          )}
           {draft.input_tokens != null && draft.output_tokens != null && (
             <span className="font-mono text-xs text-ink-dim">
               {draft.input_tokens}↗ / {draft.output_tokens}↙ tokens

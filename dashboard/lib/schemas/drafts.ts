@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CATEGORIES, type Category } from '@/lib/classification/prompt';
 import {
   DRAFT_STATUSES,
   type DraftStatus,
@@ -110,3 +111,32 @@ export const editBodySchema = z.object({
 });
 
 export type EditBody = z.infer<typeof editBodySchema>;
+
+// PATCH /api/drafts/[id]/classification — MBOX-123 operator classification
+// override. Body shape: { category: <enum>, reason?: string }.
+//
+// `category` is anchored to the canonical CATEGORIES tuple from
+// lib/classification/prompt.ts so the zod enum can never drift from the
+// classifier's category set OR the live mailbox.classification_log /
+// mailbox.drafts CHECK constraints (both list the same 8 categories — asserted
+// by test/schema-invariants.test.ts).
+//
+// `reason` is an optional free-text operator note. It is NOT a structured
+// reason_code like reject feedback — an override is a direct relabel, and the
+// operator's own words land in mailbox.classification_log.raw_output as the
+// audit trail for why the relabel happened. Default cap mirrors the reject
+// free_text cap for consistency.
+const OVERRIDE_REASON_MAX = 2000;
+const categoryEnum = z.enum(CATEGORIES as readonly [Category, ...Category[]]);
+export const classificationOverrideBodySchema = z.object({
+  category: categoryEnum,
+  reason: z
+    .string()
+    .trim()
+    .max(OVERRIDE_REASON_MAX, `reason must be <= ${OVERRIDE_REASON_MAX} chars`)
+    .optional()
+    .nullable()
+    .transform((v) => (v && v.length > 0 ? v : null)),
+});
+
+export type ClassificationOverrideBody = z.infer<typeof classificationOverrideBodySchema>;
