@@ -1,6 +1,8 @@
-# MailBox One OTA Update Runbook v0.1.0
+# MailBox One OTA Update Runbook v0.2.0
 
 **Status:** DRAFT — authored for MBOX-181 (M5 "OTA + QA validation"). The build/push and customer-pull procedures are canonical; the rollback drill and the boot/power numbers want one real on-device pass to fill the `RESULT:` blanks before v1.0.0.
+
+**v0.2.0 (MBOX-181 follow-up):** §6 Gate 3 description corrected — `smoke-pipeline.sh` now drives the dashboard internal routes + LLM proxy directly rather than triggering `MailBOX-Classify` via the n8n CLI. The old `n8n execute --id=<classify-sub> --file=<input>` trigger could never work on n8n 2.14.2 (`--file` is deprecated and the classify sub's `passthrough` trigger takes no input data). The route-driven mechanism replicates the classify→draft pipeline node-for-node and was validated green on M1.
 
 **Audience:** Operator (Dustin or successor) cutting an OTA release for the custom services, and the runbook the customer-initiated update flow is derived from.
 
@@ -200,7 +202,9 @@ docker compose --profile n8n-verify run --rm mailbox-n8n-verify
 ./scripts/smoke-pipeline.sh --host local
 ```
 
-`smoke-pipeline.sh` seeds a synthetic inbound, triggers `MailBOX-Classify`, and asserts a draft lands in `mailbox.drafts` with a valid category and non-empty body. It NEVER approves the draft or calls the `mailbox-send` webhook, so Gmail Reply is structurally never reached — safe to run against a live customer box. It cleans up its synthetic rows on exit (use `--keep` to leave them for debugging). Exit 0 = pipeline healthy; 1 = assertion failed; 2 = setup/precondition error (e.g. a workflow inactive — fix with Gate 1 first).
+`smoke-pipeline.sh` seeds a synthetic inbound, then **drives the dashboard internal routes + LLM proxy directly** — replicating the `MailBOX-Classify` and `MailBOX-Draft` node sequence (classification-prompt → llm/api/generate → classification-normalize → classification_log insert → live-gate → draft-stub insert → draft-prompt → {baseUrl}/api/chat → draft-finalize) — and asserts a draft lands in `mailbox.drafts` with a valid category and non-empty body. It does NOT trigger n8n: the classify sub-workflow's only trigger is a `passthrough` `executeWorkflowTrigger` that takes no input, and `n8n execute --file` is deprecated/unsupported on n8n 2.14.2, so a CLI trigger could never feed it the synthetic inbox id (this was the MBOX-181 follow-up fix). Bypassing n8n orchestration still exercises the real prompts, models, route logic, DB writes, and triggers (the `classification_log` denorm trigger + the `drafts` state machine). It NEVER approves the draft or calls the `mailbox-send` webhook, so Gmail Reply is structurally never reached — safe to run against a live customer box. It cleans up its synthetic rows on exit (use `--keep` to leave them for debugging). Exit 0 = pipeline healthy (or drafting correctly gated/dropped — see below); 1 = assertion failed; 2 = setup/precondition error (e.g. the dashboard container or LLM proxy is down).
+
+Note: if the appliance's onboarding stage is not `live` (and `MAILBOX_LIVE_GATE_BYPASS` is unset), or the synthetic message classifies as `spam_marketing`, the script exits 0 with a clear "gated"/"dropped" message rather than failing — those are healthy classify-only outcomes where no draft is created by design. The Gate-1 `n8n-verify` profile (not this script) is what catches inactive workflows.
 
 A green OTA = all three gates exit 0.
 
@@ -248,7 +252,7 @@ For a heavier, more realistic load, loop `smoke-pipeline.sh` in a second shell d
 
 ### 7.3 Latency (inbound → draft)
 
-`smoke-pipeline.sh`'s wait loop reports how long the synthetic message took from seed to draft-row-present. Run it once on the local route and once with `--cloud` and record both against the < 30 s local / < 60 s cloud SLA:
+`smoke-pipeline.sh` is now synchronous (it drives each pipeline step inline rather than waiting on n8n's 5-min poll), so it surfaces per-step timing — most usefully the classify LLM proxy latency (`classify LLM → … (~Nms via proxy)`) and the `/api/chat` draft call. Because there is no async hand-off, total wall-clock seed→draft is the sum of those calls; time the whole invocation (`time ./scripts/smoke-pipeline.sh …`) for an end-to-end number. Run it once on the local route and once with `--cloud` and record both against the < 30 s local / < 60 s cloud SLA:
 
 ```bash
 ./scripts/smoke-pipeline.sh --host local             # local path

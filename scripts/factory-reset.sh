@@ -37,7 +37,12 @@
 #
 #   --dry-run        Print the full blast radius and exit 0. No container, no
 #                    volume, no file, no identity is touched. Mirrors the
-#                    convention in provision-customer-dns.sh.
+#                    convention in provision-customer-dns.sh. Because it wipes
+#                    nothing, --dry-run does NOT require root and does NOT
+#                    refuse on a production host — it previews freely and prints
+#                    the prod-guard status as informational (MBOX-181). A REAL
+#                    run still requires sudo AND honors the RESET_ALLOW_PROD
+#                    production guard below.
 #   --no-bootstrap   Skip the final re-run of factory-bootstrap.sh. Use when
 #                    re-flashing and you intend to run bootstrap manually, or
 #                    when bootstrap is not present on this box yet. Default is
@@ -55,13 +60,14 @@
 #   explicit RESET env so a stray invocation cannot destroy a box.
 #
 # PRODUCTION SAFETY
-#   Refuses to run if the hostname OR the tailscale identity matches a known
+#   Refuses a REAL run if the hostname OR the tailscale identity matches a known
 #   production appliance (default: mailbox1, mailbox2). Override the list with
 #   RESET_PROD_HOSTS (space-separated). To deliberately reset a listed host
 #   (e.g. retiring M1 after M2 is the live reference), set
-#   RESET_ALLOW_PROD=1 in addition to the confirmation above.
+#   RESET_ALLOW_PROD=1 in addition to the confirmation above. --dry-run is
+#   exempt — it previews on any host (the guard prints as informational).
 #
-# REQUIRED ENV / PRE-CONDITIONS
+# REQUIRED ENV / PRE-CONDITIONS (REAL runs only — --dry-run skips all of these)
 #   - Must run as root (sudo).
 #   - docker + docker compose v2 plugin available.
 #   - Run from inside the repo (the script locates the compose file via REPO_ROOT).
@@ -123,22 +129,27 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── pre-conditions ──────────────────────────────────────────────────────────────
-if [[ $EUID -ne 0 ]]; then
-  echo "ERROR: must run with sudo. Try: sudo bash $0" >&2
-  exit 1
-fi
+# --dry-run touches nothing — it only PREVIEWS the blast radius — so it does NOT
+# require root and does NOT enforce the docker/compose preconditions or the
+# production-host refusal. A real run keeps every guard. (MBOX-181 defect 2)
+if [[ $DRY_RUN -eq 0 ]]; then
+  if [[ $EUID -ne 0 ]]; then
+    echo "ERROR: must run with sudo. Try: sudo bash $0" >&2
+    exit 1
+  fi
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker not found on PATH. Cannot tear down the stack." >&2
-  exit 1
-fi
-if ! docker compose version >/dev/null 2>&1; then
-  echo "ERROR: 'docker compose' (v2 plugin) not available. Standalone v1 is unsupported." >&2
-  exit 1
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker not found on PATH. Cannot tear down the stack." >&2
+    exit 1
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "ERROR: 'docker compose' (v2 plugin) not available. Standalone v1 is unsupported." >&2
+    exit 1
+  fi
 fi
 
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
-if [[ ! -f "$COMPOSE_FILE" ]]; then
+if [[ ! -f "$COMPOSE_FILE" && $DRY_RUN -eq 0 ]]; then
   echo "ERROR: compose file not found at $COMPOSE_FILE — run from inside the repo." >&2
   exit 1
 fi
@@ -175,17 +186,30 @@ is_prod_host() {
 }
 
 if is_prod_host; then
-  if [[ "$RESET_ALLOW_PROD" != "1" ]]; then
+  if [[ $DRY_RUN -eq 1 ]]; then
+    # --dry-run wipes nothing, so the prod guard is informational only — never
+    # a hard refusal. Surface the status so the preview makes clear a REAL run
+    # would (or would not) need RESET_ALLOW_PROD. (MBOX-181 defect 2)
+    if [[ "$RESET_ALLOW_PROD" != "1" ]]; then
+      echo "ℹ DRY RUN on a known-production host ('${CURRENT_HOST}'): a REAL run would be"
+      echo "ℹ          REFUSED (exit 3) unless RESET_ALLOW_PROD=1. Previewing anyway."
+    else
+      echo "ℹ DRY RUN on a known-production host ('${CURRENT_HOST}') with RESET_ALLOW_PROD=1:"
+      echo "ℹ          a REAL run would proceed to wipe this PRODUCTION appliance."
+    fi
+    echo ""
+  elif [[ "$RESET_ALLOW_PROD" != "1" ]]; then
     echo "ERROR: '${CURRENT_HOST}' looks like a known-production appliance." >&2
     echo "       (matched RESET_PROD_HOSTS='${RESET_PROD_HOSTS}' or a mailboxN tailnet identity)" >&2
     echo "       Refusing to wipe a live customer box." >&2
     echo "       If you really mean to reset it (e.g. retiring M1 after M2 is" >&2
     echo "       the live reference), re-run with RESET_ALLOW_PROD=1." >&2
     exit 3
+  else
+    echo "⚠ WARNING: '${CURRENT_HOST}' is a known-production host, but RESET_ALLOW_PROD=1 is set."
+    echo "⚠          Proceeding to wipe a PRODUCTION appliance. This is irreversible."
+    echo ""
   fi
-  echo "⚠ WARNING: '${CURRENT_HOST}' is a known-production host, but RESET_ALLOW_PROD=1 is set."
-  echo "⚠          Proceeding to wipe a PRODUCTION appliance. This is irreversible."
-  echo ""
 fi
 
 # ── blast-radius summary ────────────────────────────────────────────────────────
