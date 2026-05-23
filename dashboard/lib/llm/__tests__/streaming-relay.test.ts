@@ -356,6 +356,7 @@ describe('sseStreamFromEvents', () => {
         { type: 'token', delta: '!' },
         { type: 'done', model: 'm', done_reason: 'stop' },
       ]),
+      'llama-cpp',
     );
     const text = await drainSse(stream);
     expect(text).toBe(
@@ -368,10 +369,23 @@ describe('sseStreamFromEvents', () => {
   it('closes the stream after a terminal error frame', async () => {
     const stream = sseStreamFromEvents(
       gen([{ type: 'error', code: 'local_unavailable', detail: 'down', runtime: 'ollama' }]),
+      'ollama',
     );
     const text = await drainSse(stream);
     expect(text).toBe(
       'event: error\ndata: {"code":"local_unavailable","detail":"down","runtime":"ollama"}\n\n',
+    );
+  });
+
+  it('uses the passed runtime in the defensive malformed-stream error frame', async () => {
+    // biome-ignore lint/correctness/useYield: fixture throws on first next() to drive the catch path
+    async function* boom(): AsyncGenerator<StreamEvent, void, unknown> {
+      throw new Error('relay blew up');
+    }
+    const stream = sseStreamFromEvents(boom(), 'ollama');
+    const text = await drainSse(stream);
+    expect(text).toBe(
+      'event: error\ndata: {"code":"upstream_malformed","detail":"relay blew up","runtime":"ollama"}\n\n',
     );
   });
 

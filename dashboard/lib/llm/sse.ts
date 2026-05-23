@@ -20,7 +20,7 @@
 // 'token' frames (model legitimately produced nothing) — the AC's
 // "graceful local-unavailable error distinct from a normal empty response".
 
-import type { StreamEvent } from './types';
+import type { RuntimeKind, StreamEvent } from './types';
 
 /** Serialize one normalized event to an SSE frame string. */
 export function toSseFrame(event: StreamEvent): string {
@@ -35,6 +35,7 @@ export function toSseFrame(event: StreamEvent): string {
  */
 export function sseStreamFromEvents(
   events: AsyncGenerator<StreamEvent, void, unknown>,
+  runtime: RuntimeKind,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
@@ -61,7 +62,7 @@ export function sseStreamFromEvents(
               type: 'error',
               code: 'upstream_malformed',
               detail: err instanceof Error ? err.message : String(err),
-              runtime: 'llama-cpp',
+              runtime,
             }),
           ),
         );

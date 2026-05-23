@@ -59,7 +59,7 @@ export function renderDigest(
   opts: RenderDigestOptions = {},
 ): RenderedDigest {
   const now = opts.now ?? new Date();
-  const queueUrl = opts.queueUrl?.trim() || null;
+  const queueUrl = sanitizeQueueUrl(opts.queueUrl);
 
   const pendingCount = payload.counts_by_category.reduce((sum, c) => sum + c.count, 0);
   const urgentCount = payload.urgent_untouched.length;
@@ -240,6 +240,20 @@ function formatDigestDate(d: Date): string {
     year: 'numeric',
     timeZone: 'UTC',
   });
+}
+
+// Only http(s) deep-links are emitted. DIGEST_QUEUE_URL is operator-set today,
+// but validating the scheme here closes javascript:/data: injection into the
+// <a href> permanently, regardless of how queueUrl is ever sourced (Linus review).
+function sanitizeQueueUrl(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  try {
+    const u = new URL(trimmed);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? trimmed : null;
+  } catch {
+    return null;
+  }
 }
 
 function deepLink(queueUrl: string, draftId: number): string {

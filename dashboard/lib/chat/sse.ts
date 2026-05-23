@@ -22,6 +22,7 @@
 // client attach a listener per type.
 
 import type { ChatTurnEvent } from '@/lib/chat/orchestrate';
+import type { RuntimeKind } from '@/lib/llm/types';
 
 /** Serialize one ChatTurnEvent to an SSE frame string. */
 export function toChatSseFrame(event: ChatTurnEvent): string {
@@ -37,6 +38,7 @@ export function toChatSseFrame(event: ChatTurnEvent): string {
  */
 export function chatSseStream(
   events: AsyncGenerator<ChatTurnEvent, void, unknown>,
+  runtime: RuntimeKind,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
@@ -63,7 +65,7 @@ export function chatSseStream(
               type: 'error',
               code: 'upstream_malformed',
               detail: err instanceof Error ? err.message : String(err),
-              runtime: 'llama-cpp',
+              runtime,
             }),
           ),
         );
