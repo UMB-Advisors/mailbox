@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
+import { PREFERENCE_KEY_RE } from '../lib/schemas/preferences';
 import { KB_DOC_STATUSES, REJECT_REASON_CODES } from '../lib/types';
 
 // Highest-leverage test for STAQPRO-133. Asserts that the live Postgres
@@ -47,6 +48,17 @@ async function getCheckValues(
   const def = rows[0].def;
   const matches = [...def.matchAll(/'([^']+)'::text/g)];
   return matches.map((m) => m[1]);
+}
+
+async function getIndexDef(pool: Pool, indexName: string): Promise<string> {
+  const { rows } = await pool.query<{ indexdef: string }>(
+    `SELECT indexdef FROM pg_indexes WHERE schemaname = 'mailbox' AND indexname = $1`,
+    [indexName],
+  );
+  if (rows.length === 0) {
+    throw new Error(`index not found: mailbox.${indexName}`);
+  }
+  return rows[0].indexdef;
 }
 
 describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)', () => {
@@ -121,6 +133,30 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
       expect([...allowed].sort()).toEqual([...expected].sort());
     },
   );
+
+  it.skipIf(!DB_URL)(
+    'user_filter_preferences enforces single-row-per-key for the single-operator (operator_id IS NULL) world (MBOX-133, migration 026)',
+    async () => {
+      const def = await getIndexDef(pool!, 'user_filter_preferences_default_key_uidx');
+      // Must be a UNIQUE partial index keyed on (key) and gated to the
+      // NULL-operator default — that's what makes the single-operator case
+      // one-row-per-key (a plain UNIQUE(operator_id,key) wouldn't, since NULLs
+      // are distinct in Postgres).
+      expect(def).toMatch(/CREATE UNIQUE INDEX/i);
+      expect(def).toMatch(/\(key\)/);
+      expect(def).toMatch(/WHERE \(operator_id IS NULL\)/i);
+    },
+  );
+
+  it('PREFERENCE_KEY_RE accepts dotted lowercase keys and rejects junk', () => {
+    expect(PREFERENCE_KEY_RE.test('queue.filters')).toBe(true);
+    expect(PREFERENCE_KEY_RE.test('queue.sort')).toBe(true);
+    expect(PREFERENCE_KEY_RE.test('queue')).toBe(true);
+    expect(PREFERENCE_KEY_RE.test('Queue.Filters')).toBe(false);
+    expect(PREFERENCE_KEY_RE.test('queue filters')).toBe(false);
+    expect(PREFERENCE_KEY_RE.test('.queue')).toBe(false);
+    expect(PREFERENCE_KEY_RE.test('queue.')).toBe(false);
+  });
 
   it('KB_DOC_STATUSES from lib/types.ts has no duplicates and is non-empty', () => {
     expect(KB_DOC_STATUSES.length).toBeGreaterThan(0);
