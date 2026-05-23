@@ -1,9 +1,11 @@
 # M0 Spike — OpenShell-on-Jetson + Gateway Verification
 
 **Issue:** [MBOX-291](https://linear.app/staqs/issue/MBOX-291) (epic [MBOX-290](https://linear.app/staqs/issue/MBOX-290), gate [MBOX-292](https://linear.app/staqs/issue/MBOX-292))
-**Version:** v0.1 — 2026-05-22
+**Version:** v0.2 — 2026-05-22 (added empirical reproduction on MB2)
 **Rig:** MB2 (`mailbox.staqs.io`, `192.168.50.11`), repurposed from the live MailBOX appliance
-**Status:** Task 1 (upstream status check) complete. Tasks 2–5 pending the MB2 rebuild.
+**Status:** Task 1 complete. Tasks 2–4 reproduced on MB2 — **gateway up & stable; sandbox blocked by a glibc mismatch (new finding).** See "Empirical reproduction" below.
+
+> **Headline update (2026-05-22 reproduction):** The iptables/k3s gateway crash (#404/#539) **did NOT reproduce** on current OpenShell 0.0.44 — the gateway came up healthy on `:8080`. Instead, a **different Jetson blocker** surfaced: OpenShell 0.0.44's dynamically-linked `openshell-gateway`/`openshell-sandbox` binaries require **glibc 2.39**, but JetPack 6.2 ships **glibc 2.35**. The gateway works around this (runs in an `ubuntu:24.04` compat container) but the **sandbox fails to start** (`exec openshell-sandbox: is a directory`), so the dashboard (`:18789`) never comes up. **This empirically confirms the "pin the version, don't float `latest`" recommendation.**
 
 ---
 
@@ -92,6 +94,29 @@ With **cloud inference and no local LLM**, the 8GB unified-RAM memory risk that 
 **Fallbacks** (only if MB2 reproduce shows the gateway is unstable *even with* the patch): T2-lite Docker isolation, then T3 pivot (AGX Orin 64GB). Low likelihood given ClawBox + community success.
 
 ---
+
+## Empirical reproduction (2026-05-22, MB2)
+
+**Versions installed:** NemoClaw `0.1.0` (git `29ee14d`, `latest`), OpenShell CLI **`0.0.44`**, Node `22.22.3` (nvm), Docker w/ nvidia runtime, default cloud model `nvidia/nemotron-3-super-120b-a12b`.
+
+**What worked:**
+- Installer (`scripts/install.sh`) ran clean — nvm Node, NemoClaw CLI built from source, OpenShell 0.0.44 to `~/.local/bin`, `setup-jetson.sh` applied host `br_netfilter`.
+- Host prereqs (done manually via passwordless sudo): `nvidia-ctk cdi generate` → `nvidia.com/gpu` CDI spec; +4 GB swap.
+- Provider value for cloud NVIDIA NIM is **`build`** (NOT `nvidia-nim`) → `integrate.api.nvidia.com/v1`, key env **`NVIDIA_API_KEY`**, `skipVerify:true`. `NEMOCLAW_PROVIDER=build` cleared onboarding.
+- **OpenShell gateway: UP & healthy on `:8080`** (`openshell_server: Server listening 0.0.0.0:8080`, NIM credential-refresh worker running). **No `RULE_INSERT`/nf_tables/k3s crash.** ⇒ The #404/#539 gateway bug does not manifest on 0.0.44.
+- Gateway inference configured for NIM. Sandbox **image** built (~294 s).
+
+**What blocked (new finding — glibc, not iptables):**
+- Host glibc **2.35** (JetPack 6.2 / Ubuntu 22.04). `openshell-gateway` + `openshell-sandbox` are **dynamically linked, need glibc 2.39**; only `openshell` is static.
+- Gateway auto-mitigates: *"host glibc 2.35 older than openshell-gateway requirement 2.39 → running openshell-gateway inside a Docker compatibility container"* (image `ubuntu:24.04`). Gateway healthy.
+- **Sandbox start fails:** `create sandbox failed: … runc create failed: exec "/opt/openshell/bin/openshell-sandbox": is a directory: permission denied`. That path is **absent from the sandbox image** → the gateway bind-mounts the host `openshell-sandbox` binary in at runtime, but the **compat-container gateway's filesystem indirection makes the mount source resolve wrong**, so Docker creates an empty dir at the target → exec fails.
+- Net: gateway `:8080` ✓, but **no sandbox ⇒ dashboard `:18789` never comes up ⇒ no end-to-end NIM round-trip yet.**
+- Resource note: onboard preflight flagged 7.4 GiB < 8 GiB recommended; sandbox build is slow (~5 min) but completed. Swap added as insurance.
+
+**Revised risk read for the gate (MBOX-292):**
+- The originally-feared iptables/k3s gateway bug is **not the blocker** on current OpenShell.
+- The real blocker is **version coupling: OpenShell ≥ (the release that bumped to glibc 2.39) is incompatible with JetPack 6.2's glibc 2.35 at the sandbox layer.** Options: (a) **pin OpenShell/NemoClaw to a glibc-2.35-era release** (the community known-good window, ~OpenShell 0.0.13, Mar 2026) and re-test; (b) move the appliance base to a JetPack/Ubuntu-24.04 (glibc 2.39) image when available for Orin Nano; (c) fix the sandbox-binary mount under compat mode (upstream-ish).
+- **Decisive next experiment:** pin an older OpenShell/NemoClaw and re-onboard — if the sandbox starts (no compat container needed), the full path is green and we just version-pin for the golden image.
 
 ## Next steps (Tasks 2–5, on MB2)
 
