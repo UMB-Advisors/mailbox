@@ -259,6 +259,15 @@ export interface VDraftingMetrics {
   status: string | null;
 }
 
+export interface VipSenders {
+  added_at: Generated<string>;
+  added_by: string | null;
+  email_or_domain: string;
+  id: Generated<number>;
+  kind: string;
+  note: string | null;
+}
+
 export interface VOverrideRate {
   approved_like: Int8 | null;
   classification_category: string | null;
@@ -288,4 +297,5 @@ export interface DB {
   user_filter_preferences: UserFilterPreferences;
   v_drafting_metrics: VDraftingMetrics;
   v_override_rate: VOverrideRate;
+  vip_senders: VipSenders;
 }

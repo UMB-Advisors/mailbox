@@ -191,6 +191,20 @@ All API handlers under `dashboard/app/api/**/route.ts` follow the App Router con
 ### SQL convention
 Hand-rolled SQL via `pg.Pool` from `dashboard/lib/db.ts`. Two surface patterns: (a) named query helpers in `dashboard/lib/queries*.ts` (preferred — keeps SQL out of route handlers and gives them a typed surface) and (b) inline `pool.query(sql, params)` calls inside a route file when the query is one-off. **Direction**: when the same SQL gets used by 2+ routes, promote it into `lib/queries*.ts`. Always parameterize — never string-concatenate user input into SQL.
 
+### Urgency engine + VIP senders (MBOX-134, migration 028)
+The queue surfaces an urgency badge per draft + a dashboard-wide red-flag count. The rule SoT is `dashboard/lib/urgency.ts:evaluateUrgency` — pure, env-aware, returns `{ urgent: boolean, signals: ('escalate'|'aged'|'vip'|'low_conf')[] }`. Signals: **escalate** (`classification_category='escalate'`), **vip** (sender matches `mailbox.vip_senders`), **aged** (status `pending` AND age > per-category threshold), **low_conf** (`classification_confidence` NULL or `< 0.75`). `urgent` === at least one signal fired. Signal display order is `URGENCY_SIGNALS` in `dashboard/lib/types.ts` (escalate → vip → aged → low_conf).
+
+- **Thresholds live in ENV, not a table** (open question resolved — fewer moving parts). Per-category vars `URGENCY_AGE_HOURS_<CATEGORY>` (e.g. `URGENCY_AGE_HOURS_FOLLOW_UP`), forwarded in the `mailbox-dashboard` compose `environment:` block with `${VAR:-default}` defaults (MBOX-306 convention). Defaults: 4h inquiry/reorder, 24h follow_up, 1h escalate, 4h everything else. A junk/non-positive env value falls back to the default (a typo can't disable aging).
+- **No N+1.** `dashboard/lib/queries.ts:getQueueWithUrgency()` computes all four signals set-wise in SQL (one query); `countUrgentDrafts()` is a single COUNT. The TS `evaluateUrgency` is the single-row reference impl + the unit-test SoT — keep the two in lockstep. Threshold values are emitted via `sql.lit` (code-controlled numbers) so the `EXTRACT(...) > CASE` comparison stays numeric, not `numeric > text`.
+- **`mailbox.vip_senders`** (`id, email_or_domain, kind 'email'|'domain', added_at, added_by, note`): exact-email or domain-suffix match — **NO regex**. Values stored lowercased (zod transform in `dashboard/lib/schemas/vip.ts`); the SQL lowercases the draft sender side too. `kind` enum mirrors `VIP_SENDER_KINDS` in `lib/types.ts` (schema-invariants test asserts the CHECK ↔ const). Unique on `(email_or_domain, kind)` — re-adding is an idempotent upsert (refreshes `note`), not a duplicate.
+
+### Operator-facing routes (MBOX-134)
+Caddy-basic_auth gated (not `/api/internal`):
+- `GET /api/vip-senders` → `{ senders: VipSender[] }`; `POST /api/vip-senders` (body `{ email_or_domain, kind, note? }`, zod-validated, idempotent upsert) → `{ sender }`.
+- `DELETE /api/vip-senders/[id]` → `{ deleted: true, id }` | 404.
+- `GET /api/queue/urgent-count` → `{ count: number }` (queue slice = `pending` + `edited`; counts drafts firing ≥1 urgency signal). For the dashboard header red-flag.
+- VIP list management UI: `/dashboard/settings/vip` (server page + `VipSenders` client component; matches the existing settings-page style). The sidebar "Settings" rail entry still points at `/settings/persona`; `/settings/vip` is reached by URL and highlights the Settings surface (same pattern as `/settings/kb`).
+
 ### Comment standard (migration files)
 Per migration 007 (the first migration to land the standard): every migration file opens with a 2-3 line block comment stating (i) what the migration changes, (ii) why (link the Linear issue or DR), and (iii) any reversal/rollback note. Schema-touching SQL only — no DML in migrations unless specifically called out as a backfill.
 

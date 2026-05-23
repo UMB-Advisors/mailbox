@@ -27,6 +27,7 @@ import type {
   Persona as PersonaRow_,
   RejectedHistory as RejectedHistoryRow_,
   SentHistory as SentHistoryRow_,
+  VipSenders as VipSendersRow_,
 } from '@/lib/db/schema';
 
 // ── String-literal enums (SoT — asserted against Postgres CHECK constraints) ─
@@ -122,6 +123,24 @@ export const REJECT_REASON_LABELS: Record<RejectReasonCode, string> = {
 export const CHAT_MESSAGE_ROLES = ['user', 'assistant', 'system'] as const;
 
 export type ChatMessageRole = (typeof CHAT_MESSAGE_ROLES)[number];
+
+// vip_senders.kind enum (MBOX-134, parent epic MBOX-122). Mirrored against the
+// CHECK constraint in migrations/028-create-vip-senders-v1-2026-05-22.sql; the
+// schema-invariants test asserts they stay in sync. Match semantics are
+// exact-email ('email') or domain-suffix ('domain') only — deliberately NO
+// 'regex' value (MBOX-134 open question resolved).
+export const VIP_SENDER_KINDS = ['email', 'domain'] as const;
+
+export type VipSenderKind = (typeof VIP_SENDER_KINDS)[number];
+
+// Urgency signal vocabulary (MBOX-134). The evaluator returns the subset of
+// these that fired for a draft; `urgent` is true iff at least one fired. Kept
+// here as the SoT so the SQL query helper, the evaluator, and any UI badge map
+// read the same set. Order is significant for display priority (escalate
+// first, then vip, then aged, then low_conf).
+export const URGENCY_SIGNALS = ['escalate', 'vip', 'aged', 'low_conf'] as const;
+
+export type UrgencySignal = (typeof URGENCY_SIGNALS)[number];
 
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
@@ -325,3 +344,4 @@ export type KbDocumentRow = Selectable<KbDocumentsRow_>;
 export type DraftFeedbackRow = Selectable<DraftFeedbackRow_>;
 export type ChatConversationRow = Selectable<ChatConversationsRow_>;
 export type ChatMessageRow = Selectable<ChatMessagesRow_>;
+export type VipSenderRow = Selectable<VipSendersRow_>;

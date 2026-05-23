@@ -243,6 +243,17 @@ services:
       # current behavior (per the MBOX-306 forward-or-no-op rule).
       CHAT_RETRIEVE_TOP_K: ${CHAT_RETRIEVE_TOP_K:-4}
       CHAT_RETRIEVE_SCORE_FLOOR: ${CHAT_RETRIEVE_SCORE_FLOOR:-0.65}
+      # MBOX-134 — per-category urgency age thresholds (hours). Read by
+      # lib/urgency.ts:ageThresholdHours; a draft older than its category
+      # threshold while still 'pending' fires the 'aged' urgency signal.
+      # Resolved in favour of ENV over a urgency_thresholds table (issue open
+      # question). Defaults match lib/urgency.ts so unset = current behavior
+      # (MBOX-306 forward-or-no-op rule). Categories without an explicit var
+      # fall back to URGENCY_AGE_HOURS_DEFAULT (4h) inside the code.
+      URGENCY_AGE_HOURS_INQUIRY: ${URGENCY_AGE_HOURS_INQUIRY:-4}
+      URGENCY_AGE_HOURS_REORDER: ${URGENCY_AGE_HOURS_REORDER:-4}
+      URGENCY_AGE_HOURS_FOLLOW_UP: ${URGENCY_AGE_HOURS_FOLLOW_UP:-24}
+      URGENCY_AGE_HOURS_ESCALATE: ${URGENCY_AGE_HOURS_ESCALATE:-1}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
