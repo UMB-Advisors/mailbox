@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { runChatTurn } from '@/lib/chat/orchestrate';
 import { CHAT_SSE_HEADERS, chatSseStream } from '@/lib/chat/sse';
+import { readRuntimeKind } from '@/lib/llm/runtime';
 import { parseJson } from '@/lib/middleware/validate';
 import { appendMessage } from '@/lib/queries-chat';
 import { chatSendSchema } from '@/lib/schemas/chat';
@@ -59,6 +60,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     { signal: req.signal },
   );
 
-  const stream = chatSseStream(events);
+  const stream = chatSseStream(events, readRuntimeKind());
   return new NextResponse(stream, { status: 200, headers: CHAT_SSE_HEADERS });
 }

@@ -46,6 +46,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     { baseUrl, model, signal: req.signal },
   );
 
-  const stream = sseStreamFromEvents(events);
+  const stream = sseStreamFromEvents(events, runtime);
   return new NextResponse(stream, { status: 200, headers: SSE_HEADERS });
 }

@@ -74,6 +74,27 @@ describe('renderDigest', () => {
     expect(noUrl.html).not.toContain('Open in queue');
   });
 
+  it('drops a non-http(s) queueUrl scheme — no javascript: deep-link in href', () => {
+    const payload: DigestPayload = {
+      counts_by_category: [],
+      urgent_untouched: [
+        {
+          draft_id: 42,
+          from_addr: 'a@b.com',
+          subject: 's',
+          snippet: 'x',
+          category: 'escalate',
+          age_hours: 1,
+          signals: ['escalate'],
+        },
+      ],
+      oldest_pending: [],
+    };
+    const evil = renderDigest(payload, { now: NOW, queueUrl: 'javascript:alert(1)' });
+    expect(evil.html).not.toContain('javascript:');
+    expect(evil.html).not.toContain('Open in queue');
+  });
+
   it('HTML-escapes attacker-influenced inbound fields (subject/snippet)', () => {
     const payload: DigestPayload = {
       counts_by_category: [],
