@@ -5,7 +5,7 @@
 
 A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email agent for small business operators. The customer plugs in a box, connects their email, completes guided onboarding (which captures their industry / business description so the classifier and drafter speak in their context), and gets an always-on assistant that triages, drafts, and (with approval) sends email responses on their behalf. Sold as a managed product with white-glove onboarding and optional support subscription.
 
-Customer #1 was a small-batch CPG operator (Heron Labs); customer #2 is a B2B tech / dev-tools company (Staqs). The product is industry-agnostic at the prompt layer per the 2026-05-08 CPG-scrub — `business_description` is a per-appliance persona override populated during onboarding, not a hardcoded vertical (see `dashboard/lib/drafting/persona.ts` `PersonaContext`).
+Customer #1 was a small-batch CPG operator (Heron Labs); customer #2 was a B2B tech / dev-tools company (Staqs). **Customer #2's appliance (M2, `mailbox.staqs.io`) was wiped 2026-05-22 to host the MBOX-290 OpenClaw / NemoClaw spike — Customer #2 MailBOX install is OFFLINE.** M1 (Heron Labs) is the only live MailBOX appliance until customer #2 is reinstated on different hardware. M2-related instructional content below (deploy commands, Tailscale aliases, 1Password items, public-surface URLs) is preserved for historical reference but should not be executed against the live MB2 host — it now runs OpenClaw, not MailBOX. The product is industry-agnostic at the prompt layer per the 2026-05-08 CPG-scrub — `business_description` is a per-appliance persona override populated during onboarding, not a hardcoded vertical (see `dashboard/lib/drafting/persona.ts` `PersonaContext`).
 
 **Core Value:** Inbound operational email gets triaged, drafted, and (with human approval) sent — without the operator spending 1-3 hours/day on email. Tuned per-customer via persona overrides; no vertical lock-in.
 
@@ -24,7 +24,7 @@ Customer #1 was a small-batch CPG operator (Heron Labs); customer #2 is a B2B te
 <!-- GSD:stack-start source:research/STACK.md -->
 ## Technology Stack
 
-> **As-built status (2026-05-01)** — this section reflects the live appliance, not aspirational recommendations. Customer #1 is at `mailbox.heronlabsinc.com`; customer #2 target 2026-05-20. Major divergences from the original STACK.md research doc are flagged with the relevant Decision Record (DR-NN).
+> **As-built status (2026-05-22)** — this section reflects the live appliance, not aspirational recommendations. Customer #1 is at `mailbox.heronlabsinc.com`. Customer #2 (`mailbox.staqs.io`) was deployed 2026-05-05 and decommissioned 2026-05-22 (M2 hardware repurposed for the MBOX-290 OpenClaw spike); pending reinstatement. Major divergences from the original STACK.md research doc are flagged with the relevant Decision Record (DR-NN).
 
 ### Core Technologies (live)
 | Technology | Version | Purpose | Notes |
@@ -383,18 +383,14 @@ Failure semantics: every RAG path returns success-shaped responses on Ollama or 
 - `https://mailbox.heronlabsinc.com/` — n8n editor (basic_auth gated)
 - `https://mailbox.heronlabsinc.com/webhook/*` — n8n webhook ingress (basic_auth gated per STAQPRO-161; the dashboard's approve→send loop bypasses Caddy via internal docker DNS at `http://n8n:5678/webhook/mailbox-send`)
 
-**Customer #2 — `mailbox.staqs.io` (M2, `192.168.50.11`, deployed 2026-05-05):**
-- `https://mailbox.staqs.io/dashboard/queue` — approval queue (basic_auth, same gating model as M1)
-- `https://mailbox.staqs.io/` — n8n editor (basic_auth)
-- `https://mailbox.staqs.io/webhook/*` — n8n webhook ingress (basic_auth)
-- TLS via Cloudflare DNS-01, zone owned by Eric@staqs.io's CF account; A record proxied=false (LAN IP).
-- Caddyfile currently hardcodes the M1 hostname and was hand-`sed`'d to `mailbox.staqs.io` for this install — see install plan v0.2 follow-up #6 for the templating fix that needs to land before customer #3.
+**Customer #2 — `mailbox.staqs.io` (M2, `192.168.50.11`) — OFFLINE as of 2026-05-22.**
+M2 hardware was wiped and repurposed for the MBOX-290 OpenClaw / NemoClaw spike. The MailBOX stack on that host no longer exists; DNS may still resolve but the appliance now runs OpenClaw out of `UMB-Advisors/thumbox-appliance`. Pending customer #2 reinstatement on different hardware. Historical: deployed 2026-05-05 with the same Caddy / dashboard / n8n surface as M1; TLS via Cloudflare DNS-01 against Eric@staqs.io's CF zone; install plan v0.2 follow-up #6 (Caddyfile hostname templating) remains an open prerequisite for any future customer #2 / customer #3 install.
 
 ### Per-customer subdomain pattern (NC-25 / STAQPRO-183)
 
 **Pattern for customers 3+:** `<customer-slug>.mailbox.<staqs-shared-domain>` resolves to the appliance's LAN IP. Caddy solves TLS via Cloudflare DNS-01 (challenge happens entirely over the Cloudflare API — never traverses public internet to the appliance), so non-routable LAN IPs work fine.
 
-**Why this exists:** M1 and M2 each consumed bespoke DNS setup (customer-owned domain, customer-paid Cloudflare account). NC-25 collapses that to one Staqs-owned parent zone — customer plugs the appliance into their router, opens the HTTPS hostname, done. Customer #1 (`mailbox.heronlabsinc.com`) stays as a customer-owned exception; M2 (`mailbox.staqs.io`, Eric's personal zone) is grandfathered until/unless we re-issue.
+**Why this exists:** M1 and the (now-decommissioned) M2 each consumed bespoke DNS setup (customer-owned domain, customer-paid Cloudflare account). NC-25 collapses that to one Staqs-owned parent zone — customer plugs the appliance into their router, opens the HTTPS hostname, done. Customer #1 (`mailbox.heronlabsinc.com`) stays as a customer-owned exception. (M2's `mailbox.staqs.io` was Eric's personal zone, grandfathered while M2 was live — no longer applicable since the M2 MailBOX install is offline 2026-05-22.)
 
 **Shared parent domain:** `staqs.io` (locked in as part of NC-25 / STAQPRO-183). `MAILBOX_SHARED_DOMAIN` is the env var the provisioning script reads; the operator sets it to `staqs.io` on shared-subdomain appliances. The Caddyfile itself only sees `{$DOMAIN}` which is the fully-resolved hostname.
 
@@ -503,9 +499,9 @@ Operator-side credentials for both appliances live in the **1Password "MailBOX" 
 | Item | Vault | Purpose | Notes |
 |---|---|---|---|
 | `mailbox.heronlabsinc.com` | MailBOX | M1 dashboard sign-in (Caddy basic_auth) | username `admin`, URL `https://mailbox.heronlabsinc.com/dashboard/queue` |
-| `mailbox.staqs.io` | MailBOX | M2 dashboard sign-in (Caddy basic_auth) | username `admin`, URL `https://mailbox.staqs.io/dashboard/queue` |
+| `mailbox.staqs.io` | MailBOX | M2 dashboard sign-in (Caddy basic_auth) — **HISTORICAL, M2 MailBOX offline 2026-05-22** | item retained for future customer #2 reinstatement; do not assume the credentials are still in use on the live MB2 host (now runs OpenClaw) |
 | `mailbox1` | MailBOX | M1 SSH user + appliance Postgres password | SSH user `bob` (use the `mailbox1` ssh alias / Tailscale identity-based auth — no password needed for SSH itself); the Postgres password matches `POSTGRES_PASSWORD` in M1's `.env` |
-| `mailbox2` | MailBOX | M2 SSH user + appliance Postgres password | Same shape as `mailbox1`. M2's SSH path is Tailscale-ACL-gated; no `authorized_keys` on M2. |
+| `mailbox2` | MailBOX | M2 SSH user + appliance Postgres password — **HISTORICAL** | M2 MailBOX install offline 2026-05-22; the `mailbox2` SSH alias now reaches the OpenClaw rig, not a MailBOX appliance |
 
 Retrieve from CLI: `op item get 'mailbox.heronlabsinc.com' --vault MailBOX --reveal`. After basic_auth rotation (rotation flow above), update the corresponding 1P item with `op item edit '<title>' --vault MailBOX password='<new-plaintext>'` — don't create a new item, edit the existing one so URLs/tags persist.
 
@@ -519,9 +515,7 @@ Customer-side: when the appliance is operated by someone other than Dustin (Hero
 - Ollama API: `http://192.168.50.179:11434` (LAN only)
 - Qdrant: `http://192.168.50.179:6333` (LAN only)
 
-**M2 (`192.168.50.11`, customer #2, deployed 2026-05-05):**
-- Dashboard: `https://mailbox.staqs.io/dashboard/queue`
-- **No host port bindings for ollama / n8n / qdrant** — M2's `docker-compose.yml` omits the `ports:` block on those services, so they're docker-network-only. To probe from the workstation, either `ssh mailbox2 'docker exec mailbox-dashboard wget -qO- http://ollama:11434/api/tags'` or open an SSH tunnel: `ssh -L 5678:localhost:5678 mailbox2`. This is the safer default and should be backported to M1.
+**M2 (`192.168.50.11`, customer #2) — OFFLINE 2026-05-22.** Hardware repurposed for MBOX-290 OpenClaw spike; MailBOX stack no longer runs on this host. Historical configuration (preserved for future reinstatement): deployed 2026-05-05; dashboard at `https://mailbox.staqs.io/dashboard/queue`; **no host port bindings for ollama / n8n / qdrant** — M2's `docker-compose.yml` omitted the `ports:` block on those services, so they were docker-network-only and probed via `ssh mailbox2 'docker exec mailbox-dashboard wget -qO- http://ollama:11434/api/tags'` or an SSH tunnel (`ssh -L 5678:localhost:5678 mailbox2`). **This docker-network-only pattern should be backported to M1** regardless of M2's status — it's the safer default and is the open TODO.
 
 ### Post-n8n-upgrade verification
 
@@ -575,20 +569,22 @@ Both Jetsons live on the shared `consultingfutures@gmail.com` tailnet
 | Alias          | Tailnet host                  | Tailnet IP       | LAN IP           | Local user | Repo path                |
 |----------------|-------------------------------|------------------|------------------|------------|--------------------------|
 | `mailbox1`     | `mailbox1.tail377a9a.ts.net`  | `100.65.9.2`     | `192.168.50.179` | `bob`      | `/home/bob/mailbox/`     |
-| `mailbox2`     | `mailbox2.tail377a9a.ts.net`  | `100.120.102.45` | `192.168.50.11`  | `mailbox`  | `/home/mailbox/mailbox/` |
+| `mailbox2`     | `mailbox2.tail377a9a.ts.net`  | `100.120.102.45` | `192.168.50.11`  | `mailbox`  | `/home/mailbox/mailbox/` — **OpenClaw rig as of 2026-05-22, not MailBOX** |
+
+> ⚠️ **mailbox2 no longer hosts MailBOX.** As of 2026-05-22 the M2 hardware was wiped to host the MBOX-290 OpenClaw / NemoClaw spike (separate repo: `UMB-Advisors/thumbox-appliance`). The SSH alias and tailnet host still resolve, but `ssh mailbox2 'cd ~/mailbox && ...'` will fail or operate on stale state. Do not include mailbox2 in MailBOX fleet rollouts, OTA pushes, or any "apply to both M1 and M2" workflow until customer #2 is reinstated on different hardware.
 
 `mailbox1-lan` and `mailbox2-lan` aliases point at the LAN IPs directly for
 when the tailnet path isn't preferred. mailbox2 uses Tailscale SSH (banner
 `SSH-2.0-Tailscale`), gated by the tailnet ACL — `consultingfutures@gmail.com`
 is permitted to SSH `tag:mailbox` machines as `bob`, `mailbox`, `mailbox2`,
-`root`. Identity-based; no `authorized_keys` needed on mailbox2.
+`root`. Identity-based; no `authorized_keys` needed on mailbox2. (ACL is shared between the MailBOX and OpenClaw use cases since both ran on `tag:mailbox` — revisit if OpenClaw moves to its own tag.)
 
-The two boxes are **not** identical-layout: user and repo path differ
-(`bob` / `/home/bob/mailbox/` vs `mailbox` / `/home/mailbox/mailbox/`). Use
-`~/mailbox/` rather than a hardcoded path in cross-box commands.
+The two boxes were **not** identical-layout when both ran MailBOX: user and repo path differed
+(`bob` / `/home/bob/mailbox/` vs `mailbox` / `/home/mailbox/mailbox/`). Historically the guidance was to use
+`~/mailbox/` rather than a hardcoded path in cross-box commands; that guidance is moot until customer #2 reinstates.
 
-LAN-only services on mailbox2 are reachable via the tailnet hostname
-(provided the compose port bindings are `0.0.0.0`, not `127.0.0.1`):
+(Historical, while M2 was a MailBOX appliance) LAN-only services on mailbox2 were reachable via the tailnet hostname
+(provided the compose port bindings were `0.0.0.0`, not `127.0.0.1`):
 
 - Dashboard direct: `http://mailbox2.tail377a9a.ts.net:3001/dashboard/queue`
 - n8n editor: `http://mailbox2.tail377a9a.ts.net:5678`
@@ -600,6 +596,8 @@ Fallback if a port is bound to localhost only:
     ssh -L 5678:localhost:5678 mailbox2
 
 #### Hardware deltas (mailbox1 vs mailbox2)
+
+(Captured while both ran MailBOX — retained because if/when customer #2 is reinstated on the same hardware revision or a similar Orin Nano Super, these deltas still describe the comparison points.)
 
 Both are NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super,
 JetPack 6.2 / L4T R36 rev 5.0 (build 2026-01-16, GCID 43688277), kernel
