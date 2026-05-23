@@ -1021,6 +1021,22 @@ CREATE INDEX IF NOT EXISTS idx_drafts_send_attempt_at
   ON mailbox.drafts (send_attempt_at)
   WHERE send_attempt_at IS NOT NULL;
 
+-- migration 026 — MBOX-133 operator filter/sort preference persistence
+CREATE TABLE IF NOT EXISTS mailbox.user_filter_preferences (
+  id           SERIAL PRIMARY KEY,
+  operator_id  TEXT,
+  key          TEXT NOT NULL,
+  value        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT user_filter_preferences_key_not_blank CHECK (length(trim(key)) > 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS user_filter_preferences_default_key_uidx
+  ON mailbox.user_filter_preferences(key)
+  WHERE operator_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS user_filter_preferences_operator_key_uidx
+  ON mailbox.user_filter_preferences(operator_id, key)
+  WHERE operator_id IS NOT NULL;
+
 --
 -- PostgreSQL database dump complete
 --
