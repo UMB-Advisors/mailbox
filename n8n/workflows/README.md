@@ -12,8 +12,11 @@ The `*.json` files in this directory are the version-controlled exports of the n
 | `MailBOX-Classify.json` | `MlbxClsfySub0001` | `executeWorkflow` | Sub-workflow. Runs Qwen3 classify, calls `/api/internal/classification-normalize`, gates against `/api/onboarding/live-gate`, inserts the draft stub, fires `MailBOX-Draft`. |
 | `MailBOX-Draft.json` | `MlbxDraftSub0001` | `executeWorkflow` | Sub-workflow. Calls `/api/internal/draft-prompt` → routes local Qwen3 vs Ollama Cloud → calls `/api/internal/draft-finalize` to persist. |
 | `MailBOX-Send.json` | `mailbox-send` | Webhook `/webhook/mailbox-send` | Triggered by the dashboard on operator approve. Sends via Gmail Reply, updates `mailbox.drafts.status` → `sent` or `failed`. |
+| `MailBOX-Digest.json` | `MlbxDigestSb0001` | Schedule (daily @ `DIGEST_SEND_HOUR_LOCAL`) | MBOX-132. Daily operator digest. GET `/api/internal/digest` (render + send-decision), gate on `should_send`, Gmail send (appliance OAuth), then POST `/api/internal/digest/record` to claim the day in `mailbox.digest_sends`. **Not yet imported/activated on the fleet — import + activate per the procedure below.** |
 
 `legacy/` archives the deactivated NIM-era workflows (kept for reference, not imported).
+
+> **MailBOX-Digest activation (MBOX-132, on-box step):** after `n8n-import-workflows.sh`, re-link the Gmail OAuth2 credential on `MailBOX-Digest` (credential IDs differ per appliance — the JSON ships M1's id), set `DIGEST_SEND_HOUR_LOCAL` / `GENERIC_TIMEZONE` / `DIGEST_SEND_FROM_GMAIL` / `DIGEST_QUEUE_URL` in `.env`, activate the workflow, and restart n8n. It's schedule-triggered like `MailBOX`, so it must be `active=true`. The dashboard's `digest_sends` UNIQUE(sent_on) guard makes a manual test re-fire idempotent.
 
 ## Round-trip procedure
 
