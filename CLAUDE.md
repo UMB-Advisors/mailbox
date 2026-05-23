@@ -281,7 +281,7 @@ Until STAQPRO-231 lands a circuit-breaker, the manual cooldown SLO is: **don't f
 | `postgres` | `postgres:17-alpine` | Operational DB (`mailbox` schema) + n8n's `workflow_entity` table |
 | `qdrant` | `qdrant/qdrant:v1.17.1` | Vector store. Collection `email_messages` (768d / Cosine) holds inbound + outbound message embeddings for RAG retrieval (M3.5 / STAQPRO-188). Payload indexes: `message_id`, `thread_id`, `sender`, `direction`, `sent_at`, `classification_category`. Bootstrap via `docker compose --profile qdrant-bootstrap up mailbox-qdrant-bootstrap` (idempotent). |
 | `ollama` | `ollama/ollama@sha256:<per-appliance digest>` (STAQPRO-240 — pin in `.env`, never `:latest`) | Local LLM inference (Qwen3-4B classifier + drafter, nomic-embed-text) |
-| `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime; sub-workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send` |
+| `n8n` | `n8nio/n8n:2.14.2` | Workflow runtime; workflows: `MailBOX`, `MailBOX-Classify`, `MailBOX-Draft`, `MailBOX-Send`, `MailBOX-Digest` (MBOX-132 — daily operator digest, schedule-triggered) |
 | `caddy` | `caddy:2` | Public HTTPS via Cloudflare DNS-01; basic_auth on all paths (incl. `/webhook/*` per STAQPRO-161 — bypass removed post-DR-22) |
 | `mailbox-dashboard` | Next.js 14 build | Approval queue UI + internal API routes (DR-24) |
 | `mailbox-migrate` | Custom tsx migration runner | `docker compose --profile migrate run mailbox-migrate` — runs `dashboard/migrations/runner.ts` against the `mailbox.migrations` tracking table, applies un-applied `.sql` files in numeric order |
@@ -307,6 +307,30 @@ Schedule (5 min)
                                                                  └─> approve → Run Send Sub (MailBOX-Send)
                                                                                    └─> Gmail Reply → mailbox.drafts.status = sent
 ```
+
+### Daily digest worker (MBOX-132, parent epic MBOX-122)
+
+A second, independent schedule chain — `MailBOX-Digest` — emails the operator a once-per-day rollup of the queue. Separate from the 5-min ingest pipeline above; it reads, never writes drafts.
+
+```
+Schedule (daily @ DIGEST_SEND_HOUR_LOCAL, GENERIC_TIMEZONE)
+  └─> GET /api/internal/digest   (render + send-decision, one call)
+        • getDigestPayload() → { counts_by_category, urgent_untouched, oldest_pending }
+          (urgent_untouched REUSES MBOX-134's urgency engine via getQueueWithUrgency —
+           no second urgency rule set)
+        • renderDigest() → table-based email HTML (port of the Phase 1 sandbox mockup)
+        • should_send = recipient resolved AND DIGEST_SEND_FROM_GMAIL on AND not already sent today
+  └─> IF should_send
+        └─> Gmail send (appliance OAuth, html) to MAILBOX_OPERATOR_EMAIL
+            (→ onboarding.email_address fallback when the env is unset)
+              └─> POST /api/internal/digest/record → INSERT mailbox.digest_sends
+                    (UNIQUE(sent_on) — once-per-day de-dupe; claim happens
+                     AFTER a successful send so a send failure doesn't burn the day)
+```
+
+- **De-dupe guard** lives in the DB constraint (`mailbox.digest_sends` UNIQUE on `sent_on`, migration 029), not app logic — an operator-induced re-fire or a double schedule tick is idempotent.
+- **Send-from** open question resolved: appliance Gmail OAuth for v1 (per-appliance `DIGEST_SEND_FROM_GMAIL`, default on); a separate-SMTP path is a future flip that doesn't touch the payload/render code. **Recipient** resolves `MAILBOX_OPERATOR_EMAIL` → `onboarding.email_address` fallback. **Timezone** resolved in favour of an explicit appliance-configured TZ (`GENERIC_TIMEZONE`, default UTC).
+- **On-box**: `MailBOX-Digest.json` is authored but **must be imported + activated on each appliance** (re-link Gmail OAuth credential; set `DIGEST_*` env). It's schedule-triggered like `MailBOX`, so it must be `active=true` (see n8n verification gate).
 
 ### Routing rules (`dashboard/lib/classification/prompt.ts:routeFor`)
 
