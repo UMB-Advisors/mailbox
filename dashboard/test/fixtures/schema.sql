@@ -1080,6 +1080,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS vip_senders_value_kind_uidx
 CREATE INDEX IF NOT EXISTS vip_senders_kind_idx
   ON mailbox.vip_senders(kind);
 
+-- migration 029 — MBOX-132 daily digest send ledger (once-per-day de-dupe guard)
+CREATE TABLE IF NOT EXISTS mailbox.digest_sends (
+  id          SERIAL PRIMARY KEY,
+  sent_on     DATE NOT NULL,
+  sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  recipient   TEXT,
+  subject     TEXT,
+  CONSTRAINT digest_sends_sent_on_uniq UNIQUE (sent_on)
+);
+
 --
 -- PostgreSQL database dump complete
 --

@@ -125,6 +125,15 @@ services:
       # (Express trust proxy = false default) and floods logs every webhook
       # call. STAQPRO-228.
       N8N_PROXY_HOPS: '1'
+      # MBOX-132 — daily digest schedule. DIGEST_SEND_HOUR_LOCAL is read by the
+      # MailBOX-Digest schedule trigger (`$env.DIGEST_SEND_HOUR_LOCAL`) — the
+      # hour-of-day the once-per-day operator digest fires. GENERIC_TIMEZONE is
+      # the TZ n8n interprets that hour in (timezone open question resolved in
+      # favour of an explicit appliance-configured TZ; defaults to UTC so the
+      # send hour is deterministic on a fresh box). Forward-or-no-op per
+      # MBOX-306: unset → 7am UTC (the workflow's own `?? 7` fallback + UTC).
+      DIGEST_SEND_HOUR_LOCAL: ${DIGEST_SEND_HOUR_LOCAL:-7}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
     volumes:
     - n8n_data:/home/node/.n8n
     healthcheck:
@@ -254,6 +263,16 @@ services:
       URGENCY_AGE_HOURS_REORDER: ${URGENCY_AGE_HOURS_REORDER:-4}
       URGENCY_AGE_HOURS_FOLLOW_UP: ${URGENCY_AGE_HOURS_FOLLOW_UP:-24}
       URGENCY_AGE_HOURS_ESCALATE: ${URGENCY_AGE_HOURS_ESCALATE:-1}
+      # MBOX-132 — daily digest worker (read by app/api/internal/digest).
+      # DIGEST_SEND_FROM_GMAIL gates the appliance-Gmail-OAuth send path (v1
+      # default per the issue's open-question resolution); treated as ON unless
+      # explicitly '0'/'false'. DIGEST_QUEUE_URL is the dashboard queue base the
+      # digest's "Open in queue" deep-links point at (e.g.
+      # https://mailbox.staqs.io/dashboard/queue); unset → links omitted.
+      # Recipient is MAILBOX_OPERATOR_EMAIL (forwarded above) → onboarding email
+      # fallback. Forward-or-no-op per MBOX-306; defaults match the code.
+      DIGEST_SEND_FROM_GMAIL: ${DIGEST_SEND_FROM_GMAIL:-true}
+      DIGEST_QUEUE_URL: ${DIGEST_QUEUE_URL:-}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
     depends_on:
