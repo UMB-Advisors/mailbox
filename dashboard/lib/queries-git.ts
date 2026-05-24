@@ -76,19 +76,38 @@ function unavailable(reason: string): GitState {
   return { ...UNAVAILABLE_BASE, reason };
 }
 
-// Recognize the "I can't find the repo" failure modes so we can degrade
-// gracefully instead of bubbling a thrown error. ENOENT covers a missing
-// `git` binary OR a missing repo path; "not a git repository" covers a
-// path that exists but isn't initialized (dev workstation forgot the mount).
-function isUnavailableError(err: unknown): boolean {
-  if (err instanceof Error) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return true;
-    const msg = err.message || '';
-    if (msg.includes('not a git repository')) return true;
-    if (msg.includes('does not exist')) return true;
+// Classify the "I can't run git here" failure modes so we can degrade
+// with an accurate operator-readable reason instead of always reporting
+// "not a git repository" (which hid the real cause during MBOX-163 first
+// M1 smoke 2026-05-24 — the dashboard image was missing the `git` binary
+// entirely, but the message said the repo wasn't a git repo).
+type GitUnavailable =
+  | { kind: 'binary_missing' }   // execFile couldn't find `git` on PATH
+  | { kind: 'not_a_repo' }       // dir exists but git refuses (no .git)
+  | { kind: 'path_missing' }     // repo path doesn't exist (caught earlier by stat usually)
+  | null;                        // not an unavailability — bubble as-is
+
+function classifyUnavailable(err: unknown): GitUnavailable {
+  if (!(err instanceof Error)) return null;
+  const e = err as NodeJS.ErrnoException & { syscall?: string; path?: string };
+  if (e.code === 'ENOENT') {
+    // Node's execFile ENOENT sets `path` to the binary name and `syscall`
+    // to `'spawn <binary>'` when the binary itself is missing; the message
+    // also starts with `'spawn git ENOENT'` in that case. Match all three
+    // shapes so tests that fixture only the message still classify.
+    if (
+      e.path === 'git' ||
+      e.syscall === 'spawn git' ||
+      (e.message || '').startsWith('spawn git ENOENT')
+    ) {
+      return { kind: 'binary_missing' };
+    }
+    return { kind: 'path_missing' };
   }
-  return false;
+  const msg = e.message || '';
+  if (msg.includes('not a git repository')) return { kind: 'not_a_repo' };
+  if (msg.includes('does not exist')) return { kind: 'path_missing' };
+  return null;
 }
 
 interface GetGitStateOptions {
@@ -131,8 +150,15 @@ export async function getGitState(opts: GetGitStateOptions = {}): Promise<GitSta
   try {
     fullSha = (await runner(['rev-parse', 'HEAD'])).trim();
   } catch (err) {
-    if (isUnavailableError(err)) {
+    const cls = classifyUnavailable(err);
+    if (cls?.kind === 'binary_missing') {
+      return unavailable('git binary not installed in dashboard container');
+    }
+    if (cls?.kind === 'not_a_repo') {
       return unavailable(`${repo} is not a git repository`);
+    }
+    if (cls?.kind === 'path_missing') {
+      return unavailable(`${repo} not present`);
     }
     return unavailable(`git rev-parse HEAD failed: ${(err as Error).message}`);
   }
