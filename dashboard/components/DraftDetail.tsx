@@ -1,7 +1,8 @@
 import { Check, Send, X } from 'lucide-react';
 import type { Category } from '@/lib/classification/prompt';
-import type { DraftWithMessage } from '@/lib/types';
+import type { ActionItem, DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
+import { ActionItemsPanel } from './ActionItemsPanel';
 import { ClassificationOverride } from './ClassificationOverride';
 import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
@@ -74,6 +75,20 @@ export function DraftDetail({
         <pre className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
           {draft.draft_body}
         </pre>
+        {/* MBOX-131 — structured action items extracted from the inbound +
+            draft. Inline add/edit/delete persists via POST
+            /api/drafts/[id]/action-items. `key={draft.id}` remounts the panel
+            on draft switch so its working copy resets without an effect.
+            Read-only folders (sent/rejected archive) render the list but hide
+            the mutation controls. */}
+        <div className="mt-4">
+          <ActionItemsPanel
+            key={draft.id}
+            draftId={draft.id}
+            initialItems={(draft.action_items ?? []) as ActionItem[]}
+            readOnly={readOnly}
+          />
+        </div>
         {/* STAQPRO-331 #3 — RoutingBadge surfaces local-vs-cloud + model +
             classifier confidence + a "low confidence fallback" tag when the
             cloud route was a safety-net rather than a category match. The
