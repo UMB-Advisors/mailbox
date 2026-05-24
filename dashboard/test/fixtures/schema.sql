@@ -1090,6 +1090,55 @@ CREATE TABLE IF NOT EXISTS mailbox.digest_sends (
   CONSTRAINT digest_sends_sent_on_uniq UNIQUE (sent_on)
 );
 
+-- ── MBOX-131 (migration 030): drafts.action_items + sent_history carry ───
+-- Hand-applied to fixture pending next pg_dump refresh. Structured action
+-- items ({ text, type, due_at, source, confidence }) extracted from the
+-- inbound + draft reply post-draft-finalize. Mirrored onto sent_history at
+-- archival time.
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS action_items JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE mailbox.sent_history
+  ADD COLUMN IF NOT EXISTS action_items JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- v030 trigger function: extends 020 to also carry action_items.
+-- (NOTE: this fixture's prior trigger definition above is the v014 shape and
+-- predates the migration-020 exemplar_refs carry — this definition brings the
+-- fixture trigger current with prod by carrying BOTH exemplar_refs and the new
+-- action_items, matching migrations/030-add-draft-action-items-v1-2026-05-24.sql.)
+CREATE OR REPLACE FUNCTION mailbox.archive_draft_to_sent_history()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent' THEN
+        IF EXISTS (SELECT 1 FROM mailbox.sent_history WHERE draft_id = NEW.id) THEN
+            RETURN NEW;
+        END IF;
+        INSERT INTO mailbox.sent_history (
+            draft_id, inbox_message_id, from_addr, to_addr, subject, body_text,
+            thread_id, draft_original, draft_sent, draft_source,
+            classification_category, classification_confidence, sent_at,
+            rag_context_refs, rag_retrieval_reason, kb_context_refs, exemplar_refs,
+            action_items
+        ) VALUES (
+            NEW.id, NEW.inbox_message_id,
+            COALESCE(NEW.from_addr, ''), COALESCE(NEW.to_addr, ''),
+            NEW.subject, NEW.body_text, NEW.thread_id,
+            COALESCE(NEW.original_draft_body, NEW.draft_body),
+            NEW.draft_body,
+            COALESCE(NEW.draft_source, 'local'),
+            COALESCE(NEW.classification_category, 'unknown'),
+            COALESCE(NEW.classification_confidence, 0.0),
+            COALESCE(NEW.sent_at, NOW()),
+            COALESCE(NEW.rag_context_refs, '[]'::jsonb),
+            COALESCE(NEW.rag_retrieval_reason, 'none'),
+            COALESCE(NEW.kb_context_refs, '[]'::jsonb),
+            COALESCE(NEW.exemplar_refs, '[]'::jsonb),
+            COALESCE(NEW.action_items, '[]'::jsonb)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 --
 -- PostgreSQL database dump complete
 --

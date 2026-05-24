@@ -142,7 +142,34 @@ export const URGENCY_SIGNALS = ['escalate', 'vip', 'aged', 'low_conf'] as const;
 
 export type UrgencySignal = (typeof URGENCY_SIGNALS)[number];
 
+// Action-item vocabulary (MBOX-131). `type` classifies the ask; `source`
+// records who owes the action — counterparty ('inbound') vs operator
+// ('outbound'). Kept as const tuples here as the SoT so the zod schema
+// (lib/schemas/drafts.ts:actionItemSchema), the extraction clamp
+// (lib/drafting/action-items.ts), and any UI label map read the same set.
+// These are NOT backed by a Postgres CHECK constraint — action_items is a
+// free-form jsonb array; the enums are enforced at the application boundary
+// (zod on write, clamp-or-drop on extraction), so the schema-invariants test
+// does not assert them against the DB.
+export const ACTION_ITEM_TYPES = ['commitment', 'request', 'deadline', 'meeting'] as const;
+
+export type ActionItemType = (typeof ACTION_ITEM_TYPES)[number];
+
+export const ACTION_ITEM_SOURCES = ['inbound', 'outbound'] as const;
+
+export type ActionItemSource = (typeof ACTION_ITEM_SOURCES)[number];
+
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
+
+// MBOX-131 — a single structured action item extracted from the inbound email
+// + draft reply. Stored as an array in mailbox.drafts.action_items (jsonb).
+export interface ActionItem {
+  text: string; // verbatim ask
+  type: ActionItemType;
+  due_at: string | null; // ISO; null unless a date hint present
+  source: ActionItemSource; // who owes: counterparty (inbound) vs operator (outbound)
+  confidence: number; // 0..1
+}
 
 export interface Draft {
   id: number;
@@ -165,6 +192,9 @@ export interface Draft {
   updated_at: string;
   sent_at: string | null;
   error_message: string | null;
+  // MBOX-131 — structured action items extracted post-draft-finalize. Empty
+  // array when extraction found none, timed out, or errored (non-gating).
+  action_items: ActionItem[];
 }
 
 export interface InboxMessage {

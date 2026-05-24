@@ -76,6 +76,7 @@ export interface DraftFeedback {
 }
 
 export interface Drafts {
+  action_items: Generated<Json>;
   approved_at: string | null;
   auto_send_blocked: Generated<boolean>;
   body_text: string | null;
@@ -208,6 +209,7 @@ export interface RejectedHistory {
 }
 
 export interface SentHistory {
+  action_items: Generated<Json>;
   body_text: string | null;
   classification_category: string;
   classification_confidence: number;

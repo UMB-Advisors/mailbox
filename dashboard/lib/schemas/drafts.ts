@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { CATEGORIES, type Category } from '@/lib/classification/prompt';
 import {
+  ACTION_ITEM_SOURCES,
+  ACTION_ITEM_TYPES,
+  type ActionItemSource,
+  type ActionItemType,
   DRAFT_STATUSES,
   type DraftStatus,
   REJECT_REASON_CODES,
@@ -140,3 +144,41 @@ export const classificationOverrideBodySchema = z.object({
 });
 
 export type ClassificationOverrideBody = z.infer<typeof classificationOverrideBodySchema>;
+
+// POST /api/drafts/[id]/action-items — MBOX-131 operator edit of the
+// structured action-items list. Body shape: { action_items: ActionItem[] }.
+//
+// Enums anchored to the canonical ACTION_ITEM_TYPES / ACTION_ITEM_SOURCES
+// tuples in lib/types.ts so the schema can never drift from the extraction
+// clamp (lib/drafting/action-items.ts) or the ActionItem view interface.
+// `text` is capped to keep an operator (or a misbehaving model upstream) from
+// persisting an unbounded blob into the jsonb array. due_at is an ISO 8601
+// datetime or null. confidence is the model's 0..1 score; operator edits
+// default it to 1.0 client-side but the schema accepts any in-range value.
+const ACTION_ITEM_TEXT_MAX = 500;
+const typeEnum = z.enum(ACTION_ITEM_TYPES as readonly [ActionItemType, ...ActionItemType[]]);
+const sourceEnum = z.enum(
+  ACTION_ITEM_SOURCES as readonly [ActionItemSource, ...ActionItemSource[]],
+);
+export const actionItemSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(1, 'text required')
+    .max(ACTION_ITEM_TEXT_MAX, `text must be <= ${ACTION_ITEM_TEXT_MAX} chars`),
+  type: typeEnum,
+  due_at: z.string().datetime().nullable(),
+  source: sourceEnum,
+  confidence: z.number().min(0).max(1),
+});
+
+export type ActionItemInput = z.infer<typeof actionItemSchema>;
+
+const ACTION_ITEMS_MAX = 50;
+export const actionItemsBodySchema = z.object({
+  action_items: z
+    .array(actionItemSchema)
+    .max(ACTION_ITEMS_MAX, `at most ${ACTION_ITEMS_MAX} action items`),
+});
+
+export type ActionItemsBody = z.infer<typeof actionItemsBodySchema>;
