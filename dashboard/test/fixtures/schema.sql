@@ -1139,6 +1139,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ── MBOX-130 + MBOX-129 (migration 031): shared Google OAuth token storage ──
+-- Hand-applied to fixture pending next pg_dump refresh. oauth_tokens holds one
+-- row per Google provider (AES-256-GCM-encrypted refresh token); drafts gets a
+-- scheduling_calendar_unavailable flag set when a scheduling draft's calendar
+-- pre-read failed.
+CREATE TABLE IF NOT EXISTS mailbox.oauth_tokens (
+  provider              TEXT PRIMARY KEY,
+  refresh_token_enc     TEXT,
+  scope                 TEXT,
+  account_email         TEXT,
+  last_fetched_at       TIMESTAMPTZ,
+  connected_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT oauth_tokens_provider_not_blank CHECK (length(trim(provider)) > 0)
+);
+
+ALTER TABLE mailbox.drafts
+  ADD COLUMN IF NOT EXISTS scheduling_calendar_unavailable BOOLEAN NOT NULL DEFAULT false;
+
 --
 -- PostgreSQL database dump complete
 --

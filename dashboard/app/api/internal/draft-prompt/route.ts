@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
+import { getCalendarSnapshot, isCalendarContextEnabled } from '@/lib/calendar/calendar';
 import type { Category } from '@/lib/classification/prompt';
 import { getKysely } from '@/lib/db';
 import { getCategoryExemplars } from '@/lib/drafting/exemplars';
@@ -124,6 +125,28 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
+    // MBOX-130 — calendar pre-read for `scheduling` drafts only. Fired AFTER
+    // the RAG/exemplar/thread reads (it needs `endpoint.source` for the privacy
+    // gate, exactly like retrieveForDraft). Non-gating: getCalendarSnapshot
+    // never throws — any failure (token expired, rate limit, cloud-gated)
+    // returns an empty snapshot + a reason, and we fall back to the no-calendar
+    // prompt. The `no-op, don't hit the API` requirement (no scheduling drafts
+    // in the window) is satisfied here: we only call it when category ===
+    // 'scheduling' AND the feature flag is on.
+    const calendarSnapshot =
+      classification_category === 'scheduling' && isCalendarContextEnabled()
+        ? await getCalendarSnapshot({ draft_source: endpoint.source })
+        : null;
+    // A scheduling draft that attempted the read but got back a token / API
+    // failure (NOT a clean empty calendar, NOT the privacy gate) is flagged so
+    // the dashboard can surface the reconnect toast.
+    const calendarUnavailable =
+      calendarSnapshot !== null &&
+      (calendarSnapshot.reason === 'not_connected' ||
+        calendarSnapshot.reason === 'token_expired' ||
+        calendarSnapshot.reason === 'rate_limited' ||
+        calendarSnapshot.reason === 'fetch_failed');
+
     const assembled = assemblePrompt({
       from_addr: row.from_addr ?? '',
       to_addr: row.to_addr ?? '',
@@ -156,6 +179,11 @@ export async function POST(req: NextRequest) {
         from_addr: m.from_addr,
         body_text: m.body_text,
       })),
+      // MBOX-130 — calendar availability lines for `scheduling` drafts. Only
+      // the `ok` snapshot carries lines; every other reason (gated, empty,
+      // failed) passes undefined so prompt.ts:calendarBlock renders nothing.
+      calendar_snapshot:
+        calendarSnapshot?.reason === 'ok' ? calendarSnapshot.lines : undefined,
     });
 
     // STAQPRO-191/148 — unconditional writeback. Always persist BOTH refs
@@ -190,6 +218,21 @@ export async function POST(req: NextRequest) {
       .where('id', '=', draft_id)
       .execute();
 
+    // MBOX-130 — persist the calendar-unavailable flag for `scheduling` drafts.
+    // Separate raw UPDATE (not part of the .set() above) because the column was
+    // added in migration 031 and is NOT in the kysely-codegen DB type until
+    // `npm run db:codegen` regenerates lib/db/schema.ts — a typed .set() key
+    // would not compile. Always written for scheduling drafts (true on a fetch
+    // failure, false otherwise) so a re-draft clears a stale flag; skipped for
+    // every other category (calendarSnapshot === null) so the default stands.
+    if (calendarSnapshot !== null) {
+      await sql`
+        UPDATE mailbox.drafts
+           SET scheduling_calendar_unavailable = ${calendarUnavailable}
+         WHERE id = ${draft_id}
+      `.execute(db);
+    }
+
     return NextResponse.json({
       draft_id,
       // Endpoint config for n8n's HTTP Request node.
@@ -219,6 +262,18 @@ export async function POST(req: NextRequest) {
       exemplars: {
         refs_count: exemplars.length,
       },
+      // MBOX-130 — calendar pre-read audit signal. `null` for non-scheduling
+      // drafts (we never call the API). For scheduling drafts: reason tells the
+      // n8n log / dashboard why a draft did/didn't get calendar context
+      // (ok / cloud_gated / not_connected / token_expired / rate_limited /
+      // fetch_failed / no_events) and lines_count is what dashboards graph.
+      calendar: calendarSnapshot
+        ? {
+            reason: calendarSnapshot.reason,
+            lines_count: calendarSnapshot.lines.length,
+            unavailable: calendarUnavailable,
+          }
+        : null,
       // STAQPRO-341 — thread-history + quote-strip audit signals. Lets the
       // dashboard graph "how often did thread context fire?" and the n8n
       // execution log surface why a draft had no thread context (gated /
