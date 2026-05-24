@@ -1,4 +1,5 @@
--- Migration 031 — MBOX-16 (FR-23): configurable auto-send rules + audit trail.
+-- Migration 032 — MBOX-16 (FR-23): configurable auto-send rules + audit trail.
+-- (Renumbered 031→032: MBOX-130/129 took 031 for oauth_tokens in a parallel branch.)
 -- WHAT: Two new tables. mailbox.auto_send_rules holds operator-defined rules
 --       (condition: category / sender_domain / min_confidence / time-of-day
 --       window → action: auto_send | queue | drop), each with an enabled flag,
