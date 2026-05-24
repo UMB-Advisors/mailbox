@@ -198,7 +198,7 @@
       "name": "Get many messages",
       "parameters": {
         "filters": {
-          "q": "is:unread newer_than:2d"
+          "q": "is:unread in:inbox -from:me newer_than:2d"
         },
         "limit": "={{ $('Bootstrap Check').item.json.gmail_get_limit }}",
         "operation": "getAll",
