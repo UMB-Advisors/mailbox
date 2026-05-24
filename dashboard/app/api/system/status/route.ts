@@ -5,6 +5,7 @@ import {
   evaluateAlerts,
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
+import { getGitStateWithTimeout, type GitState } from '@/lib/queries-git';
 import {
   getActiveWorkflowCount,
   getCloudSpend24h,
@@ -79,6 +80,14 @@ export async function GET() {
     getJobHealth().catch(() => null),
   ]);
 
+  // MBOX-163 — appliance git state (branch / sha / behind-master / dirty /
+  // fetch age). Reads via execFile from the bind-mounted repo at
+  // $MAILBOX_REPO_MOUNT (default /app/repo, see docker-compose.yml). The
+  // helper bounds itself with a 500ms ceiling and clears the loser timer
+  // so we don't leave dangling setTimeouts on each /status request — see
+  // getGitStateWithTimeout in lib/queries-git.ts.
+  const gitState: GitState = await getGitStateWithTimeout(500);
+
   // STAQPRO-192 — wrap the live edit-rate alongside the frozen pre-RAG
   // baseline so the /status page (and any future evaluation tooling) can
   // render a delta directly. The baseline lives as a code constant — see
@@ -132,6 +141,7 @@ export async function GET() {
       reason: memory.reason,
     },
     alerts,
+    git_state: gitState,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,
   });

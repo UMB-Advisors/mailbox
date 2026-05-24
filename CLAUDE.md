@@ -268,6 +268,16 @@ ssh mailbox1 'docker logs <service> --tail 50'
 ssh mailbox1 'docker compose -f ~/mailbox/docker-compose.yml exec <svc> <cmd>'
 ```
 
+### Cross-session deploy check (MBOX-163)
+
+Before issuing `git pull` / `docker compose up` against the appliance, verify what branch + commit it's actually on — STAQPRO-336 burned a 36-hour rebuild because M1 was on `worktree-staqpro-360` while local `master` was 19 commits behind origin, invisible from off the box. The dashboard exposes live appliance git state on `/api/system/status` so any session/agent can check without SSH:
+
+```bash
+curl -su admin:$PW https://mailbox.heronlabsinc.com/dashboard/api/system/status | jq .git_state
+```
+
+Returns `{ available, git_branch, git_short_sha, commits_behind_master, commits_ahead_master, fetch_age_seconds, dirty, reason }`. The `/dashboard/status` page surfaces the same data as tiles with red/orange tone rules. The dashboard reads the host repo via a read-only bind mount (`HOST_REPO_DIR` on the host → `/app/repo:ro` in the container — see `.env.example`). `:ro` is non-negotiable — never write from the container.
+
 ### Deploy flow
 
 Edit + commit + push here, then on the Jetson pull + reload:
