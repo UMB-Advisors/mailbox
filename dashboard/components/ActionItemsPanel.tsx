@@ -1,6 +1,6 @@
 'use client';
 
-import { ListChecks, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, ListChecks, Pencil, Plus, SquarePlus, Trash2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { apiUrl } from '@/lib/api';
 import { ACTION_ITEM_SOURCES, ACTION_ITEM_TYPES, type ActionItem } from '@/lib/types';
@@ -55,6 +55,44 @@ export function ActionItemsPanel({
   const [draft, setDraft] = useState<ActionItem>(emptyItem());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // MBOX-129 — task-handoff push state. `pushBusy` is the index currently being
+  // pushed (or -1 for the bulk "push all" button); null = idle.
+  const [pushBusy, setPushBusy] = useState<number | null>(null);
+
+  // Push one item (by index) or all unpushed items (index === -1 → { all }).
+  // The route returns the full updated array (with task fields populated on
+  // pushed items); we adopt it as the new confirmed copy.
+  async function push(index: number) {
+    setPushBusy(index);
+    setError(null);
+    try {
+      const res = await fetch(apiUrl(`/api/drafts/${draftId}/action-items/push`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(index === -1 ? { all: true } : { index }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | {
+            error?: string;
+            action_items?: ActionItem[];
+            results?: Array<{ ok: boolean; error?: string }>;
+          }
+        | null;
+      if (!res.ok) throw new Error(data?.error ?? `push failed (${res.status})`);
+      if (data?.action_items) {
+        setItems(data.action_items);
+        setConfirmed(data.action_items);
+      }
+      // Surface a per-item failure inside an otherwise-2xx response (e.g. a
+      // single rate-limited item in a bulk push).
+      const failed = data?.results?.find((r) => !r.ok);
+      if (failed) setError(failed.error ?? 'one or more pushes failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'push failed');
+    } finally {
+      setPushBusy(null);
+    }
+  }
 
   async function persist(next: ActionItem[]) {
     setBusy(true);
@@ -119,14 +157,28 @@ export function ActionItemsPanel({
         <ListChecks size={14} className="text-ink-dim" aria-hidden />
         <h4 className="font-mono text-xs uppercase tracking-wider text-ink-dim">Action items</h4>
         {!readOnly && (
-          <button
-            type="button"
-            onClick={startAdd}
-            disabled={busy || editingIndex !== null}
-            className="ml-auto inline-flex items-center gap-1 rounded-sm border border-accent-blue/40 px-2 py-0.5 font-sans text-xs text-accent-blue transition-colors hover:bg-accent-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus size={12} /> Add
-          </button>
+          <div className="ml-auto flex items-center gap-1.5">
+            {/* MBOX-129 — bulk push. Shown only when there's at least one item
+                that hasn't been pushed yet. */}
+            {items.some((it) => !it.task_external_id) && (
+              <button
+                type="button"
+                onClick={() => push(-1)}
+                disabled={busy || pushBusy !== null || editingIndex !== null}
+                className="inline-flex items-center gap-1 rounded-sm border border-accent-green/40 px-2 py-0.5 font-sans text-xs text-accent-green transition-colors hover:bg-accent-green/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <SquarePlus size={12} /> {pushBusy === -1 ? 'Pushing…' : 'Push all to Tasks'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={startAdd}
+              disabled={busy || editingIndex !== null}
+              className="inline-flex items-center gap-1 rounded-sm border border-accent-blue/40 px-2 py-0.5 font-sans text-xs text-accent-blue transition-colors hover:bg-accent-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus size={12} /> Add
+            </button>
+          </div>
         )}
       </div>
 
@@ -167,10 +219,60 @@ export function ActionItemsPanel({
                     <span className="font-mono text-[10px] uppercase tracking-wide text-ink-dim">
                       {sourceLabel(item.source)}
                     </span>
+                    {/* MBOX-129 — once pushed, surface a "View in Tasks" deep
+                        link + "Remove from Tasks" affordance. */}
+                    {item.task_external_id && (
+                      <>
+                        <a
+                          href={item.task_external_url ?? 'https://tasks.google.com/'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-green hover:underline"
+                        >
+                          <ExternalLink size={10} /> View in Tasks
+                        </a>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              persist(
+                                items.map((it, idx) =>
+                                  idx === i
+                                    ? {
+                                        ...it,
+                                        task_external_id: null,
+                                        task_external_url: null,
+                                        task_pushed_at: null,
+                                      }
+                                    : it,
+                                ),
+                              )
+                            }
+                            disabled={busy || pushBusy !== null || editingIndex !== null}
+                            className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-dim hover:text-accent-red disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <XCircle size={10} /> Remove from Tasks
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
                 {!readOnly && (
                   <div className="flex shrink-0 gap-1">
+                    {/* MBOX-129 — per-item push. Hidden once the item has a
+                        task id (the View/Remove affordances take over). */}
+                    {!item.task_external_id && (
+                      <button
+                        type="button"
+                        onClick={() => push(i)}
+                        disabled={busy || pushBusy !== null || editingIndex !== null}
+                        aria-label="Add action item to Tasks"
+                        className="rounded-sm p-1 text-accent-green/80 transition-colors hover:bg-accent-green/10 hover:text-accent-green disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <SquarePlus size={13} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => startEdit(i)}
