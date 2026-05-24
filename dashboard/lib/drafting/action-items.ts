@@ -174,8 +174,11 @@ export async function extractActionItems(
     }
     return items;
   } catch (err) {
-    // AbortSignal.timeout fires a DOMException named 'TimeoutError'.
-    const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+    // The timeout surfaces as a DOMException whose name is 'TimeoutError'
+    // (AbortSignal.timeout) or 'AbortError' depending on the runtime / fetch
+    // path — treat both as a timeout for accurate log attribution.
+    const isTimeout =
+      err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
     const reason = isTimeout ? 'extract_action_items_timeout' : 'extract_action_items_failed';
     console.warn(
       `${reason} draft=${input.draftId}: ${err instanceof Error ? err.message : String(err)}`,

@@ -108,6 +108,7 @@ export function ActionItemsPanel({
   }
 
   async function remove(i: number) {
+    if (busy) return;
     const next = items.filter((_, idx) => idx !== i);
     if (editingIndex === i) cancel();
     await persist(next);

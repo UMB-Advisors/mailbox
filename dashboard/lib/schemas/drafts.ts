@@ -167,7 +167,7 @@ export const actionItemSchema = z.object({
     .min(1, 'text required')
     .max(ACTION_ITEM_TEXT_MAX, `text must be <= ${ACTION_ITEM_TEXT_MAX} chars`),
   type: typeEnum,
-  due_at: z.string().datetime().nullable(),
+  due_at: z.string().datetime().nullable().default(null),
   source: sourceEnum,
   confidence: z.number().min(0).max(1),
 });

@@ -47,15 +47,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           updated_at: sql<string>`NOW()`,
         })
         .where('id', '=', id)
+        // Only mutable while the draft is still in the operator's hands. A
+        // 'sent' draft has already been snapshotted into sent_history by the
+        // migration-030 archival trigger (fires once) — letting its
+        // action_items change here would diverge the two copies and break the
+        // post-send audit chain. Mirror the edit route's status guard.
+        .where('status', 'in', ['pending', 'edited'])
         .returning(['id', 'action_items', 'updated_at'])
         .execute();
-      return rows[0] ?? null;
+
+      if (rows[0]) return { kind: 'ok' as const, draft: rows[0] };
+
+      // No row updated: distinguish a missing draft (404) from one that exists
+      // but is in a terminal / non-editable state (409).
+      const existing = await trx
+        .selectFrom('drafts')
+        .select('id')
+        .where('id', '=', id)
+        .executeTakeFirst();
+      return existing ? { kind: 'conflict' as const } : { kind: 'not_found' as const };
     });
 
-    if (result === null) {
+    if (result.kind === 'not_found') {
       return NextResponse.json({ error: 'draft_not_found' }, { status: 404 });
     }
-    return NextResponse.json({ success: true, draft: result });
+    if (result.kind === 'conflict') {
+      return NextResponse.json(
+        { error: 'draft not in an editable state (must be pending or edited)' },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ success: true, draft: result.draft });
   } catch (error) {
     console.error(`POST /api/drafts/${id}/action-items failed:`, error);
     return NextResponse.json(

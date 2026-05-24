@@ -62,8 +62,7 @@ export async function POST(req: NextRequest) {
     // the counterparty's text; the draft's denormalized from_addr/body_text are
     // the reply side, not the inbound).
     try {
-      const db2 = getKysely();
-      const inbound = await db2
+      const inbound = await db
         .selectFrom('drafts as d')
         .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
         .where('d.id', '=', draft_id)
@@ -90,7 +89,7 @@ export async function POST(req: NextRequest) {
               inbound.confidence != null ? Number(inbound.confidence) : null,
           },
         });
-        await db2
+        await db
           .updateTable('drafts')
           .set({ action_items: sql`${JSON.stringify(action_items)}::jsonb` })
           .where('id', '=', draft_id)
