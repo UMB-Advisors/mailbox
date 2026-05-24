@@ -34,6 +34,7 @@
 
 import process from 'node:process';
 import { Pool } from 'pg';
+import { checkMemoryPressure } from '../lib/preflight/memory';
 
 const POSTGRES_URL = process.env.POSTGRES_URL;
 if (!POSTGRES_URL) {
@@ -148,6 +149,31 @@ async function classifyOne(row: InboxRow, pool: Pool): Promise<NormalizeResponse
 }
 
 async function main() {
+  // MBOX-166 / MBOX-109 — refuse a second large-GGUF load when
+  // MemAvailable is below 1.5 GiB. Loading qwen3:4b-ctx4k into Ollama
+  // alongside a resident llama-cpp (~3.3 GiB) on the 8 GiB Jetson caused
+  // 138 container restarts in the DR-25 soak window via CUDA-side alloc
+  // failures (never tripped kernel OOM). Escape hatch:
+  // MAILBOX_PREFLIGHT_SKIP=1.
+  const preflight = checkMemoryPressure();
+  if (!preflight.ok && process.env.MAILBOX_PREFLIGHT_SKIP !== '1') {
+    console.error('[backfill] memory preflight FAILED — refusing to load GGUF');
+    console.error(`[backfill]   MemAvailable: ${preflight.memAvailableGiB.toFixed(2)} GiB`);
+    console.error(`[backfill]   threshold:    ${preflight.minMemGiB.toFixed(2)} GiB`);
+    console.error(`[backfill]   reason:       ${preflight.reason ?? 'unknown'}`);
+    console.error(
+      '[backfill]   recovery:     stop llama-cpp / wait for inference idle, OR set MAILBOX_PREFLIGHT_SKIP=1 to force',
+    );
+    process.exit(1);
+  }
+  if (preflight.status === 'amber') {
+    console.warn(`[backfill] memory preflight amber — ${preflight.reason}`);
+  }
+  if (!preflight.ok && process.env.MAILBOX_PREFLIGHT_SKIP === '1') {
+    console.warn('[backfill] memory preflight FAILED but MAILBOX_PREFLIGHT_SKIP=1 — proceeding anyway');
+    console.warn(`[backfill]   ${preflight.reason}`);
+  }
+
   const pool = new Pool({ connectionString: POSTGRES_URL });
   try {
     const { rows } = await pool.query<InboxRow>(

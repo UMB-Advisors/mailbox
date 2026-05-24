@@ -24,6 +24,7 @@
 
 import process from 'node:process';
 import { Pool } from 'pg';
+import { checkMemoryPressure } from '../lib/preflight/memory';
 import { embedText } from '../lib/rag/embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from '../lib/rag/excerpt';
 import { type Direction, normalizeSender, upsertEmailPoint } from '../lib/rag/qdrant';
@@ -110,6 +111,34 @@ async function backfillRow(row: BackfillRow): Promise<'ok' | 'skip' | 'fail'> {
 }
 
 async function main(): Promise<void> {
+  // MBOX-166 / MBOX-109 — refuse a second large-GGUF load when
+  // MemAvailable is below 1.5 GiB. Embedding model (nomic-embed-text) is
+  // ~274 MB and tiny on its own, but this script loops through hundreds
+  // of rows and the embed loop will hold Ollama's process resident long
+  // enough that a concurrent classify-backfill (Qwen3, ~3.6 GiB) on the
+  // same appliance OOMs the CUDA allocator. Same guard as classify-backfill.
+  // Escape hatch: MAILBOX_PREFLIGHT_SKIP=1.
+  const preflight = checkMemoryPressure();
+  if (!preflight.ok && process.env.MAILBOX_PREFLIGHT_SKIP !== '1') {
+    console.error('[rag-backfill] memory preflight FAILED — refusing to load GGUF');
+    console.error(`[rag-backfill]   MemAvailable: ${preflight.memAvailableGiB.toFixed(2)} GiB`);
+    console.error(`[rag-backfill]   threshold:    ${preflight.minMemGiB.toFixed(2)} GiB`);
+    console.error(`[rag-backfill]   reason:       ${preflight.reason ?? 'unknown'}`);
+    console.error(
+      '[rag-backfill]   recovery:     stop llama-cpp / wait for inference idle, OR set MAILBOX_PREFLIGHT_SKIP=1 to force',
+    );
+    process.exit(1);
+  }
+  if (preflight.status === 'amber') {
+    console.warn(`[rag-backfill] memory preflight amber — ${preflight.reason}`);
+  }
+  if (!preflight.ok && process.env.MAILBOX_PREFLIGHT_SKIP === '1') {
+    console.warn(
+      '[rag-backfill] memory preflight FAILED but MAILBOX_PREFLIGHT_SKIP=1 — proceeding anyway',
+    );
+    console.warn(`[rag-backfill]   ${preflight.reason}`);
+  }
+
   const url = process.env.POSTGRES_URL;
   if (!url) throw new Error('POSTGRES_URL not set');
   const lookbackDays = Number(process.env.RAG_BACKFILL_LOOKBACK_DAYS ?? 90);
