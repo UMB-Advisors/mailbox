@@ -16,6 +16,8 @@
 
 import type { Selectable } from 'kysely';
 import type {
+  AutoSendAudit as AutoSendAuditRow_,
+  AutoSendRules as AutoSendRulesRow_,
   ChatConversations as ChatConversationsRow_,
   ChatMessages as ChatMessagesRow_,
   ClassificationLog as ClassificationLogRow_,
@@ -158,6 +160,18 @@ export type ActionItemType = (typeof ACTION_ITEM_TYPES)[number];
 export const ACTION_ITEM_SOURCES = ['inbound', 'outbound'] as const;
 
 export type ActionItemSource = (typeof ACTION_ITEM_SOURCES)[number];
+
+// auto_send_rules.action / auto_send_audit.{matched,effective}_action enum
+// (MBOX-16 / FR-23). Mirrored against the CHECK constraints in
+// migrations/031-create-auto-send-rules-v1-2026-05-24.sql; the
+// schema-invariants test asserts they stay in sync. 'auto_send' funnels a
+// finalized draft through transitionToApprovedAndSend (subject to the hard
+// guardrails in lib/auto-send/rules.ts); 'queue' is the explicit all-manual
+// action (leave at status='pending' for operator approval); 'drop' rejects the
+// draft without sending. Order is display priority for the rules UI.
+export const AUTO_SEND_ACTIONS = ['auto_send', 'queue', 'drop'] as const;
+
+export type AutoSendAction = (typeof AUTO_SEND_ACTIONS)[number];
 
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
@@ -356,6 +370,48 @@ export interface ChatMessage {
   created_at: string;
 }
 
+// ── Auto-send rules + audit views (MBOX-16 / FR-23) ─────────────────────────
+
+// One operator-defined auto-send rule. Conditions are AND-ed; a NULL condition
+// matches anything. The evaluator (lib/auto-send/rules.ts) walks enabled rules
+// in (priority, id) order and the first match wins. `action` is what the rule
+// declares; the code-side hard guardrails can still downgrade an 'auto_send'
+// to 'queue' (see lib/auto-send/rules.ts).
+export interface AutoSendRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  action: AutoSendAction;
+  category: ClassificationCategory | null;
+  sender_domain: string | null;
+  // pg returns NUMERIC as string via the type-parser overrides.
+  min_confidence: string | null;
+  // Minutes-from-midnight [start, end) operator-local window; null/null = any.
+  active_from_min: number | null;
+  active_to_min: number | null;
+  // While now < shadow_until an auto_send rule is logged-only (downgraded to
+  // queue). null = not shadowed.
+  shadow_until: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+// One append-only audit row recording an auto-send evaluation for a finalized
+// draft (FR-23 §3). rule_id NULL = no enabled rule matched (default manual).
+export interface AutoSendAuditEntry {
+  id: number;
+  draft_id: number;
+  rule_id: number | null;
+  rule_name: string | null;
+  matched_action: AutoSendAction;
+  effective_action: AutoSendAction;
+  shadow: boolean;
+  reason: string;
+  evaluated_at: string;
+}
+
 // ── Full DB row shapes (re-exports of kysely-codegen output) ────────────────
 //
 // Use these when you need a column the curated view doesn't expose. The
@@ -375,3 +431,5 @@ export type DraftFeedbackRow = Selectable<DraftFeedbackRow_>;
 export type ChatConversationRow = Selectable<ChatConversationsRow_>;
 export type ChatMessageRow = Selectable<ChatMessagesRow_>;
 export type VipSenderRow = Selectable<VipSendersRow_>;
+export type AutoSendRuleRow = Selectable<AutoSendRulesRow_>;
+export type AutoSendAuditRow = Selectable<AutoSendAuditRow_>;

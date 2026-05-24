@@ -269,6 +269,35 @@ export interface VDraftingMetrics {
   status: string | null;
 }
 
+export interface AutoSendAudit {
+  draft_id: number;
+  effective_action: string;
+  evaluated_at: Generated<string>;
+  id: Generated<Int8>;
+  matched_action: string;
+  reason: string;
+  rule_id: number | null;
+  rule_name: string | null;
+  shadow: Generated<boolean>;
+}
+
+export interface AutoSendRules {
+  action: string;
+  active_from_min: number | null;
+  active_to_min: number | null;
+  category: string | null;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  min_confidence: Numeric | null;
+  name: string;
+  priority: Generated<number>;
+  sender_domain: string | null;
+  shadow_until: string | null;
+  updated_at: Generated<string>;
+}
+
 export interface VipSenders {
   added_at: Generated<string>;
   added_by: string | null;
@@ -289,6 +318,8 @@ export interface VOverrideRate {
 }
 
 export interface DB {
+  auto_send_audit: AutoSendAudit;
+  auto_send_rules: AutoSendRules;
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
   classification_log: ClassificationLog;
