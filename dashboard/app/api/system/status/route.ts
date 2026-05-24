@@ -5,6 +5,7 @@ import {
   evaluateAlerts,
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
+import { getGitState, type GitState } from '@/lib/queries-git';
 import {
   getActiveWorkflowCount,
   getCloudSpend24h,
@@ -79,6 +80,45 @@ export async function GET() {
     getJobHealth().catch(() => null),
   ]);
 
+  // MBOX-163 — appliance git state (branch / sha / behind-master / dirty /
+  // fetch age). Reads via execFile from the bind-mounted repo at
+  // $MAILBOX_REPO_MOUNT (default /app/repo, see docker-compose.yml). Wrap
+  // in a 500ms Promise.race so a slow/hung git invocation can't drag down
+  // the rest of /status; on timeout we return the same shape with
+  // available=false rather than a missing field.
+  const gitState: GitState = await Promise.race([
+    getGitState().catch(
+      (err): GitState => ({
+        available: false,
+        git_branch: null,
+        git_short_sha: null,
+        git_full_sha: null,
+        commits_behind_master: null,
+        commits_ahead_master: null,
+        fetch_age_seconds: null,
+        dirty: null,
+        reason: `git_state error: ${(err as Error).message}`,
+      }),
+    ),
+    new Promise<GitState>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            available: false,
+            git_branch: null,
+            git_short_sha: null,
+            git_full_sha: null,
+            commits_behind_master: null,
+            commits_ahead_master: null,
+            fetch_age_seconds: null,
+            dirty: null,
+            reason: 'git_state timed out',
+          }),
+        500,
+      ),
+    ),
+  ]);
+
   // STAQPRO-192 — wrap the live edit-rate alongside the frozen pre-RAG
   // baseline so the /status page (and any future evaluation tooling) can
   // render a delta directly. The baseline lives as a code constant — see
@@ -132,6 +172,7 @@ export async function GET() {
       reason: memory.reason,
     },
     alerts,
+    git_state: gitState,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,
   });

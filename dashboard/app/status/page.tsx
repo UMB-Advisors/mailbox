@@ -6,6 +6,7 @@ import {
   evaluateAlerts,
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
+import { getGitState, type GitState } from '@/lib/queries-git';
 import { type DraftingMetrics, getDraftingMetrics } from '@/lib/queries-status';
 import {
   getActiveWorkflowCount,
@@ -72,6 +73,59 @@ export default async function StatusPage() {
     // STAQPRO-226 — Gmail bootstrap mode (first-install rate limiting).
     getBootstrapState().catch(() => null),
   ]);
+
+  // MBOX-163 — appliance git state. Race a 500ms timeout so a slow `git`
+  // invocation can't drag the whole page; total-failure-safe (never throws).
+  const gitState: GitState = await Promise.race([
+    getGitState().catch(
+      (err): GitState => ({
+        available: false,
+        git_branch: null,
+        git_short_sha: null,
+        git_full_sha: null,
+        commits_behind_master: null,
+        commits_ahead_master: null,
+        fetch_age_seconds: null,
+        dirty: null,
+        reason: `git_state error: ${(err as Error).message}`,
+      }),
+    ),
+    new Promise<GitState>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            available: false,
+            git_branch: null,
+            git_short_sha: null,
+            git_full_sha: null,
+            commits_behind_master: null,
+            commits_ahead_master: null,
+            fetch_age_seconds: null,
+            dirty: null,
+            reason: 'git_state timed out',
+          }),
+        500,
+      ),
+    ),
+  ]);
+
+  // Tone rules from the spec:
+  //   red    → behind master AND fetched recently (someone pushed, we know it)
+  //   orange → fetch is stale (> 1h) OR fetch never happened
+  //   orange → dirty working tree (uncommitted changes on the appliance)
+  //   green  → caught up, fresh fetch, clean tree
+  const gitTone: 'default' | 'green' | 'orange' | 'red' = !gitState.available
+    ? 'default'
+    : gitState.commits_behind_master !== null &&
+        gitState.commits_behind_master > 0 &&
+        gitState.fetch_age_seconds !== null &&
+        gitState.fetch_age_seconds < 600
+      ? 'red'
+      : gitState.fetch_age_seconds === null || gitState.fetch_age_seconds > 3600
+        ? 'orange'
+        : gitState.dirty === true
+          ? 'orange'
+          : 'green';
 
   // Classify-lag tone: backlog > 0 AND oldest waiter > 15m → red, > 10m → orange.
   // Empty backlog renders neutral (no work to do, not a problem).
@@ -234,6 +288,87 @@ export default async function StatusPage() {
               tone={classifyTone}
               mono
             />
+          </section>
+
+          {/* MBOX-163 — appliance git state. Operator-visible answer to
+              "what code is the box running right now?" so cross-session
+              deploys don't burn rebuilds on stale branches (STAQPRO-336). */}
+          <section className="mb-6">
+            <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+              Appliance git state
+            </h2>
+            {!gitState.available ? (
+              <Card>
+                <p className="text-sm text-ink-dim">
+                  git state unavailable: {gitState.reason ?? 'unknown'}
+                </p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                <Stat
+                  label="Branch"
+                  value={gitState.git_branch ?? '—'}
+                  sub={gitState.git_short_sha ?? ''}
+                  tone={gitTone}
+                  mono
+                />
+                <Stat
+                  label="Behind master"
+                  value={gitState.commits_behind_master ?? '—'}
+                  sub={
+                    gitState.commits_behind_master === null
+                      ? 'no origin/master ref'
+                      : gitState.commits_behind_master === 0
+                        ? 'up to date'
+                        : 'origin has commits we don’t'
+                  }
+                  tone={
+                    gitState.commits_behind_master !== null && gitState.commits_behind_master > 0
+                      ? 'red'
+                      : 'default'
+                  }
+                  mono
+                />
+                <Stat
+                  label="Ahead master"
+                  value={gitState.commits_ahead_master ?? '—'}
+                  sub={
+                    gitState.commits_ahead_master !== null && gitState.commits_ahead_master > 0
+                      ? 'local-only commits'
+                      : 'in sync'
+                  }
+                  mono
+                />
+                <Stat
+                  label="Last fetch"
+                  value={
+                    gitState.fetch_age_seconds === null
+                      ? 'never'
+                      : formatAgeSeconds(gitState.fetch_age_seconds)
+                  }
+                  sub={
+                    gitState.fetch_age_seconds === null
+                      ? 'no FETCH_HEAD'
+                      : gitState.fetch_age_seconds > 3600
+                        ? 'stale (>1h) — `git fetch` to refresh'
+                        : 'fresh'
+                  }
+                  tone={
+                    gitState.fetch_age_seconds === null || gitState.fetch_age_seconds > 3600
+                      ? 'orange'
+                      : 'default'
+                  }
+                  mono
+                />
+                <Stat
+                  label="Working tree"
+                  value={gitState.dirty ? 'dirty' : 'clean'}
+                  sub={gitState.dirty ? 'uncommitted changes on appliance' : ''}
+                  tone={gitState.dirty ? 'orange' : 'default'}
+                  mono
+                />
+              </div>
+            )}
           </section>
 
           <section className="mb-6">
@@ -674,6 +809,19 @@ function formatRelative(iso: string | null): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return iso;
   const seconds = Math.round((Date.now() - t) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+// MBOX-163 — render a "X ago" string from a raw seconds-delta. Distinct
+// from formatRelative (which parses an ISO timestamp); the git_state helper
+// already does the now-minus-fetch arithmetic so the page just formats.
+function formatAgeSeconds(seconds: number): string {
   if (seconds < 60) return `${seconds}s ago`;
   const m = Math.floor(seconds / 60);
   if (m < 60) return `${m}m ago`;
