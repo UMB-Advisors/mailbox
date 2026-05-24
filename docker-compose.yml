@@ -279,8 +279,25 @@ services:
       # fallback. Forward-or-no-op per MBOX-306; defaults match the code.
       DIGEST_SEND_FROM_GMAIL: ${DIGEST_SEND_FROM_GMAIL:-true}
       DIGEST_QUEUE_URL: ${DIGEST_QUEUE_URL:-}
+      # MBOX-163 — repo path inside the container where the host repo bind
+      # mount lands. The dashboard reads it via lib/queries-git.ts to surface
+      # branch/sha/behind-master on /api/system/status. Default matches the
+      # mount target below; only override if you remount the repo somewhere
+      # else inside the container.
+      MAILBOX_REPO_MOUNT: ${MAILBOX_REPO_MOUNT:-/app/repo}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
+      # MBOX-163 — bind-mount the host repo READ-ONLY so the dashboard can
+      # surface live appliance git state on /api/system/status (branch,
+      # short_sha, commits_behind_master, fetch age, dirty). Closes the
+      # STAQPRO-336 incident class: M1 sat on worktree-staqpro-360 at 198e105
+      # for 36h with local master 19 commits behind origin, invisible from
+      # off-the-box; Eric burned a rebuild before noticing. Read-only (:ro)
+      # is non-negotiable — the dashboard MUST never write to the host repo.
+      # Override per-appliance via HOST_REPO_DIR (default matches the M1
+      # layout in root CLAUDE.md "Deploy flow"). Mount-target stays /app/repo
+      # so the in-container MAILBOX_REPO_MOUNT default just works.
+      - ${HOST_REPO_DIR:-/home/bob/mailbox}:/app/repo:ro
     depends_on:
       postgres:
         condition: service_healthy
