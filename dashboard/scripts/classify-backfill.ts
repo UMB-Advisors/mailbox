@@ -170,7 +170,9 @@ async function main() {
     console.warn(`[backfill] memory preflight amber — ${preflight.reason}`);
   }
   if (!preflight.ok && process.env.MAILBOX_PREFLIGHT_SKIP === '1') {
-    console.warn('[backfill] memory preflight FAILED but MAILBOX_PREFLIGHT_SKIP=1 — proceeding anyway');
+    console.warn(
+      '[backfill] memory preflight FAILED but MAILBOX_PREFLIGHT_SKIP=1 — proceeding anyway',
+    );
     console.warn(`[backfill]   ${preflight.reason}`);
   }
 

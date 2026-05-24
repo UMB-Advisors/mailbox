@@ -93,9 +93,7 @@ function envMinMemGiB(): number {
  *   it returns `ok=false` with `status='red'` and a reason string so
  *   callers can fail loudly without try/catch.
  */
-export function checkMemoryPressure(
-  opts: CheckMemoryPressureOptions = {},
-): MemoryPressureResult {
+export function checkMemoryPressure(opts: CheckMemoryPressureOptions = {}): MemoryPressureResult {
   const minMemGiB = opts.minMemGiB ?? envMinMemGiB();
   const amberCeilingGiB = minMemGiB + AMBER_BAND_MIB / 1024;
 
@@ -134,9 +132,7 @@ export function checkMemoryPressure(
       memAvailableGiB,
       minMemGiB,
       status: 'red',
-      reason: `MemAvailable ${memAvailableGiB.toFixed(
-        2,
-      )} GiB < threshold ${minMemGiB.toFixed(
+      reason: `MemAvailable ${memAvailableGiB.toFixed(2)} GiB < threshold ${minMemGiB.toFixed(
         2,
       )} GiB — llama-cpp likely holding GPU memory; run when idle or stop llama-cpp first`,
     };
