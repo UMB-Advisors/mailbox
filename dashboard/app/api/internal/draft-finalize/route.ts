@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
+import { runAutoSendForFinalizedDraft } from '@/lib/auto-send/finalize-hook';
 import { getKysely, normalizeDraftBody } from '@/lib/db';
 import { extractActionItems } from '@/lib/drafting/action-items';
 import { computeCost } from '@/lib/drafting/cost';
@@ -106,6 +107,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // MBOX-16 / FR-23 — auto-send rule evaluation. Runs AFTER the body is
+    // persisted (status is still 'pending' here). Default-safe: with zero rules
+    // configured (fresh install) this is a single SELECT that no-ops and leaves
+    // the draft in the all-manual queue. When a rule matches with action
+    // 'auto_send', the draft is funneled through the SAME transitionToApprovedAndSend
+    // path as operator-approve (actor='auto') so it inherits the Gmail cooldown
+    // circuit breaker, the send_attempt_at idempotency lock, and the
+    // state_transitions audit trigger. Strictly non-gating: runAutoSendForFinalizedDraft
+    // never throws and a blocked/failed send leaves the draft queued.
+    const auto_send = await runAutoSendForFinalizedDraft(draft_id);
+
     // rows[0].cost_usd is the persisted NUMERIC-as-string value — same shape
     // n8n's HTTP node previously consumed. computeCost(...) above is the
     // source-of-truth calculation; rows[0] echoes what was just written.
@@ -113,6 +125,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       draft_id,
       ...rows[0],
+      auto_send,
     });
   } catch (error) {
     console.error('POST /api/internal/draft-finalize failed:', error);

@@ -25,6 +25,14 @@ interface TransitionOptions {
   // when this draft last hit the n8n send webhook so the cooldown check can
   // gate subsequent retries. Approve doesn't set this — it's not a "retry".
   setLastRetryAt?: boolean;
+  // MBOX-16 — actor recorded in the migration-009 state_transitions trigger
+  // via the mailbox.actor GUC. Defaults to 'operator' (the human approve/retry
+  // path); the auto-send path passes 'auto' so the audit log distinguishes a
+  // rule-driven send from an operator click. The transition reason defaults to
+  // `routeName`; override it (e.g. 'auto_send_rule') when the route name isn't
+  // the meaningful reason.
+  actor?: string;
+  reason?: string;
 }
 
 export async function transitionToApprovedAndSend(
@@ -62,8 +70,8 @@ export async function transitionToApprovedAndSend(
   try {
     const db = getKysely();
     const rows = await db.transaction().execute(async (trx) => {
-      await sql`SELECT set_config('mailbox.actor', 'operator', true)`.execute(trx);
-      await sql`SELECT set_config('mailbox.transition_reason', ${opts.routeName}, true)`.execute(
+      await sql`SELECT set_config('mailbox.actor', ${opts.actor ?? 'operator'}, true)`.execute(trx);
+      await sql`SELECT set_config('mailbox.transition_reason', ${opts.reason ?? opts.routeName}, true)`.execute(
         trx,
       );
       return trx
