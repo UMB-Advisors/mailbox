@@ -29,7 +29,7 @@
 // fetch() against localhost would just be wasted latency.
 
 import { getPersonaContext } from '@/lib/drafting/persona';
-import { readOllamaBaseUrl } from '@/lib/llm/runtime';
+import { readOllamaBaseUrl } from '@umb-advisors/llm';
 import { type ClassificationResult, normalizeClassifierOutput } from './normalize';
 import { buildPrompt, MODEL_VERSION } from './prompt';
 

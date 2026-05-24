@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type ChatSendDeps, type ChatTurnEvent, runChatTurn } from '@/lib/chat/orchestrate';
-import type { StreamEvent } from '@/lib/llm/types';
+import type { StreamEvent } from '@umb-advisors/llm';
 import type { ChatRetrievalResult } from '@/lib/rag/chat-retrieve';
 import type { ChatMessage } from '@/lib/types';
 

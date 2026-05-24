@@ -1,13 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { callLlamaCppGenerate } from '@/lib/llm/llamacpp-client';
-import { callOllamaGenerate } from '@/lib/llm/ollama-client';
+import { callLlamaCppGenerate } from '@umb-advisors/llm';
+import { callOllamaGenerate } from '@umb-advisors/llm';
 import {
   readLlamaCppBaseUrl,
   readLlamaCppModel,
   readOllamaBaseUrl,
   readRuntimeKind,
-} from '@/lib/llm/runtime';
-import type { OllamaGenerateRequest, OllamaGenerateResponse } from '@/lib/llm/types';
+} from '@umb-advisors/llm';
+import type { OllamaGenerateRequest, OllamaGenerateResponse } from '@umb-advisors/llm';
 import { parseJson } from '@/lib/middleware/validate';
 import { llmGenerateBodySchema } from '@/lib/schemas/internal';
 

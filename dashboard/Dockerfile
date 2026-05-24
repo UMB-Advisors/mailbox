@@ -5,7 +5,12 @@
 # ---- Stage 1: deps ----------------------------------------------------------
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+# Auth for @umb-advisors/* packages from GitHub Packages. Build-arg
+# expands at install time via .npmrc's ${GITHUB_PACKAGES_TOKEN} reference.
+# Token never lands in any image layer (env var is consumed during `npm ci`).
+ARG GITHUB_PACKAGES_TOKEN
+ENV GITHUB_PACKAGES_TOKEN=${GITHUB_PACKAGES_TOKEN}
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --no-audit --no-fund
 
 # ---- Stage 2: builder -------------------------------------------------------

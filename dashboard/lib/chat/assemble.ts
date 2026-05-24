@@ -14,7 +14,7 @@
 // produced are consumed only by streamLocalChat, which is local-only by
 // construction.
 
-import type { OllamaChatMessage } from '@/lib/llm/types';
+import type { OllamaChatMessage } from '@umb-advisors/llm';
 import type { ApplianceStatsContext } from '@/lib/queries-chat-stats';
 import type { ChatRetrievalRef, ChatRetrievalResult } from '@/lib/rag/chat-retrieve';
 import type { ChatMessage } from '@/lib/types';

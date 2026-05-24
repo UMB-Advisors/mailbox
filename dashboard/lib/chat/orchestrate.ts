@@ -36,9 +36,9 @@ import {
   readLlamaCppModel,
   readOllamaBaseUrl,
   readRuntimeKind,
-} from '@/lib/llm/runtime';
-import { streamLocalChat } from '@/lib/llm/streaming-client';
-import type { OllamaChatMessage, RuntimeKind, StreamEvent } from '@/lib/llm/types';
+} from '@umb-advisors/llm';
+import { streamLocalChat } from '@umb-advisors/llm';
+import type { OllamaChatMessage, RuntimeKind, StreamEvent } from '@umb-advisors/llm';
 import {
   appendMessage as appendMessageImpl,
   getConversationMessages as getConversationMessagesImpl,

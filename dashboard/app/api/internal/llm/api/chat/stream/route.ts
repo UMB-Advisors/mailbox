@@ -4,9 +4,9 @@ import {
   readLlamaCppModel,
   readOllamaBaseUrl,
   readRuntimeKind,
-} from '@/lib/llm/runtime';
-import { SSE_HEADERS, sseStreamFromEvents } from '@/lib/llm/sse';
-import { streamLocalChat } from '@/lib/llm/streaming-client';
+} from '@umb-advisors/llm';
+import { SSE_HEADERS, sseStreamFromEvents } from '@umb-advisors/llm';
+import { streamLocalChat } from '@umb-advisors/llm';
 import { parseJson } from '@/lib/middleware/validate';
 import { llmChatStreamBodySchema } from '@/lib/schemas/internal';
 

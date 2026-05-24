@@ -1,13 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { callLlamaCppChat } from '@/lib/llm/llamacpp-client';
-import { callOllamaChat } from '@/lib/llm/ollama-client';
+import { callLlamaCppChat } from '@umb-advisors/llm';
+import { callOllamaChat } from '@umb-advisors/llm';
 import {
   readLlamaCppBaseUrl,
   readLlamaCppModel,
   readOllamaBaseUrl,
   readRuntimeKind,
-} from '@/lib/llm/runtime';
-import type { OllamaChatRequest, OllamaChatResponse } from '@/lib/llm/types';
+} from '@umb-advisors/llm';
+import type { OllamaChatRequest, OllamaChatResponse } from '@umb-advisors/llm';
 import { parseJson } from '@/lib/middleware/validate';
 import { llmChatBodySchema } from '@/lib/schemas/internal';
 

@@ -22,7 +22,7 @@
 // client attach a listener per type.
 
 import type { ChatTurnEvent } from '@/lib/chat/orchestrate';
-import type { RuntimeKind } from '@/lib/llm/types';
+import type { RuntimeKind } from '@umb-advisors/llm';
 
 /** Serialize one ChatTurnEvent to an SSE frame string. */
 export function toChatSseFrame(event: ChatTurnEvent): string {

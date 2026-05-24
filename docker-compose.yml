@@ -172,6 +172,12 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+      args:
+        # Auth for installing @umb-advisors/* packages from GitHub Packages
+        # during `npm ci` in the deps stage. Reads from host .env at build
+        # time; needs read:packages scope. dashboard/.npmrc references this
+        # via ${GITHUB_PACKAGES_TOKEN}. Token never lands in any image layer.
+        GITHUB_PACKAGES_TOKEN: ${GITHUB_PACKAGES_TOKEN}
     container_name: mailbox-dashboard
     restart: unless-stopped
     environment:

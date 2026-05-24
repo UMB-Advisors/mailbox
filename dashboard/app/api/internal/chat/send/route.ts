@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { runChatTurn } from '@/lib/chat/orchestrate';
 import { CHAT_SSE_HEADERS, chatSseStream } from '@/lib/chat/sse';
-import { readRuntimeKind } from '@/lib/llm/runtime';
+import { readRuntimeKind } from '@umb-advisors/llm';
 import { parseJson } from '@/lib/middleware/validate';
 import { appendMessage } from '@/lib/queries-chat';
 import { chatSendSchema } from '@/lib/schemas/chat';

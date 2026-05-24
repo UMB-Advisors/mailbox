@@ -19,7 +19,7 @@
 
 import type { Category } from '@/lib/classification/prompt';
 import { routeFor } from '@/lib/classification/prompt';
-import { readLlamaCppModel, readOllamaBaseUrl, readRuntimeKind } from '@/lib/llm/runtime';
+import { readLlamaCppModel, readOllamaBaseUrl, readRuntimeKind } from '@umb-advisors/llm';
 import { DRAFT_CLOUD_MODEL_DEFAULT, DRAFT_LOCAL_MODEL } from './prompt';
 
 export type DraftSource = 'local' | 'cloud';
