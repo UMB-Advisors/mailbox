@@ -262,10 +262,12 @@ Edit + commit + push here, then on the Jetson pull + reload:
 
 ```bash
 git add . && git commit -m "..." && git push origin master
-ssh mailbox1 'cd ~/mailbox && git pull && docker compose up -d --build --remove-orphans'
+ssh mailbox1 'cd ~/mailbox && git pull && git submodule update --init && docker compose up -d --build --remove-orphans'
 ```
 
 **Always pass `--remove-orphans`** on full-stack `up`. Removed services keep their host port binding without it.
+
+**Submodule note (MBOX-324, 2026-05-23)**: `vendor/thumbox-common` holds shared appliance ops (canonical `bin/rotate-basic-auth`, generic `scripts/first-boot-jetson.sh`) from `UMB-Advisors/thumbox-appliance-common`, pinned to a tag. `git submodule update --init` is now part of every deploy and every fresh workstation clone. If `./bin/rotate-basic-auth` exits with "canonical not found" the submodule wasn't initialized — fix with `git submodule update --init`.
 
 For **Caddyfile** changes (bind-mounted, no rebuild): `docker compose restart caddy`.
 For **`.env` Caddy var changes** (basic_auth, etc.): `docker compose up -d caddy` (restart keeps stale env).

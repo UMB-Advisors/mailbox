@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+# CANONICAL: vendor/thumbox-common/scripts/jetson-bootstrap-ssh.sh
+# (github.com/UMB-Advisors/thumbox-appliance-common, pinned v0.1.0)
+#
+# This file is kept here as a self-contained copy intentionally — it runs
+# at FIRST BOOT on a freshly-flashed Jetson, BEFORE the operator has SSH
+# access to run `git submodule update --init`. The wrapper pattern used by
+# bin/rotate-basic-auth doesn't apply.
+#
+# To re-sync from canonical (e.g. after bumping vendor/thumbox-common):
+#   cp vendor/thumbox-common/scripts/jetson-bootstrap-ssh.sh scripts/jetson-bootstrap-ssh.sh
+#   # then commit with a note about which canonical version was synced.
+#
 # Mailbox Jetson — SSH bootstrap for a freshly-flashed appliance.
 #
 # Run this on the Jetson after SDK Manager's first-run wizard completes and
