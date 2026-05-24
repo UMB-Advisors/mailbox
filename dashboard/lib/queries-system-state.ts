@@ -65,6 +65,48 @@ export async function setGmailCooldown(until: Date): Promise<void> {
   `.execute(db);
 }
 
+// MBOX-107 — operator-driven force-resume escape hatch. Clears the Gmail
+// cooldown row (sets `gmail_rate_limit_until` + `gmail_rate_limit_set_at`
+// to NULL) so the n8n `Cooldown Active?` gate reopens and the dashboard
+// approve/retry transitions stop short-circuiting at the cooldown gate.
+//
+// Captures the previous deadline via a CTE so the route layer can log
+// what the operator overrode (useful for forensics if a force-resume
+// re-aggravates a still-active Google probation — see
+// gmail_ratelimit_probation memory: calling Gmail inside an active
+// probation extends the cooldown +15 min).
+//
+// Idempotent: clearing an already-cleared cooldown returns `cleared:
+// false, previous_until: null`. The route layer treats both shapes as
+// HTTP 200 to keep DELETE semantics clean — the operator gets the same
+// "cooldown is cleared" outcome either way.
+export interface ClearGmailCooldownResult {
+  cleared: boolean;
+  previous_until: Date | null;
+}
+
+export async function clearGmailCooldown(): Promise<ClearGmailCooldownResult> {
+  const db = getKysely();
+  const row = await sql<{ previous_until: string | null }>`
+    WITH prev AS (
+      SELECT gmail_rate_limit_until AS previous_until
+        FROM mailbox.system_state
+       WHERE id = 1
+    )
+    UPDATE mailbox.system_state
+       SET gmail_rate_limit_until = NULL,
+           gmail_rate_limit_set_at = NULL
+     WHERE id = 1
+    RETURNING (SELECT previous_until FROM prev)
+  `.execute(db);
+  const previousUntilRaw = row.rows[0]?.previous_until ?? null;
+  const previous_until = previousUntilRaw ? new Date(previousUntilRaw) : null;
+  return {
+    cleared: previous_until !== null,
+    previous_until,
+  };
+}
+
 // STAQPRO-226 — Gmail bootstrap mode for first-install rate limiting.
 //
 // While `complete=false`, the n8n MailBOX workflow throttles Gmail Get to

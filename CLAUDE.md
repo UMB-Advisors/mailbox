@@ -105,8 +105,15 @@ Use `bin/rotate-basic-auth`. Handles two footguns: (1) `caddy hash-password` nee
 ./bin/rotate-basic-auth --update-1password 'mailbox.heronlabsinc.com' mailbox1
 ```
 
-### Gmail rate-limit cooldown (STAQPRO-271)
-**Don't retry until well past stated `Retry-After`.** Each retry during cooldown extends the deadline (2026-05-08: 4 retries pushed cooldown +1h44m past the 15-min stated retry-after). Read and send quotas are independent buckets. Until STAQPRO-231 circuit-breaker lands, SLO: don't fire `MailBOX-Send` again until `now > stated_retry_after + 1h`, doubling on subsequent failures.
+### Gmail rate-limit cooldown (STAQPRO-271 + MBOX-107)
+**Don't retry until well past stated `Retry-After`.** Each retry during cooldown extends the deadline (2026-05-08: 4 retries pushed cooldown +1h44m past the 15-min stated retry-after). Read and send quotas are independent buckets. SLO: don't fire `MailBOX-Send` again until `now > stated_retry_after + 1h`, doubling on subsequent failures.
+
+**Circuit breaker (live).** `mailbox.system_state.gmail_rate_limit_until` is the single source of truth ("Gmail is angry at us right now"). Written by `dashboard/lib/jobs/gmail-ratelimit-sweeper.ts` which parses 429 `Retry-After` from n8n's `execution_entity`. Three consumers gate on it:
+- `GET /api/internal/gmail-cooldown` — n8n's `MailBOX` parent calls this from the `Cooldown Check` HTTP node; the `Cooldown Active?` IF short-circuits the schedule before any Gmail call. Returns `{ in_cooldown, until }` with a +60-min safety BUFFER past Google's hint (STAQPRO-228 — Google's hint is a minimum, not a guarantee).
+- `dashboard/lib/transitions.ts` (STAQPRO-231) — approve + retry both refuse to fire `MailBOX-Send` while the cooldown is live.
+- `GET /api/system/gmail-cooldown` — operator-facing read for the `GmailCooldownBanner` (full shape: `is_active`, `until`, `set_at`, `recommended_safe_at`).
+
+**Force-resume escape hatch (MBOX-107).** `DELETE /api/system/gmail-cooldown` clears the row via `clearGmailCooldown()`. Surfaced as the "Force resume" button in `GmailCooldownBanner` behind a 5s arm-then-confirm window (matches StuckApproved.tsx). Idempotent: returns 200 with `cleared:false` when nothing was set. Use only after independently verifying Google's stated retry-after has elapsed — clearing during a still-active probation re-triggers the 429 and extends the penalty +15 min.
 
 n8n's webhook returns an empty body when `Gmail Reply` throws — `JSON.parse('')` → 502 "Unexpected end of JSON input." Treat any 502 with that string as a Gmail send failure; fetch the real cause from `execution_data.data` of the latest errored `MailBOX-Send` execution.
 

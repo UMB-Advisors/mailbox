@@ -353,6 +353,48 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     }
   }
 
+  // MBOX-107 — operator-driven force-resume of the Gmail rate-limit
+  // cooldown. Hits DELETE /api/system/gmail-cooldown which clears the
+  // singleton row that the n8n MailBOX `Cooldown Active?` gate AND the
+  // dashboard approve/retry transitions both consult. Optimistically
+  // clears local cooldown state so the banner disappears before the
+  // next poll catches up; the next fetchData() reconciles.
+  //
+  // The banner's confirm prompt already carries the +15-min penalty
+  // warning, so by the time this handler fires the operator has
+  // explicitly attested they verified the original Retry-After elapsed.
+  async function fireForceResumeCooldown() {
+    try {
+      const res = await fetch(apiUrl('/api/system/gmail-cooldown'), {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error ?? `Force resume failed (${res.status})`);
+      }
+      // Optimistic: clear local state so the banner hides immediately.
+      // fetchData(true) below will reconcile with the server's view.
+      setCooldown({
+        is_active: false,
+        until: null,
+        set_at: null,
+        recommended_safe_at: null,
+      });
+      setToast({
+        kind: 'success',
+        text: data?.cleared
+          ? 'Gmail cooldown cleared — sends resumed'
+          : 'No active cooldown to clear',
+      });
+      fetchData(true);
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        text: err instanceof Error ? err.message : 'Force resume failed',
+      });
+    }
+  }
+
   async function onEditSave(body: string, subject: string | null) {
     if (!editing) return;
     setBusy({ draftId: editing.id, kind: 'edit' });
@@ -578,7 +620,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
           they're in Inbox or Sent view. Self-hides when not active. */}
       {cooldown.is_active && (
         <div className="border-b border-border-subtle bg-bg-panel px-4 py-2">
-          <GmailCooldownBanner cooldown={cooldown} />
+          <GmailCooldownBanner cooldown={cooldown} onForceResume={fireForceResumeCooldown} />
         </div>
       )}
 
