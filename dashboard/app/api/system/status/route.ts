@@ -4,6 +4,7 @@ import {
   DRAFT_BACKLOG_THRESHOLD_HOURS,
   evaluateAlerts,
 } from '@/lib/alerts';
+import { checkMemoryPressure } from '@/lib/preflight/memory';
 import {
   getActiveWorkflowCount,
   getCloudSpend24h,
@@ -84,6 +85,11 @@ export async function GET() {
   // lib/rag/eval-baseline.ts header for the capture protocol.
   const ragEval = buildRagEvalSnapshot(editRate7d.edit_rate, editRate7d.sample_size);
 
+  // MBOX-166 / MBOX-109 — memory pressure stat. Synchronous /proc/meminfo
+  // read; helper is total-failure-safe (returns red on read/parse error,
+  // never throws), so no try/catch needed.
+  const memory = checkMemoryPressure();
+
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
     n8nFailures: n8nFailures24h,
@@ -95,6 +101,11 @@ export async function GET() {
             min_trigger_usd: COST_SPIKE_MIN_TRIGGER_USD,
           }
         : null,
+    memoryPressure: {
+      status: memory.status,
+      memAvailableGiB: memory.memAvailableGiB,
+      minMemGiB: memory.minMemGiB,
+    },
   });
 
   return NextResponse.json({
@@ -114,6 +125,12 @@ export async function GET() {
     rag_eval: ragEval,
     qdrant_collection: qdrantCollection,
     jobs: jobHealth,
+    memory_pressure: {
+      status: memory.status,
+      mem_available_gib: memory.memAvailableGiB,
+      min_mem_gib: memory.minMemGiB,
+      reason: memory.reason,
+    },
     alerts,
     generated_at: new Date().toISOString(),
     response_time_ms: Date.now() - startedAt,

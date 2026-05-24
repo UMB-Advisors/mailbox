@@ -9,7 +9,11 @@
 
 export type AlertSeverity = 'warn' | 'alarm';
 
-export type AlertCode = 'DRAFT_BACKLOG_AGED' | 'N8N_EXEC_FAILURES' | 'CLOUD_COST_SPIKE';
+export type AlertCode =
+  | 'DRAFT_BACKLOG_AGED'
+  | 'N8N_EXEC_FAILURES'
+  | 'CLOUD_COST_SPIKE'
+  | 'MEMORY_PRESSURE';
 
 export interface Alert {
   severity: AlertSeverity;
@@ -120,10 +124,37 @@ export function evaluateCloudCostSpike(input: CloudCostSpikeInput): Alert | null
   return null;
 }
 
+// MBOX-166 / MBOX-109 — operator-facing memory pressure alert.
+// Folds the checkMemoryPressure() helper's status into the status-page
+// alerts array: red → alarm, amber → warn, green → no alert. Threshold
+// value lives in lib/preflight/memory.ts (operator-tunable via
+// MAILBOX_PREFLIGHT_MIN_MEM_GIB) — we don't re-declare it here.
+export interface MemoryPressureInput {
+  status: 'green' | 'amber' | 'red';
+  memAvailableGiB: number;
+  minMemGiB: number;
+}
+
+export function evaluateMemoryPressure(input: MemoryPressureInput): Alert | null {
+  if (input.status === 'green') return null;
+  const severity: AlertSeverity = input.status === 'red' ? 'alarm' : 'warn';
+  const verb = input.status === 'red' ? 'below' : `within 200 MiB of`;
+  return {
+    severity,
+    code: 'MEMORY_PRESSURE',
+    message: `MemAvailable ${input.memAvailableGiB.toFixed(
+      2,
+    )} GiB ${verb} threshold ${input.minMemGiB.toFixed(2)} GiB — next large-GGUF load (classify/rag backfill) at risk of CUDA OOM`,
+    value: input.memAvailableGiB,
+    threshold: input.minMemGiB,
+  };
+}
+
 export interface AlertInputs {
   draftBacklog: DraftBacklogInput | null;
   n8nFailures: N8nFailuresInput | null;
   cloudCostSpike: CloudCostSpikeInput | null;
+  memoryPressure: MemoryPressureInput | null;
 }
 
 export function evaluateAlerts(inputs: AlertInputs): Alert[] {
@@ -138,6 +169,10 @@ export function evaluateAlerts(inputs: AlertInputs): Alert[] {
   }
   if (inputs.cloudCostSpike) {
     const a = evaluateCloudCostSpike(inputs.cloudCostSpike);
+    if (a) alerts.push(a);
+  }
+  if (inputs.memoryPressure) {
+    const a = evaluateMemoryPressure(inputs.memoryPressure);
     if (a) alerts.push(a);
   }
   return alerts;

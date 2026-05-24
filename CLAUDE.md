@@ -117,6 +117,11 @@ Use `bin/rotate-basic-auth`. Handles two footguns: (1) `caddy hash-password` nee
 
 n8n's webhook returns an empty body when `Gmail Reply` throws — `JSON.parse('')` → 502 "Unexpected end of JSON input." Treat any 502 with that string as a Gmail send failure; fetch the real cause from `execution_data.data` of the latest errored `MailBOX-Send` execution.
 
+### Backfill memory pre-flight (MBOX-166 / MBOX-109)
+**The two GGUF-loading backfills self-guard against concurrent large loads.** `dashboard/scripts/classify-backfill.ts` and `dashboard/scripts/rag-backfill.ts` call `checkMemoryPressure()` (`dashboard/lib/preflight/memory.ts`) at the top of `main()` and `process.exit(1)` when `/proc/meminfo`'s `MemAvailable` is below **1.5 GiB** (override `MAILBOX_PREFLIGHT_MIN_MEM_GIB`). Closes the DR-25 soak-window failure mode where loading `qwen3:4b-ctx4k` into Ollama alongside a resident llama-cpp on the 8 GiB Jetson logged 138 container restarts via CUDA-side alloc failures (never tripped kernel OOM).
+
+Escape hatch: `MAILBOX_PREFLIGHT_SKIP=1` forces through (logs the warning and continues). Jetson uses unified memory so `MemAvailable` is the authoritative combined CPU+GPU proxy — no nvidia-smi/tegrastats needed. The same helper feeds `/api/system/status` → `memory_pressure` (and a `MEMORY_PRESSURE` alert, warn at amber / alarm at red) so the operator sees pressure before the next backfill aborts. Retires the soak-window-era "don't run two backfills concurrently" verbal rule — it now lives in code, with operator-visible status.
+
 ### n8n workflow editing (2.x)
 - **All four MailBOX workflows must be `active=true` on n8n 2.x.** Pre-2.x guidance (sub-workflows `active=false`) was retracted — 2.x throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2). Gate: `mailbox-n8n-verify` profile.
 - `n8n update:workflow --active=...` is a no-op at runtime without a container restart.

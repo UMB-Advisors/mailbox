@@ -5,6 +5,7 @@ import {
   DRAFT_BACKLOG_THRESHOLD_HOURS,
   evaluateAlerts,
 } from '@/lib/alerts';
+import { checkMemoryPressure } from '@/lib/preflight/memory';
 import { type DraftingMetrics, getDraftingMetrics } from '@/lib/queries-status';
 import {
   getActiveWorkflowCount,
@@ -95,6 +96,12 @@ export default async function StatusPage() {
 
   const ragEval = buildRagEvalSnapshot(editRate7d.edit_rate, editRate7d.sample_size);
 
+  // MBOX-166 / MBOX-109 — memory pressure stat alongside the other system
+  // stats. Synchronous /proc/meminfo read; on macOS dev the helper returns
+  // status='red' with reason='unable to read /proc/meminfo …' which is
+  // correct behavior (we don't pretend to know on a non-Jetson host).
+  const memory = checkMemoryPressure();
+
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
     n8nFailures: n8nFailures24h,
@@ -106,6 +113,11 @@ export default async function StatusPage() {
             min_trigger_usd: COST_SPIKE_MIN_TRIGGER_USD,
           }
         : null,
+    memoryPressure: {
+      status: memory.status,
+      memAvailableGiB: memory.memAvailableGiB,
+      minMemGiB: memory.minMemGiB,
+    },
   });
 
   const uptimeSeconds = Math.round(process.uptime());
@@ -180,6 +192,27 @@ export default async function StatusPage() {
               label="Last email"
               value={formatRelative(lastEmailReceivedAt)}
               sub={lastEmailReceivedAt ?? 'no emails yet'}
+              mono
+            />
+            <Stat
+              label="Memory pressure"
+              value={
+                memory.status === 'red' && memory.memAvailableGiB === 0
+                  ? '—'
+                  : `${memory.memAvailableGiB.toFixed(2)} GiB`
+              }
+              sub={
+                memory.status === 'green'
+                  ? `MemAvailable > ${memory.minMemGiB.toFixed(2)} GiB threshold`
+                  : memory.status === 'amber'
+                    ? `within 200 MiB of ${memory.minMemGiB.toFixed(2)} GiB threshold`
+                    : memory.memAvailableGiB === 0
+                      ? 'unable to read /proc/meminfo'
+                      : `below ${memory.minMemGiB.toFixed(2)} GiB threshold`
+              }
+              tone={
+                memory.status === 'red' ? 'red' : memory.status === 'amber' ? 'orange' : 'default'
+              }
               mono
             />
             <Stat

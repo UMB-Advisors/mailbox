@@ -5,6 +5,7 @@ import {
   evaluateAlerts,
   evaluateCloudCostSpike,
   evaluateDraftBacklog,
+  evaluateMemoryPressure,
   evaluateN8nFailures,
 } from '@/lib/alerts';
 
@@ -101,6 +102,39 @@ describe('evaluateCloudCostSpike', () => {
   });
 });
 
+describe('evaluateMemoryPressure', () => {
+  it('returns null when status is green', () => {
+    expect(
+      evaluateMemoryPressure({ status: 'green', memAvailableGiB: 4.0, minMemGiB: 1.5 }),
+    ).toBeNull();
+  });
+
+  it('emits warn when status is amber', () => {
+    const a = evaluateMemoryPressure({
+      status: 'amber',
+      memAvailableGiB: 1.6,
+      minMemGiB: 1.5,
+    });
+    expect(a?.severity).toBe('warn');
+    expect(a?.code).toBe('MEMORY_PRESSURE');
+    expect(a?.value).toBeCloseTo(1.6, 2);
+    expect(a?.threshold).toBe(1.5);
+    expect(a?.message).toMatch(/within 200 MiB of threshold/);
+  });
+
+  it('emits alarm when status is red', () => {
+    const a = evaluateMemoryPressure({
+      status: 'red',
+      memAvailableGiB: 0.9,
+      minMemGiB: 1.5,
+    });
+    expect(a?.severity).toBe('alarm');
+    expect(a?.code).toBe('MEMORY_PRESSURE');
+    expect(a?.message).toMatch(/below threshold/);
+    expect(a?.message).toMatch(/CUDA OOM/);
+  });
+});
+
 describe('evaluateAlerts', () => {
   it('returns empty array when all inputs are null', () => {
     expect(
@@ -108,6 +142,7 @@ describe('evaluateAlerts', () => {
         draftBacklog: null,
         n8nFailures: null,
         cloudCostSpike: null,
+        memoryPressure: null,
       }),
     ).toEqual([]);
   });
@@ -117,9 +152,22 @@ describe('evaluateAlerts', () => {
       draftBacklog: { aged_count: 8, threshold_hours: 4 },
       n8nFailures: { failed_count: 1, total_count: 1000 },
       cloudCostSpike: null,
+      memoryPressure: { status: 'green', memAvailableGiB: 4.0, minMemGiB: 1.5 },
     });
     expect(result).toHaveLength(1);
     expect(result[0].code).toBe('DRAFT_BACKLOG_AGED');
+    expect(result[0].severity).toBe('alarm');
+  });
+
+  it('includes memory pressure alarm alongside other firing alerts', () => {
+    const result = evaluateAlerts({
+      draftBacklog: null,
+      n8nFailures: null,
+      cloudCostSpike: null,
+      memoryPressure: { status: 'red', memAvailableGiB: 0.8, minMemGiB: 1.5 },
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].code).toBe('MEMORY_PRESSURE');
     expect(result[0].severity).toBe('alarm');
   });
 
