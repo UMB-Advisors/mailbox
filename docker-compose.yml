@@ -301,6 +301,9 @@ services:
       - ./dashboard:/app
     environment:
       POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # MBOX-325 — npm install at runtime against mounted dashboard/.npmrc
+      # needs the token in env to expand ${GITHUB_PACKAGES_TOKEN}.
+      GITHUB_PACKAGES_TOKEN: ${GITHUB_PACKAGES_TOKEN}
     depends_on:
       postgres:
         condition: service_healthy
@@ -318,6 +321,9 @@ services:
       - ./dashboard:/app
     environment:
       QDRANT_URL: http://qdrant:6333
+      # MBOX-325 — npm install at runtime against mounted dashboard/.npmrc
+      # needs the token in env to expand ${GITHUB_PACKAGES_TOKEN}.
+      GITHUB_PACKAGES_TOKEN: ${GITHUB_PACKAGES_TOKEN}
     depends_on:
       qdrant:
         condition: service_healthy
@@ -340,6 +346,9 @@ services:
       - ./dashboard:/app
     environment:
       POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # MBOX-325 — npm install at runtime against mounted dashboard/.npmrc
+      # needs the token in env to expand ${GITHUB_PACKAGES_TOKEN}.
+      GITHUB_PACKAGES_TOKEN: ${GITHUB_PACKAGES_TOKEN}
     depends_on:
       postgres:
         condition: service_healthy
