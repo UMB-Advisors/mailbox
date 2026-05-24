@@ -150,7 +150,13 @@ export async function getGitState(opts: GetGitStateOptions = {}): Promise<GitSta
   // Phase 4 — independent reads in parallel (each is small + already
   // bounded by GIT_TIMEOUT_MS). settle-all so a single failure doesn't
   // poison the rest.
-  const [behindRes, aheadRes, dirtyRes, fetchAtRes] = await Promise.allSettled([
+  //
+  // Naming: `aheadRes` holds the `origin/master..HEAD` rev-list (commits we
+  // have that origin doesn't = "ahead"), `behindRes` holds the
+  // `HEAD..origin/master` rev-list (commits origin has that we don't =
+  // "behind"). Keep these aligned with the rev-list args — flipping them is
+  // exactly the STAQPRO-336 misreport class this ticket fixes.
+  const [aheadRes, behindRes, dirtyRes, fetchAtRes] = await Promise.allSettled([
     runner(['rev-list', '--count', 'origin/master..HEAD']),
     runner(['rev-list', '--count', 'HEAD..origin/master']),
     runner(['status', '--porcelain']),
@@ -161,13 +167,10 @@ export async function getGitState(opts: GetGitStateOptions = {}): Promise<GitSta
     runner(['show', '-s', '--format=%ct', 'FETCH_HEAD']),
   ]);
 
-  // Behind / ahead are NULL together if origin/master is missing. We swap
-  // the semantics: "behind master" = HEAD..origin/master (how many commits
-  // origin has that we don't), "ahead master" = origin/master..HEAD.
-  // First rev-list call above is "ahead", second is "behind" — see spec
-  // contract in the issue; we return them under those keys explicitly.
-  const aheadCount = parseRevCount(behindRes); // origin/master..HEAD → ahead
-  const behindCount = parseRevCount(aheadRes); // HEAD..origin/master → behind
+  // Both behind and ahead become null together if origin/master is missing
+  // (rev-list errors → PromiseSettled rejection → parseRevCount returns null).
+  const aheadCount = parseRevCount(aheadRes);
+  const behindCount = parseRevCount(behindRes);
 
   const dirty = dirtyRes.status === 'fulfilled' ? dirtyRes.value.length > 0 : null;
 
@@ -205,4 +208,28 @@ function parseRevCount(res: PromiseSettledResult<string>): number | null {
   if (res.status !== 'fulfilled') return null; // origin/master missing → null
   const n = Number.parseInt(res.value.trim(), 10);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+// MBOX-163 — helper used by route + status page callers to bound the
+// helper at the caller layer (the helper itself is total-failure-safe but
+// only inner subprocess timeouts; a hung filesystem stat would still
+// hang). Race the real call against a timeout; on either branch we
+// clearTimeout the loser so we don't leave a pending timer dangling for
+// up to `timeoutMs` after the response is sent. Returns a degraded
+// GitState on timeout/error rather than throwing.
+export async function getGitStateWithTimeout(timeoutMs: number): Promise<GitState> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      getGitState().catch(
+        (err): GitState =>
+          unavailable(`git_state error: ${(err as Error).message}`),
+      ),
+      new Promise<GitState>((resolve) => {
+        timer = setTimeout(() => resolve(unavailable('git_state timed out')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }

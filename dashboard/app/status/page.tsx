@@ -6,7 +6,7 @@ import {
   evaluateAlerts,
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
-import { getGitState, type GitState } from '@/lib/queries-git';
+import { getGitStateWithTimeout, type GitState } from '@/lib/queries-git';
 import { type DraftingMetrics, getDraftingMetrics } from '@/lib/queries-status';
 import {
   getActiveWorkflowCount,
@@ -74,40 +74,9 @@ export default async function StatusPage() {
     getBootstrapState().catch(() => null),
   ]);
 
-  // MBOX-163 — appliance git state. Race a 500ms timeout so a slow `git`
-  // invocation can't drag the whole page; total-failure-safe (never throws).
-  const gitState: GitState = await Promise.race([
-    getGitState().catch(
-      (err): GitState => ({
-        available: false,
-        git_branch: null,
-        git_short_sha: null,
-        git_full_sha: null,
-        commits_behind_master: null,
-        commits_ahead_master: null,
-        fetch_age_seconds: null,
-        dirty: null,
-        reason: `git_state error: ${(err as Error).message}`,
-      }),
-    ),
-    new Promise<GitState>((resolve) =>
-      setTimeout(
-        () =>
-          resolve({
-            available: false,
-            git_branch: null,
-            git_short_sha: null,
-            git_full_sha: null,
-            commits_behind_master: null,
-            commits_ahead_master: null,
-            fetch_age_seconds: null,
-            dirty: null,
-            reason: 'git_state timed out',
-          }),
-        500,
-      ),
-    ),
-  ]);
+  // MBOX-163 — appliance git state, 500ms-ceiling helper (clears the loser
+  // timer so we don't leak setTimeouts on every page render).
+  const gitState: GitState = await getGitStateWithTimeout(500);
 
   // Tone rules from the spec:
   //   red    → behind master AND fetched recently (someone pushed, we know it)
