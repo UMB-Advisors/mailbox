@@ -153,14 +153,23 @@ describe('getGitState — repo mount absent', () => {
     expect(r.commits_behind_master).toBeNull();
   });
 
-  it('returns available=false when runner throws ENOENT during rev-parse', async () => {
-    const enoent = Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+  it('reports "git binary not installed" when ENOENT comes from the binary itself', async () => {
+    // Production fixture (MBOX-163 first M1 smoke 2026-05-24): the dashboard
+    // image shipped without `git`, every call returned this shape, and the
+    // pre-fix code mis-labelled it "not a git repository". The classifier
+    // now distinguishes binary-missing vs repo-missing — keep the label
+    // accurate so the operator knows to rebuild the image, not the mount.
+    const enoent = Object.assign(new Error('spawn git ENOENT'), {
+      code: 'ENOENT',
+      syscall: 'spawn git',
+      path: 'git',
+    });
     const r = await getGitState({
       runner: buildRunner({ 'rev-parse HEAD': enoent }),
       skipMountCheck: true,
     });
     expect(r.available).toBe(false);
-    expect(r.reason).toMatch(/not a git repository/);
+    expect(r.reason).toMatch(/git binary not installed/);
   });
 
   it('returns available=false when rev-parse errors with "not a git repository"', async () => {

@@ -38,7 +38,12 @@ ENV PORT=3001
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup -S -g 1001 nodejs \
+# git: required by dashboard/lib/queries-git.ts (MBOX-163) for reading the
+# read-only repo bind-mount at /app/repo. Without it, every git_state call
+# returns available=false with a misleading "not a git repository" reason
+# (caught on M1 smoke 2026-05-24 after PR #148 first deploy).
+RUN apk add --no-cache git \
+ && addgroup -S -g 1001 nodejs \
  && adduser -S -u 1001 -G nodejs nextjs
 
 # Public assets (favicon etc.) — present even if .gitkeep-only.
