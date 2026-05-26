@@ -137,8 +137,10 @@ export async function runAutoSendForFinalizedDraft(draftId: number): Promise<Aut
         },
         'eval_error',
       );
-    } catch {
-      // ignore — auditing must never mask the queue fallback
+    } catch (auditErr) {
+      // Non-gating — auditing must never mask the queue fallback. Log so a
+      // persistent audit-write failure is visible rather than swallowed.
+      console.warn('auto-send audit write failed', auditErr);
     }
     return { ...queued, reason: 'eval_error' };
   }
