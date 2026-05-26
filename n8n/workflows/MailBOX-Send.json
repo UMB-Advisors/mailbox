@@ -340,8 +340,8 @@
       "name": "Gmail Reply",
       "parameters": {
         "emailType": "text",
-        "message": "={{ $json.draft_body }}",
-        "messageId": "={{ $json.message_id }}",
+        "message": "={{ $('Load Draft').item.json.draft_body }}",
+        "messageId": "={{ $('Load Draft').item.json.message_id }}",
         "operation": "reply",
         "options": {
           "appendAttribution": false
