@@ -11,13 +11,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Grant the built-in GITHUB_TOKEN read access to GitHub Packages so the
-# dashboard's private @umb-advisors/llm dep (DR-25 / MBOX-136, PR #84) can be
-# pulled at `npm ci` time. `contents: read` keeps checkout working under the
-# narrowed permission set (declaring any permission drops the default grant).
+# Minimal permission set. packages: read is NOT sufficient here — see below.
 permissions:
   contents: read
-  packages: read
 
 jobs:
   dashboard:
@@ -58,13 +54,15 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
 
       # dashboard/.npmrc points @umb-advisors:* at npm.pkg.github.com and reads
-      # the auth token from ${GITHUB_PACKAGES_TOKEN}. Supply it from the built-in
-      # GITHUB_TOKEN (job grants packages: read above). Same-org token works
-      # only if the @umb-advisors/llm package grants this repo read access; if
-      # not, swap to a PAT secret with org-level read:packages — see MBOX-337.
+      # the auth token from ${GITHUB_PACKAGES_TOKEN}. The built-in GITHUB_TOKEN
+      # cannot read this package: @umb-advisors/llm is published from
+      # thumbox-platform (a different repo) and its "Actions access" list does
+      # not include UMB-Advisors/mailbox, so GITHUB_TOKEN → 403
+      # permission_denied:read_package (MBOX-337). Fix: a classic PAT with
+      # read:packages scope stored as the repo secret GITHUB_PACKAGES_TOKEN.
       - name: Install dependencies
         env:
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN }}
         run: npm ci
 
       # Apply the canonical schema snapshot (captured from Bob via pg_dump).
