@@ -20,7 +20,7 @@
 
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
-import { DEFAULT_TASK_PROVIDER, type ActionItem, type TaskProvider } from '@/lib/types';
+import { type ActionItem, DEFAULT_TASK_PROVIDER, type TaskProvider } from '@/lib/types';
 import { pushToGoogleTasks, TaskPushError } from './google-tasks';
 
 export interface PushOutcome {

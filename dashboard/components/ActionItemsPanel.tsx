@@ -84,13 +84,11 @@ export function ActionItemsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(index === -1 ? { all: true } : { index }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | {
-            error?: string;
-            action_items?: ActionItem[];
-            results?: Array<{ ok: boolean; error?: string }>;
-          }
-        | null;
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        action_items?: ActionItem[];
+        results?: Array<{ ok: boolean; error?: string }>;
+      } | null;
       if (!res.ok) throw new Error(data?.error ?? `push failed (${res.status})`);
       if (data?.action_items) {
         setItems(data.action_items);
@@ -116,9 +114,10 @@ export function ActionItemsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action_items: next }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | { error?: string; draft?: { action_items: ActionItem[] } }
-        | null;
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        draft?: { action_items: ActionItem[] };
+      } | null;
       if (!res.ok) throw new Error(data?.error ?? `save failed (${res.status})`);
       const saved = data?.draft?.action_items ?? next;
       setItems(saved);
@@ -213,7 +212,13 @@ export function ActionItemsPanel({
             className="flex items-start gap-2 rounded-sm border border-border bg-bg-panel p-2"
           >
             {editingIndex === i ? (
-              <ItemEditor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onCancel={cancel} />
+              <ItemEditor
+                draft={draft}
+                setDraft={setDraft}
+                busy={busy}
+                onSave={save}
+                onCancel={cancel}
+              />
             ) : (
               <>
                 <div className="min-w-0 flex-1">
@@ -319,7 +324,13 @@ export function ActionItemsPanel({
 
         {editingIndex !== null && editingIndex >= items.length && (
           <li className="rounded-sm border border-accent-blue/40 bg-bg-panel p-2">
-            <ItemEditor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onCancel={cancel} />
+            <ItemEditor
+              draft={draft}
+              setDraft={setDraft}
+              busy={busy}
+              onSave={save}
+              onCancel={cancel}
+            />
           </li>
         )}
       </ul>

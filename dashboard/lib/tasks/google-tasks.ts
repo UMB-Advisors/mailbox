@@ -90,10 +90,7 @@ async function authHeader(): Promise<Record<string, string>> {
       // Surface as an auth failure so the caller prompts a reconnect.
       throw new TaskPushError(err.message, 'auth', err.status);
     }
-    throw new TaskPushError(
-      err instanceof Error ? err.message : 'token error',
-      'transient',
-    );
+    throw new TaskPushError(err instanceof Error ? err.message : 'token error', 'transient');
   }
 }
 
@@ -127,9 +124,11 @@ export async function pushToGoogleTasks(
     throw mapHttpError(res.status, res.headers.get('retry-after'));
   }
 
-  const json = (await res.json().catch(() => null)) as
-    | { id?: string; webViewLink?: string; selfLink?: string }
-    | null;
+  const json = (await res.json().catch(() => null)) as {
+    id?: string;
+    webViewLink?: string;
+    selfLink?: string;
+  } | null;
   if (!json?.id) {
     throw new TaskPushError('Google Tasks returned no task id', 'transient', res.status);
   }
