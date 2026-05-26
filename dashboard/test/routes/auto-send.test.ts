@@ -47,7 +47,13 @@ dbDescribe('auto-send rules — real Postgres', () => {
     await clearRules();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clear rules AFTER each test too (not just before) so the LAST test's
+    // rule never leaks past this file. Files share one Postgres (serial per
+    // vitest.config fileParallelism:false); a leftover `auto_send` rule would
+    // otherwise auto-approve another file's `reorder` draft — e.g.
+    // pipeline-smoke, which asserts the finalized draft stays `pending`.
+    await clearRules();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -208,8 +214,8 @@ dbDescribe('auto-send rules — real Postgres', () => {
       // Typed with a fetch-shaped arg list so `mock.calls` carries the URL
       // argument — a no-arg `vi.fn()` gives empty call tuples and breaks the
       // `[input]` destructuring below under `tsc --noEmit`.
-      const fetchSpy = vi.fn(async (..._args: Parameters<typeof fetch>) =>
-        new Response('{}', { status: 200 }),
+      const fetchSpy = vi.fn(
+        async (..._args: Parameters<typeof fetch>) => new Response('{}', { status: 200 }),
       );
       vi.stubGlobal('fetch', fetchSpy);
       vi.stubEnv('N8N_WEBHOOK_URL', 'http://n8n.test/webhook/mailbox-send');
