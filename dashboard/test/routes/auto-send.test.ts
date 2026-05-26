@@ -205,7 +205,12 @@ dbDescribe('auto-send rules — real Postgres', () => {
       );
       // Stub the webhook so a regression that bypasses the cooldown would be
       // caught by an unexpected fetch (the gate should short-circuit first).
-      const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
+      // Typed with a fetch-shaped arg list so `mock.calls` carries the URL
+      // argument — a no-arg `vi.fn()` gives empty call tuples and breaks the
+      // `[input]` destructuring below under `tsc --noEmit`.
+      const fetchSpy = vi.fn(async (..._args: Parameters<typeof fetch>) =>
+        new Response('{}', { status: 200 }),
+      );
       vi.stubGlobal('fetch', fetchSpy);
       vi.stubEnv('N8N_WEBHOOK_URL', 'http://n8n.test/webhook/mailbox-send');
 
