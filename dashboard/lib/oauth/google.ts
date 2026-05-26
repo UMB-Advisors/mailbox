@@ -394,6 +394,8 @@ export async function revokeAtGoogle(refreshToken: string): Promise<void> {
 // Exchange the stored refresh token for a short-lived access token. Throws an
 // OAuthTokenError with a typed `kind` so callers can branch: 'not_connected' /
 // 'auth' → surface a reconnect prompt + fall back; 'transient' → retry/cooldown.
+// TODO(MBOX-130 follow-up): cache access token (~55m TTL) to avoid dual RTT on
+// the latency budget — refresh-then-data fetch is ~10s of the 30s local draft.
 export async function getAccessToken(
   provider: OAuthProvider,
   timeoutMs = 5_000,
@@ -401,6 +403,18 @@ export async function getAccessToken(
   const refresh = await getRefreshToken(provider);
   if (!refresh) {
     throw new OAuthTokenError(`${provider} not connected`, 'not_connected');
+  }
+  // Scope guard: verify the stored grant covers the provider's required scope
+  // BEFORE we spend a token refresh + data fetch only to eat a confusing Google
+  // 403. A grant can lack the scope if the operator connected an older version
+  // or revoked partial consent. Surface as 'auth' → caller prompts a reconnect.
+  const conn = await getConnection(provider);
+  const required = PROVIDER_SCOPE[provider];
+  if (!conn.scope || !conn.scope.split(/\s+/).includes(required)) {
+    throw new OAuthTokenError(
+      `${provider} grant is missing required scope ${required} — reconnect to re-consent`,
+      'auth',
+    );
   }
   const { clientId, clientSecret } = readClientCreds();
   const body = new URLSearchParams({
