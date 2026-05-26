@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
 import { PREFERENCE_KEY_RE } from '../lib/schemas/preferences';
 import {
+  AUTO_SEND_ACTIONS,
   CHAT_MESSAGE_ROLES,
   KB_DOC_STATUSES,
   REJECT_REASON_CODES,
@@ -201,6 +202,43 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
       expect(def).toMatch(/\(email_or_domain, kind\)/);
     },
   );
+
+  it.skipIf(!DB_URL)(
+    'auto_send_rules.action CHECK matches AUTO_SEND_ACTIONS (MBOX-16, migration 031)',
+    async () => {
+      const allowed = await getCheckValues(pool!, 'auto_send_rules', 'auto_send_rules_action_check');
+      const expected = [...AUTO_SEND_ACTIONS];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
+    'auto_send_audit.effective_action CHECK matches AUTO_SEND_ACTIONS (MBOX-16, migration 031)',
+    async () => {
+      const allowed = await getCheckValues(
+        pool!,
+        'auto_send_audit',
+        'auto_send_audit_effective_action_check',
+      );
+      const expected = [...AUTO_SEND_ACTIONS];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
+    'auto_send_rules has the enabled (priority, id) partial eval index (MBOX-16, migration 031)',
+    async () => {
+      const def = await getIndexDef(pool!, 'auto_send_rules_enabled_priority_idx');
+      expect(def).toMatch(/CREATE INDEX/i);
+      expect(def).toMatch(/\(priority, id\)/);
+      expect(def).toMatch(/WHERE \(enabled/i);
+    },
+  );
+
+  it('AUTO_SEND_ACTIONS from lib/types.ts has no duplicates and is non-empty', () => {
+    expect(AUTO_SEND_ACTIONS.length).toBeGreaterThan(0);
+    expect(new Set(AUTO_SEND_ACTIONS).size).toBe(AUTO_SEND_ACTIONS.length);
+  });
 
   it('VIP_SENDER_KINDS from lib/types.ts has no duplicates and is non-empty', () => {
     expect(VIP_SENDER_KINDS.length).toBeGreaterThan(0);

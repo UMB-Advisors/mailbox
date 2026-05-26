@@ -1139,6 +1139,64 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ── MBOX-16 (migration 032): configurable auto-send rules + audit trail ──────
+-- Hand-applied to fixture pending next pg_dump refresh. Mirrors
+-- migrations/032-create-auto-send-rules-v1-2026-05-24.sql (renumbered from 031
+-- to avoid collision with MBOX-130 + MBOX-129 oauth_tokens migration).
+CREATE TABLE IF NOT EXISTS mailbox.auto_send_rules (
+  id              SERIAL PRIMARY KEY,
+  name            TEXT NOT NULL,
+  enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+  priority        INTEGER NOT NULL DEFAULT 100,
+  action          TEXT NOT NULL,
+  category        TEXT,
+  sender_domain   TEXT,
+  min_confidence  NUMERIC(4,3),
+  active_from_min INTEGER,
+  active_to_min   INTEGER,
+  shadow_until    TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by      TEXT,
+  CONSTRAINT auto_send_rules_action_check
+    CHECK (action IN ('auto_send', 'queue', 'drop')),
+  CONSTRAINT auto_send_rules_name_not_blank
+    CHECK (length(trim(name)) > 0),
+  CONSTRAINT auto_send_rules_category_check
+    CHECK (category IS NULL OR category IN (
+      'inquiry', 'reorder', 'scheduling', 'follow_up',
+      'internal', 'spam_marketing', 'escalate', 'unknown')),
+  CONSTRAINT auto_send_rules_min_confidence_range
+    CHECK (min_confidence IS NULL OR (min_confidence >= 0 AND min_confidence <= 1)),
+  CONSTRAINT auto_send_rules_time_window_range
+    CHECK (
+      (active_from_min IS NULL AND active_to_min IS NULL)
+      OR (active_from_min BETWEEN 0 AND 1439 AND active_to_min BETWEEN 0 AND 1439)
+    )
+);
+CREATE INDEX IF NOT EXISTS auto_send_rules_enabled_priority_idx
+  ON mailbox.auto_send_rules(priority, id)
+  WHERE enabled = TRUE;
+CREATE TABLE IF NOT EXISTS mailbox.auto_send_audit (
+  id               BIGSERIAL PRIMARY KEY,
+  draft_id         INTEGER NOT NULL REFERENCES mailbox.drafts(id) ON DELETE CASCADE,
+  rule_id          INTEGER REFERENCES mailbox.auto_send_rules(id) ON DELETE SET NULL,
+  rule_name        TEXT,
+  matched_action   TEXT NOT NULL,
+  effective_action TEXT NOT NULL,
+  shadow           BOOLEAN NOT NULL DEFAULT FALSE,
+  reason           TEXT NOT NULL,
+  evaluated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT auto_send_audit_matched_action_check
+    CHECK (matched_action IN ('auto_send', 'queue', 'drop')),
+  CONSTRAINT auto_send_audit_effective_action_check
+    CHECK (effective_action IN ('auto_send', 'queue', 'drop'))
+);
+CREATE INDEX IF NOT EXISTS auto_send_audit_draft_id_idx
+  ON mailbox.auto_send_audit(draft_id, evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS auto_send_audit_rule_id_idx
+  ON mailbox.auto_send_audit(rule_id);
+
 -- ── MBOX-130 + MBOX-129 (migration 031): shared Google OAuth token storage ──
 -- Hand-applied to fixture pending next pg_dump refresh. oauth_tokens holds one
 -- row per Google provider (AES-256-GCM-encrypted refresh token); drafts gets a
