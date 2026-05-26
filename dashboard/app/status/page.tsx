@@ -6,7 +6,9 @@ import {
   evaluateAlerts,
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
+import { checkSwap } from '@/lib/preflight/swap';
 import { getGitStateWithTimeout, type GitState } from '@/lib/queries-git';
+import { findOrphanContainers, type OrphanResult } from '@/lib/queries-orphans';
 import { type DraftingMetrics, getDraftingMetrics } from '@/lib/queries-status';
 import {
   getActiveWorkflowCount,
@@ -125,6 +127,36 @@ export default async function StatusPage() {
   // correct behavior (we don't pretend to know on a non-Jetson host).
   const memory = checkMemoryPressure();
 
+  // MBOX-168 — swap-in-use + orphan containers. Same source-of-truth +
+  // same total-failure-safe pattern as memory + git_state. Orphan check
+  // bounded at 800ms total (mirrors getGitStateWithTimeout).
+  const swap = checkSwap();
+  const orphans: OrphanResult = await Promise.race<OrphanResult>([
+    findOrphanContainers(),
+    new Promise<OrphanResult>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            status: 'red',
+            orphan_count: 0,
+            orphan_names: [],
+            expected_names: [],
+            reason: 'orphan_containers check timed out (>800ms)',
+          }),
+        800,
+      ),
+    ),
+  ]);
+
+  // Format helper: bytes → "X MiB" / "Y GiB" for the swap tile. Kept inline
+  // (single-use, single-section) rather than promoted to format-body.ts.
+  const formatBytes = (b: number): string => {
+    if (b === 0) return '0';
+    const mib = b / (1024 * 1024);
+    if (mib < 1024) return `${mib.toFixed(1)} MiB`;
+    return `${(mib / 1024).toFixed(2)} GiB`;
+  };
+
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
     n8nFailures: n8nFailures24h,
@@ -238,6 +270,30 @@ export default async function StatusPage() {
               }
               mono
             />
+            {/* MBOX-168 — swap-in-use companion to memory_pressure. Green when
+                zero, yellow inside the threshold (zram noise floor), red when
+                we're actually paging RAM out. */}
+            <Stat
+              label="Swap in use"
+              value={
+                swap.status === 'red' && swap.swap_total_bytes === 0
+                  ? '—'
+                  : formatBytes(swap.swap_in_use_bytes)
+              }
+              sub={
+                swap.status === 'green'
+                  ? swap.swap_total_bytes === 0
+                    ? 'no swap configured'
+                    : `0 of ${formatBytes(swap.swap_total_bytes)} configured`
+                  : swap.status === 'red' && swap.swap_total_bytes === 0
+                    ? 'unable to read /proc/meminfo'
+                    : `threshold ${swap.threshold_mib} MiB — RAM over-committed if exceeded`
+              }
+              tone={
+                swap.status === 'red' ? 'red' : swap.status === 'yellow' ? 'orange' : 'default'
+              }
+              mono
+            />
             <Stat
               label="Classify lag"
               value={
@@ -338,6 +394,70 @@ export default async function StatusPage() {
                 />
               </div>
             )}
+          </section>
+
+          {/* MBOX-168 — orphan containers. We render the name list (not just
+              the count) because the whole point of this stat is rapid
+              diagnosis: knowing "3 orphans" doesn't help; knowing
+              "ghost-llama-cpp" tells the operator exactly which process to
+              `docker stop`. */}
+          <section className="mb-6">
+            <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+              Orphan containers
+            </h2>
+            <Card>
+              {orphans.status === 'red' && orphans.orphan_count === 0 ? (
+                <p className="text-sm text-ink-dim">
+                  orphan check unavailable: {orphans.reason ?? 'unknown'}
+                </p>
+              ) : orphans.status === 'green' ? (
+                <div>
+                  <p className="text-sm text-accent-green">
+                    No orphans — all {orphans.expected_names.length} running containers are declared
+                    in docker-compose.yml.
+                  </p>
+                  {orphans.expected_names.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-ink-dim">
+                        expected ({orphans.expected_names.length})
+                      </summary>
+                      <ul className="mt-1 font-mono text-xs text-ink-dim">
+                        {orphans.expected_names.map((n) => (
+                          <li key={n}>{n}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-accent-red">
+                    {orphans.orphan_count} orphan container
+                    {orphans.orphan_count === 1 ? '' : 's'} running outside docker-compose.yml —
+                    likely the "memory eaten by ghost process" failure class (DR-25 misdiagnosis).
+                    Investigate with{' '}
+                    <code className="font-mono">docker stop &lt;name&gt;</code>.
+                  </p>
+                  <ul className="mt-2 font-mono text-xs text-accent-red">
+                    {orphans.orphan_names.map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                  {orphans.expected_names.length > 0 && (
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs text-ink-dim">
+                        expected ({orphans.expected_names.length})
+                      </summary>
+                      <ul className="mt-1 font-mono text-xs text-ink-dim">
+                        {orphans.expected_names.map((n) => (
+                          <li key={n}>{n}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+            </Card>
           </section>
 
           <section className="mb-6">
