@@ -52,11 +52,20 @@ function repoMount(): string {
 
 function makeDefaultRunner(repo: string): GitRunner {
   return async (args: string[]) => {
-    const { stdout } = await execFileP('git', ['-C', repo, ...args], {
-      timeout: GIT_TIMEOUT_MS,
-      maxBuffer: 256 * 1024,
-      windowsHide: true,
-    });
+    // `-c safe.directory=<repo>` short-circuits git 2.35+'s UID-mismatch
+    // refusal ("fatal: detected dubious ownership"). Container runs as
+    // nextjs uid 1001; M1 host repo is owned by bob uid 1000. Caught on
+    // PR #150 M1 smoke 2026-05-24. -c is per-invocation, never writes
+    // config — safe for the :ro bind mount model.
+    const { stdout } = await execFileP(
+      'git',
+      ['-c', `safe.directory=${repo}`, '-C', repo, ...args],
+      {
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: 256 * 1024,
+        windowsHide: true,
+      },
+    );
     return stdout;
   };
 }

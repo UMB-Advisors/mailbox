@@ -285,6 +285,17 @@ services:
       # mount target below; only override if you remount the repo somewhere
       # else inside the container.
       MAILBOX_REPO_MOUNT: ${MAILBOX_REPO_MOUNT:-/app/repo}
+      # MBOX-168 — swap-in-use threshold (MiB) for the /status swap stat.
+      # 0..threshold = yellow (noise floor / zram cycling), > threshold = red.
+      # Default 100 MiB matches lib/preflight/swap.ts. Forward-or-no-op per
+      # MBOX-306 rule (the helper falls back to the same default if unset).
+      MAILBOX_SWAP_THRESHOLD_MIB: ${MAILBOX_SWAP_THRESHOLD_MIB:-100}
+      # MBOX-168 — compose project name used to build the expected
+      # container-name pattern (`<project>-<svc>-1`) in
+      # lib/queries-orphans.ts. Matches the directory name docker-compose
+      # uses by default. Override only if you deploy under a non-default
+      # project name (`docker compose -p <name>`).
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-mailbox}
     volumes:
       - mailbox_kb_uploads:/var/lib/mailbox/kb
       # MBOX-163 — bind-mount the host repo READ-ONLY so the dashboard can
@@ -298,6 +309,27 @@ services:
       # layout in root CLAUDE.md "Deploy flow"). Mount-target stays /app/repo
       # so the in-container MAILBOX_REPO_MOUNT default just works.
       - ${HOST_REPO_DIR:-/home/bob/mailbox}:/app/repo:ro
+      # MBOX-168 — bind the host docker socket READ-ONLY so the dashboard
+      # can enumerate running containers and surface orphans (containers
+      # running outside docker-compose.yml) on /api/system/status.
+      # `:ro` is OPERATOR INTENT — the docker engine treats it as advisory
+      # (the protocol could in principle still execute writes), so this is
+      # acceptable only on the single-tenant trusted appliance. The
+      # dashboard code only ever calls GET /containers/json and is wired
+      # fail-closed (lib/queries-docker.ts). Closes the DR-25 misdiagnosis
+      # class: an orphan llama-cpp container hoarded 3.86 GiB invisibly to
+      # /status; this gives operators (and other Claude sessions) a
+      # one-glance answer instead of an SSH session.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # MBOX-168 follow-up — add the host docker group GID to nextjs's
+    # supplementary groups so it can actually read /var/run/docker.sock.
+    # Without this the bind lands (socket visible) but every API call hits
+    # EACCES because the socket is mode 0660 owned root:docker. Default 994
+    # is the docker GID on the M1 Jetson host; override per-appliance via
+    # DOCKER_GID in .env (`getent group docker` on the host to find the
+    # right value). Caught on M1 smoke 2026-05-26 — first deploy of PR #152.
+    group_add:
+      - "${DOCKER_GID:-994}"
     depends_on:
       postgres:
         condition: service_healthy

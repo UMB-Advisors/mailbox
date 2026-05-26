@@ -163,7 +163,7 @@ export type ActionItemSource = (typeof ACTION_ITEM_SOURCES)[number];
 
 // auto_send_rules.action / auto_send_audit.{matched,effective}_action enum
 // (MBOX-16 / FR-23). Mirrored against the CHECK constraints in
-// migrations/031-create-auto-send-rules-v1-2026-05-24.sql; the
+// migrations/032-create-auto-send-rules-v1-2026-05-24.sql; the
 // schema-invariants test asserts they stay in sync. 'auto_send' funnels a
 // finalized draft through transitionToApprovedAndSend (subject to the hard
 // guardrails in lib/auto-send/rules.ts); 'queue' is the explicit all-manual
@@ -172,6 +172,20 @@ export type ActionItemSource = (typeof ACTION_ITEM_SOURCES)[number];
 export const AUTO_SEND_ACTIONS = ['auto_send', 'queue', 'drop'] as const;
 
 export type AutoSendAction = (typeof AUTO_SEND_ACTIONS)[number];
+
+// Task-handoff providers (MBOX-129). v1 ships Google Tasks only; the const
+// tuple is the SoT so the push route + zod schema + per-appliance
+// TASK_PROVIDER env read the same set. 'linear' is reserved for the v2 toggle
+// (see MBOX-129 "Out of scope"). Like ACTION_ITEM_TYPES this is NOT backed by
+// a Postgres CHECK constraint — task_external_id/url live on the free-form
+// drafts.action_items jsonb; the enum is enforced at the application boundary.
+export const TASK_PROVIDERS = ['google_tasks', 'linear'] as const;
+
+export type TaskProvider = (typeof TASK_PROVIDERS)[number];
+
+// MBOX-129 v1 default. Operator can override per-appliance via TASK_PROVIDER
+// env once the v2 provider toggle lands; today only 'google_tasks' is wired.
+export const DEFAULT_TASK_PROVIDER: TaskProvider = 'google_tasks';
 
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
@@ -183,6 +197,13 @@ export interface ActionItem {
   due_at: string | null; // ISO; null unless a date hint present
   source: ActionItemSource; // who owes: counterparty (inbound) vs operator (outbound)
   confidence: number; // 0..1
+  // MBOX-129 — task-handoff fields. All null until the operator pushes the item
+  // to their task system (Google Tasks v1). Live on the same drafts.action_items
+  // jsonb array — no new table. Re-push is idempotent: it UPDATEs the existing
+  // task keyed on task_external_id rather than creating a duplicate.
+  task_external_id?: string | null; // provider task id; null until pushed
+  task_external_url?: string | null; // deep link to view in the target system
+  task_pushed_at?: string | null; // ISO; when the push last succeeded
 }
 
 export interface Draft {

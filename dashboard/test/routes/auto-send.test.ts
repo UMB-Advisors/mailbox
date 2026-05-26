@@ -105,7 +105,9 @@ dbDescribe('auto-send rules — real Postgres', () => {
       if (seeded) await deleteSeededDraft(seeded);
     });
 
-    async function finalize(): Promise<{ auto_send: { effective_action: string; sent: boolean } }> {
+    async function finalize(): Promise<{
+      auto_send: { effective_action: string; sent: boolean; shadow: boolean };
+    }> {
       const { POST } = await import('@/app/api/internal/draft-finalize/route');
       const res = await POST(
         fakeRequest({
@@ -119,7 +121,9 @@ dbDescribe('auto-send rules — real Postgres', () => {
           },
         }),
       );
-      return (await res.json()) as { auto_send: { effective_action: string; sent: boolean } };
+      return (await res.json()) as {
+        auto_send: { effective_action: string; sent: boolean; shadow: boolean };
+      };
     }
 
     it('default-safe: with NO rules the draft stays pending and no audit row is written', async () => {

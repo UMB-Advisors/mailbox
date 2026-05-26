@@ -5,7 +5,9 @@ import {
   evaluateAlerts,
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
-import { getGitStateWithTimeout, type GitState } from '@/lib/queries-git';
+import { checkSwap, type SwapResult } from '@/lib/preflight/swap';
+import { type GitState, getGitStateWithTimeout } from '@/lib/queries-git';
+import { findOrphanContainers, type OrphanResult } from '@/lib/queries-orphans';
 import {
   getActiveWorkflowCount,
   getCloudSpend24h,
@@ -99,6 +101,32 @@ export async function GET() {
   // never throws), so no try/catch needed.
   const memory = checkMemoryPressure();
 
+  // MBOX-168 — swap-in-use stat. Same total-failure-safe contract as
+  // memory_pressure; synchronous /proc/meminfo read.
+  const swap: SwapResult = checkSwap();
+
+  // MBOX-168 — orphan-container detector. Calls the docker socket + reads
+  // the compose file off the MBOX-163 bind mount. Bound at 800ms total via
+  // Promise.race (the helper itself bounds each docker call at 500ms, but
+  // a hung fs read on a degraded volume could outlast that — mirror the
+  // git_state bound).
+  const orphans: OrphanResult = await Promise.race<OrphanResult>([
+    findOrphanContainers(),
+    new Promise<OrphanResult>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            status: 'red',
+            orphan_count: 0,
+            orphan_names: [],
+            expected_names: [],
+            reason: 'orphan_containers check timed out (>800ms)',
+          }),
+        800,
+      ),
+    ),
+  ]);
+
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
     n8nFailures: n8nFailures24h,
@@ -140,6 +168,8 @@ export async function GET() {
       min_mem_gib: memory.minMemGiB,
       reason: memory.reason,
     },
+    swap_in_use: swap,
+    orphan_containers: orphans,
     alerts,
     git_state: gitState,
     generated_at: new Date().toISOString(),

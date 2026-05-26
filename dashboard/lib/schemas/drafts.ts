@@ -9,6 +9,8 @@ import {
   type DraftStatus,
   REJECT_REASON_CODES,
   type RejectReasonCode,
+  TASK_PROVIDERS,
+  type TaskProvider,
 } from '@/lib/types';
 
 // Anchor the zod enum to the canonical DRAFT_STATUSES tuple so the schema
@@ -170,6 +172,14 @@ export const actionItemSchema = z.object({
   due_at: z.string().datetime().nullable(),
   source: sourceEnum,
   confidence: z.number().min(0).max(1),
+  // MBOX-129 — task-handoff fields. Optional + nullable so the operator-edit
+  // route (full-array replace) round-trips a pushed item WITHOUT stripping its
+  // task linkage: the client posts the items it received (which carry these
+  // when set), and the push route is the only writer that populates them.
+  // .optional() keeps pre-MBOX-129 payloads (no task fields) valid.
+  task_external_id: z.string().max(256).nullable().optional(),
+  task_external_url: z.string().url().max(2048).nullable().optional(),
+  task_pushed_at: z.string().datetime().nullable().optional(),
 });
 
 export type ActionItemInput = z.infer<typeof actionItemSchema>;
@@ -182,3 +192,25 @@ export const actionItemsBodySchema = z.object({
 });
 
 export type ActionItemsBody = z.infer<typeof actionItemsBodySchema>;
+
+// POST /api/internal/action-items/[id]/push — MBOX-129 task handoff. [id] is the
+// DRAFT id (action items have no DB id of their own — they live positionally in
+// drafts.action_items). The body addresses items by their array index:
+//   - { index: N }       → push (or re-push) the single item at index N
+//   - { all: true }      → push every not-yet-pushed item on the draft (bulk)
+// `provider` defaults to the per-appliance DEFAULT_TASK_PROVIDER; only
+// 'google_tasks' is wired in v1 (the enum carries 'linear' for the v2 toggle).
+const taskProviderEnum = z.enum(
+  TASK_PROVIDERS as readonly [TaskProvider, ...TaskProvider[]],
+);
+export const pushActionItemBodySchema = z
+  .object({
+    index: z.number().int().nonnegative().optional(),
+    all: z.literal(true).optional(),
+    provider: taskProviderEnum.optional(),
+  })
+  .refine((v) => v.all === true || typeof v.index === 'number', {
+    message: "provide either { index } or { all: true }",
+  });
+
+export type PushActionItemBody = z.infer<typeof pushActionItemBodySchema>;
