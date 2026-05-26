@@ -321,6 +321,15 @@ services:
       # /status; this gives operators (and other Claude sessions) a
       # one-glance answer instead of an SSH session.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # MBOX-168 follow-up — add the host docker group GID to nextjs's
+    # supplementary groups so it can actually read /var/run/docker.sock.
+    # Without this the bind lands (socket visible) but every API call hits
+    # EACCES because the socket is mode 0660 owned root:docker. Default 994
+    # is the docker GID on the M1 Jetson host; override per-appliance via
+    # DOCKER_GID in .env (`getent group docker` on the host to find the
+    # right value). Caught on M1 smoke 2026-05-26 — first deploy of PR #152.
+    group_add:
+      - "${DOCKER_GID:-994}"
     depends_on:
       postgres:
         condition: service_healthy
