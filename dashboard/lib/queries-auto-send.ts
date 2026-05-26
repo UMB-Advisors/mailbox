@@ -212,6 +212,11 @@ export async function listAutoSendAuditForDraft(
 // Mark a draft auto_send_blocked + reject it (the 'drop' action). Sets the
 // state-transition GUCs so the migration-009 trigger attributes the reject to
 // actor='auto'. Done in one txn so the block + status flip are atomic.
+//
+// Status guard covers every legal pre-send status — pending, awaiting_cloud,
+// edited — kept in sync with the auto_send path's fromStates in
+// lib/auto-send/finalize-hook.ts. An 'edited' draft matching a drop rule must
+// be dropped, not silently no-op'd because the guard omitted its status.
 export async function applyDropAction(draftId: number): Promise<void> {
   const db = getKysely();
   await db.transaction().execute(async (trx) => {
@@ -227,7 +232,7 @@ export async function applyDropAction(draftId: number): Promise<void> {
         updated_at: sql<string>`NOW()`,
       })
       .where('id', '=', draftId)
-      .where('status', 'in', ['pending', 'awaiting_cloud'])
+      .where('status', 'in', ['pending', 'awaiting_cloud', 'edited'])
       .execute();
   });
 }
