@@ -39,6 +39,19 @@ function emptyItem(): ActionItem {
   return { text: '', type: 'commitment', due_at: null, source: 'outbound', confidence: 1 };
 }
 
+// True only when the push returned a real per-task deep link. Google Tasks
+// often omits webViewLink; the generic tasks.google.com homepage (and an empty
+// value) are not deep links, so the "View in Tasks" button is hidden for them.
+function hasTaskDeepLink(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return !(u.hostname === 'tasks.google.com' && (u.pathname === '' || u.pathname === '/'));
+  } catch {
+    return false;
+  }
+}
+
 export function ActionItemsPanel({
   draftId,
   initialItems,
@@ -220,17 +233,23 @@ export function ActionItemsPanel({
                       {sourceLabel(item.source)}
                     </span>
                     {/* MBOX-129 — once pushed, surface a "View in Tasks" deep
-                        link + "Remove from Tasks" affordance. */}
+                        link + "Unlink from Tasks" affordance. The View link is
+                        shown ONLY when the push returned a real per-task deep
+                        link; Google Tasks often omits webViewLink, and the
+                        generic tasks.google.com homepage is not a deep link so
+                        we hide the button rather than send the operator there. */}
                     {item.task_external_id && (
                       <>
-                        <a
-                          href={item.task_external_url ?? 'https://tasks.google.com/'}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-green hover:underline"
-                        >
-                          <ExternalLink size={10} /> View in Tasks
-                        </a>
+                        {hasTaskDeepLink(item.task_external_url) && (
+                          <a
+                            href={item.task_external_url as string}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-green hover:underline"
+                          >
+                            <ExternalLink size={10} /> View in Tasks
+                          </a>
+                        )}
                         {!readOnly && (
                           <button
                             type="button"
@@ -251,7 +270,7 @@ export function ActionItemsPanel({
                             disabled={busy || pushBusy !== null || editingIndex !== null}
                             className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-dim hover:text-accent-red disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <XCircle size={10} /> Remove from Tasks
+                            <XCircle size={10} /> Unlink from Tasks
                           </button>
                         )}
                       </>

@@ -137,9 +137,11 @@ export async function pushToGoogleTasks(
   // Best-effort fetch stamp (last successful Tasks API call). Non-fatal.
   void markFetched('google_tasks').catch(() => undefined);
 
-  // Google Tasks has no per-task public web URL; the canonical deep link is the
-  // Tasks app filtered by the list. webViewLink is not returned by the REST API,
-  // so synthesize the standard tasks.google.com link.
-  const url_ = json.webViewLink ?? 'https://tasks.google.com/';
+  // Google Tasks' REST API rarely returns a per-task `webViewLink`. When it's
+  // absent we leave the URL empty rather than synthesizing the generic
+  // https://tasks.google.com/ homepage — a homepage is not a deep link and a
+  // "View in Tasks" button pointing at it lies to the operator. The UI hides
+  // the button when this is empty.
+  const url_ = typeof json.webViewLink === 'string' ? json.webViewLink : '';
   return { task_external_id: json.id, task_external_url: url_ };
 }
