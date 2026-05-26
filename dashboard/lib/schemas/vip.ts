@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DOMAIN_RE } from '@/lib/schemas/common';
 import { VIP_SENDER_KINDS } from '@/lib/types';
 
 // MBOX-134: VIP sender list validation (POST /api/vip-senders,
@@ -14,8 +15,7 @@ import { VIP_SENDER_KINDS } from '@/lib/types';
 // to reject obvious junk before it lands in the list. A single '@' with a
 // dotted domain on the right.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Bare domain — one-or-more dot-separated labels, no scheme, no '@', no path.
-const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+// DOMAIN_RE is shared from lib/schemas/common.ts (also used by auto-send rules).
 
 export const vipSenderCreateSchema = z
   .object({

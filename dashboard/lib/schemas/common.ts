@@ -13,3 +13,9 @@ export const idParamSchema = z.object({
 });
 
 export type IdParam = z.infer<typeof idParamSchema>;
+
+// Bare domain — one-or-more dot-separated labels, no scheme, no '@', no path.
+// Shared by the VIP-sender list (lib/schemas/vip.ts) and auto-send rules
+// (lib/schemas/auto-send.ts) so the two can't drift. Inputs are lowercased
+// before this is applied.
+export const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
