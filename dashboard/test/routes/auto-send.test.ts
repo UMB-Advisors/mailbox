@@ -24,7 +24,9 @@ async function clearRules(): Promise<void> {
   await pool.query('DELETE FROM mailbox.auto_send_rules');
 }
 
-async function auditRows(draftId: number): Promise<
+async function auditRows(
+  draftId: number,
+): Promise<
   Array<{ matched_action: string; effective_action: string; shadow: boolean; reason: string }>
 > {
   const pool = getTestPool();
@@ -136,7 +138,9 @@ dbDescribe('auto-send rules — real Postgres', () => {
 
     it('drop rule: rejects the draft and writes a drop audit row', async () => {
       const { POST } = await import('@/app/api/auto-send-rules/route');
-      await POST(fakeRequest({ body: { name: 'drop reorder', action: 'drop', category: 'reorder' } }));
+      await POST(
+        fakeRequest({ body: { name: 'drop reorder', action: 'drop', category: 'reorder' } }),
+      );
 
       const out = await finalize();
       expect(out.auto_send.effective_action).toBe('drop');

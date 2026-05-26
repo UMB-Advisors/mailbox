@@ -148,7 +148,7 @@ describe('evaluateAutoSend — HARD GUARDRAILS (config cannot override)', () => 
     // A malformed stored floor coerces to NaN; without the finite guard
     // `conf < NaN` is always false → the rule would match silently. Guard
     // forces a no-match so a corrupt floor fails closed.
-    const r = rule({ min_confidence: 'not-a-number' as unknown as number });
+    const r = rule({ min_confidence: 'not-a-number' });
     const d = evaluateAutoSend([r], ctx({ confidence: 0.95 }), NOW);
     expect(d.effectiveAction).toBe('queue');
     expect(d.reason).toBe('no_rule_match');
@@ -254,7 +254,10 @@ describe('evaluateAutoSend — time-of-day window', () => {
 
   it('does not match outside the window', () => {
     const nowMin = minutesFromMidnight(NOW);
-    const r = rule({ active_from_min: (nowMin + 120) % 1440, active_to_min: (nowMin + 180) % 1440 });
+    const r = rule({
+      active_from_min: (nowMin + 120) % 1440,
+      active_to_min: (nowMin + 180) % 1440,
+    });
     expect(evaluateAutoSend([r], ctx(), NOW).effectiveAction).toBe('queue');
   });
 
@@ -268,7 +271,10 @@ describe('evaluateAutoSend — time-of-day window', () => {
     });
     expect(evaluateAutoSend([outside], ctx(), NOW).effectiveAction).toBe('queue');
     // Invert: from = now-60, to = now+60 is a normal window containing now.
-    const inside = rule({ active_from_min: (nowMin - 60 + 1440) % 1440, active_to_min: (nowMin + 60) % 1440 });
+    const inside = rule({
+      active_from_min: (nowMin - 60 + 1440) % 1440,
+      active_to_min: (nowMin + 60) % 1440,
+    });
     expect(evaluateAutoSend([inside], ctx(), NOW).effectiveAction).toBe('auto_send');
   });
 });
