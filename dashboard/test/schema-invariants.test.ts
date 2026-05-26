@@ -206,7 +206,11 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   it.skipIf(!DB_URL)(
     'auto_send_rules.action CHECK matches AUTO_SEND_ACTIONS (MBOX-16, migration 031)',
     async () => {
-      const allowed = await getCheckValues(pool!, 'auto_send_rules', 'auto_send_rules_action_check');
+      const allowed = await getCheckValues(
+        pool!,
+        'auto_send_rules',
+        'auto_send_rules_action_check',
+      );
       const expected = [...AUTO_SEND_ACTIONS];
       expect([...allowed].sort()).toEqual([...expected].sort());
     },

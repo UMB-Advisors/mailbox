@@ -47,7 +47,7 @@ dbDescribe('POST /api/drafts/[id]/action-items — real Postgres', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         success: boolean;
-        draft: { id: number; action_items: typeof VALID_ITEM[]; updated_at: string };
+        draft: { id: number; action_items: (typeof VALID_ITEM)[]; updated_at: string };
       };
       expect(body.success).toBe(true);
       expect(body.draft.id).toBe(seed.draftId);

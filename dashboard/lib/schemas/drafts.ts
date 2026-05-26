@@ -200,9 +200,7 @@ export type ActionItemsBody = z.infer<typeof actionItemsBodySchema>;
 //   - { all: true }      → push every not-yet-pushed item on the draft (bulk)
 // `provider` defaults to the per-appliance DEFAULT_TASK_PROVIDER; only
 // 'google_tasks' is wired in v1 (the enum carries 'linear' for the v2 toggle).
-const taskProviderEnum = z.enum(
-  TASK_PROVIDERS as readonly [TaskProvider, ...TaskProvider[]],
-);
+const taskProviderEnum = z.enum(TASK_PROVIDERS as readonly [TaskProvider, ...TaskProvider[]]);
 export const pushActionItemBodySchema = z
   .object({
     index: z.number().int().nonnegative().optional(),
@@ -210,7 +208,7 @@ export const pushActionItemBodySchema = z
     provider: taskProviderEnum.optional(),
   })
   .refine((v) => v.all === true || typeof v.index === 'number', {
-    message: "provide either { index } or { all: true }",
+    message: 'provide either { index } or { all: true }',
   });
 
 export type PushActionItemBody = z.infer<typeof pushActionItemBodySchema>;

@@ -14,6 +14,7 @@
 // the draft's body, status, or the finalize response. The hard 2s timeout
 // bounds the added latency.
 
+import type { Category } from '@/lib/classification/prompt';
 import {
   ACTION_ITEM_SOURCES,
   ACTION_ITEM_TYPES,
@@ -21,7 +22,6 @@ import {
   type ActionItemSource,
   type ActionItemType,
 } from '@/lib/types';
-import type { Category } from '@/lib/classification/prompt';
 import { chat } from './ollama';
 import { type DraftEndpoint, pickEndpoint } from './router';
 
@@ -135,9 +135,7 @@ function coerceItem(raw: unknown): ActionItem | null {
   return { text, type, due_at, source, confidence };
 }
 
-export async function extractActionItems(
-  input: ExtractActionItemsInput,
-): Promise<ActionItem[]> {
+export async function extractActionItems(input: ExtractActionItemsInput): Promise<ActionItem[]> {
   const endpoint =
     input.endpoint ??
     pickEndpoint(

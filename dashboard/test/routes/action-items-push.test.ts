@@ -127,11 +127,7 @@ dbDescribe('POST /api/drafts/[id]/action-items/push — real Postgres', () => {
       const { POST } = await import('@/app/api/drafts/[id]/action-items/push/route');
       await POST(fakeRequest({ body: { index: 0 } }), { params: { id: String(seed.draftId) } });
       // The provider was called WITH the existing id (PATCH path), not null.
-      expect(pushSpy).toHaveBeenCalledWith(
-        expect.anything(),
-        seed.draftId,
-        'gtask-existing-7',
-      );
+      expect(pushSpy).toHaveBeenCalledWith(expect.anything(), seed.draftId, 'gtask-existing-7');
       const stored = await readItems(seed.draftId);
       expect(stored[0].task_external_id).toBe('gtask-existing-7');
     } finally {

@@ -2,8 +2,8 @@ import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import { getKysely } from '@/lib/db';
 import { parseJson, parseParams } from '@/lib/middleware/validate';
-import { actionItemsBodySchema } from '@/lib/schemas/drafts';
 import { idParamSchema } from '@/lib/schemas/common';
+import { actionItemsBodySchema } from '@/lib/schemas/drafts';
 
 export const dynamic = 'force-dynamic';
 

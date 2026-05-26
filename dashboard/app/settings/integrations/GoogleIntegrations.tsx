@@ -73,7 +73,10 @@ export function GoogleIntegrations({
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? `Disconnect failed (${res.status})`);
       setConns((prev) => ({ ...prev, [provider]: fallback(provider) }));
-      setToast({ kind: 'success', text: `Disconnected ${META[provider as keyof typeof META].title}` });
+      setToast({
+        kind: 'success',
+        text: `Disconnected ${META[provider as keyof typeof META].title}`,
+      });
     } catch (err) {
       setToast({ kind: 'error', text: err instanceof Error ? err.message : 'Disconnect failed' });
     } finally {
@@ -104,10 +107,7 @@ export function GoogleIntegrations({
           const conn = conns[provider];
           const { title, blurb, Icon } = META[provider];
           return (
-            <section
-              key={provider}
-              className="rounded-sm border border-border bg-bg-panel p-4"
-            >
+            <section key={provider} className="rounded-sm border border-border bg-bg-panel p-4">
               <div className="flex items-start gap-3">
                 <Icon size={18} className="mt-0.5 shrink-0 text-ink-dim" aria-hidden />
                 <div className="min-w-0 flex-1">

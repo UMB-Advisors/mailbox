@@ -30,15 +30,15 @@
 // and assert on the emitted ChatTurnEvent sequence + what got persisted —
 // hermetic, no DB and no on-box llama.cpp.
 
-import { assembleChatMessages, buildSystemPrompt } from '@/lib/chat/assemble';
+import type { OllamaChatMessage, RuntimeKind, StreamEvent } from '@umb-advisors/llm';
 import {
   readLlamaCppBaseUrl,
   readLlamaCppModel,
   readOllamaBaseUrl,
   readRuntimeKind,
+  streamLocalChat,
 } from '@umb-advisors/llm';
-import { streamLocalChat } from '@umb-advisors/llm';
-import type { OllamaChatMessage, RuntimeKind, StreamEvent } from '@umb-advisors/llm';
+import { assembleChatMessages, buildSystemPrompt } from '@/lib/chat/assemble';
 import {
   appendMessage as appendMessageImpl,
   getConversationMessages as getConversationMessagesImpl,

@@ -17,9 +17,9 @@
 // reference to an IF node mirroring routeFor is stale — that fork no longer
 // exists in the workflow JSONs.)
 
+import { readLlamaCppModel, readOllamaBaseUrl, readRuntimeKind } from '@umb-advisors/llm';
 import type { Category } from '@/lib/classification/prompt';
 import { routeFor } from '@/lib/classification/prompt';
-import { readLlamaCppModel, readOllamaBaseUrl, readRuntimeKind } from '@umb-advisors/llm';
 import { DRAFT_CLOUD_MODEL_DEFAULT, DRAFT_LOCAL_MODEL } from './prompt';
 
 export type DraftSource = 'local' | 'cloud';

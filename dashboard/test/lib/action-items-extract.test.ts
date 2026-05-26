@@ -164,7 +164,13 @@ describe('extractActionItems — clamp + drop', () => {
       Promise.resolve(
         ollamaResponse(
           JSON.stringify([
-            { text: 'x', type: 'deadline', due_at: 'not-a-date', source: 'outbound', confidence: 0.9 },
+            {
+              text: 'x',
+              type: 'deadline',
+              due_at: 'not-a-date',
+              source: 'outbound',
+              confidence: 0.9,
+            },
           ]),
         ),
       ),

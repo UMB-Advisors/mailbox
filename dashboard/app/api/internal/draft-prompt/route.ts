@@ -182,8 +182,7 @@ export async function POST(req: NextRequest) {
       // MBOX-130 — calendar availability lines for `scheduling` drafts. Only
       // the `ok` snapshot carries lines; every other reason (gated, empty,
       // failed) passes undefined so prompt.ts:calendarBlock renders nothing.
-      calendar_snapshot:
-        calendarSnapshot?.reason === 'ok' ? calendarSnapshot.lines : undefined,
+      calendar_snapshot: calendarSnapshot?.reason === 'ok' ? calendarSnapshot.lines : undefined,
     });
 
     // STAQPRO-191/148 — unconditional writeback. Always persist BOTH refs

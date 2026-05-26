@@ -28,8 +28,8 @@
 // runs in the dashboard container alongside the route handlers, so a
 // fetch() against localhost would just be wasted latency.
 
-import { getPersonaContext } from '@/lib/drafting/persona';
 import { readOllamaBaseUrl } from '@umb-advisors/llm';
+import { getPersonaContext } from '@/lib/drafting/persona';
 import { type ClassificationResult, normalizeClassifierOutput } from './normalize';
 import { buildPrompt, MODEL_VERSION } from './prompt';
 

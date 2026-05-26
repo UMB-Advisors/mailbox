@@ -91,10 +91,10 @@ function unavailable(reason: string): GitState {
 // M1 smoke 2026-05-24 — the dashboard image was missing the `git` binary
 // entirely, but the message said the repo wasn't a git repo).
 type GitUnavailable =
-  | { kind: 'binary_missing' }   // execFile couldn't find `git` on PATH
-  | { kind: 'not_a_repo' }       // dir exists but git refuses (no .git)
-  | { kind: 'path_missing' }     // repo path doesn't exist (caught earlier by stat usually)
-  | null;                        // not an unavailability — bubble as-is
+  | { kind: 'binary_missing' } // execFile couldn't find `git` on PATH
+  | { kind: 'not_a_repo' } // dir exists but git refuses (no .git)
+  | { kind: 'path_missing' } // repo path doesn't exist (caught earlier by stat usually)
+  | null; // not an unavailability — bubble as-is
 
 function classifyUnavailable(err: unknown): GitUnavailable {
   if (!(err instanceof Error)) return null;
@@ -257,8 +257,7 @@ export async function getGitStateWithTimeout(timeoutMs: number): Promise<GitStat
   try {
     return await Promise.race([
       getGitState().catch(
-        (err): GitState =>
-          unavailable(`git_state error: ${(err as Error).message}`),
+        (err): GitState => unavailable(`git_state error: ${(err as Error).message}`),
       ),
       new Promise<GitState>((resolve) => {
         timer = setTimeout(() => resolve(unavailable('git_state timed out')), timeoutMs);

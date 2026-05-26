@@ -6,7 +6,7 @@
 // spawn subprocesses or depend on the host filesystem layout.
 
 import { describe, expect, it, vi } from 'vitest';
-import { getGitState, type GitRunner } from '@/lib/queries-git';
+import { type GitRunner, getGitState } from '@/lib/queries-git';
 
 // Build a runner that maps git arg-prefix → response, with optional throws.
 // Match is on the first arg AFTER the implicit `-C <repo>` (we don't see
@@ -96,7 +96,7 @@ describe('getGitState — detached HEAD', () => {
     const r = await getGitState({
       runner: buildRunner({
         ...HAPPY_PATH,
-        'symbolic-ref --short HEAD': new Error("fatal: ref HEAD is not a symbolic ref"),
+        'symbolic-ref --short HEAD': new Error('fatal: ref HEAD is not a symbolic ref'),
       }),
       skipMountCheck: true,
     });
@@ -111,8 +111,12 @@ describe('getGitState — no origin/master', () => {
     const r = await getGitState({
       runner: buildRunner({
         ...HAPPY_PATH,
-        'rev-list --count origin/master..HEAD': new Error("fatal: unknown revision 'origin/master'"),
-        'rev-list --count HEAD..origin/master': new Error("fatal: unknown revision 'origin/master'"),
+        'rev-list --count origin/master..HEAD': new Error(
+          "fatal: unknown revision 'origin/master'",
+        ),
+        'rev-list --count HEAD..origin/master': new Error(
+          "fatal: unknown revision 'origin/master'",
+        ),
       }),
       skipMountCheck: true,
     });
