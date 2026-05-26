@@ -123,10 +123,33 @@ describe('evaluateAutoSend — HARD GUARDRAILS (config cannot override)', () => 
     expect(d.reason).toBe('guardrail_auto_send_blocked');
   });
 
+  it('reports the forbidden-category reason ahead of auto_send_blocked', () => {
+    // An escalate draft that is ALSO auto_send_blocked must report the more
+    // specific guardrail_escalate_category (forbidden-category check runs
+    // first), not guardrail_auto_send_blocked.
+    const d = evaluateAutoSend(
+      [rule({ category: 'escalate' })],
+      ctx({ category: 'escalate', autoSendBlocked: true }),
+      NOW,
+    );
+    expect(d.effectiveAction).toBe('queue');
+    expect(d.reason).toBe('guardrail_escalate_category');
+  });
+
   it('a rule confidence floor above 0.75 makes it MORE conservative', () => {
     const r = rule({ min_confidence: '0.9' });
     // 0.8 clears the hard floor but not the rule floor → no match → queue.
     const d = evaluateAutoSend([r], ctx({ confidence: 0.8 }), NOW);
+    expect(d.effectiveAction).toBe('queue');
+    expect(d.reason).toBe('no_rule_match');
+  });
+
+  it('a non-finite rule min_confidence floor never matches (NaN guard)', () => {
+    // A malformed stored floor coerces to NaN; without the finite guard
+    // `conf < NaN` is always false → the rule would match silently. Guard
+    // forces a no-match so a corrupt floor fails closed.
+    const r = rule({ min_confidence: 'not-a-number' as unknown as number });
+    const d = evaluateAutoSend([r], ctx({ confidence: 0.95 }), NOW);
     expect(d.effectiveAction).toBe('queue');
     expect(d.reason).toBe('no_rule_match');
   });
@@ -174,6 +197,16 @@ describe('evaluateAutoSend — condition matching', () => {
     expect(evaluateAutoSend([r], ctx({ category: 'inquiry' }), NOW).effectiveAction).toBe(
       'auto_send',
     );
+  });
+
+  it('a catch-all rule auto-sends at confidence EXACTLY the hard floor (0.75)', () => {
+    // The hard guardrail is `conf < LOW_CONF_FLOOR`, so 0.75 itself PASSES the
+    // floor (boundary is inclusive at the floor). Pin the documented behavior:
+    // catch-all (all conditions null) + confidence === 0.75 → auto_send.
+    const r = rule({ category: null, sender_domain: null, min_confidence: null });
+    const d = evaluateAutoSend([r], ctx({ confidence: LOW_CONF_FLOOR }), NOW);
+    expect(d.effectiveAction).toBe('auto_send');
+    expect(d.reason).toBe('matched');
   });
 
   it('AND-s conditions: category AND domain must both match', () => {
