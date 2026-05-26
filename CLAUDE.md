@@ -122,6 +122,16 @@ n8n's webhook returns an empty body when `Gmail Reply` throws — `JSON.parse(''
 
 Escape hatch: `MAILBOX_PREFLIGHT_SKIP=1` forces through (logs the warning and continues). Jetson uses unified memory so `MemAvailable` is the authoritative combined CPU+GPU proxy — no nvidia-smi/tegrastats needed. The same helper feeds `/api/system/status` → `memory_pressure` (and a `MEMORY_PRESSURE` alert, warn at amber / alarm at red) so the operator sees pressure before the next backfill aborts. Retires the soak-window-era "don't run two backfills concurrently" verbal rule — it now lives in code, with operator-visible status.
 
+### Swap + orphan containers stat (MBOX-168)
+Two companion fields to `memory_pressure`, both born from the same DR-25 misdiagnosis class (~4 agent runs spent on "hardware too small" when the real cause was a 3.86 GiB orphan llama-cpp container hoarding RAM).
+
+- **`swap_in_use`** (`dashboard/lib/preflight/swap.ts`) — parses `SwapTotal:`/`SwapFree:` out of `/proc/meminfo`. Green = 0 in use; yellow = > 0 and ≤ threshold (zram cycling noise); red = > threshold OR meminfo unreadable. Threshold = `MAILBOX_SWAP_THRESHOLD_MIB` (default 100 MiB). Synchronous; total-failure-safe (never throws).
+- **`orphan_containers`** (`dashboard/lib/queries-orphans.ts` + `dashboard/lib/queries-docker.ts`) — set difference of (running on host) − (declared in `docker-compose.yml`). Reads compose off the existing MBOX-163 read-only repo bind, hits Docker via raw `http.request` on `/var/run/docker.sock` (no `dockerode`, no `docker` CLI binary in the image). Capped at 800ms via `Promise.race` in the route. Renders the actual container names on `/status` — knowing "ghost-llama-cpp" lets the operator `docker stop` immediately.
+
+**Security caveat — docker.sock bind**: `mailbox-dashboard` mounts `/var/run/docker.sock:/var/run/docker.sock:ro`. The `:ro` is **operator intent only** — the docker engine treats it as advisory at the protocol level. Acceptable here because (a) the appliance is single-tenant trusted, and (b) `lib/queries-docker.ts` only calls `GET /containers/json`. Do NOT replicate this bind into any future multi-tenant or customer-side dashboard without re-evaluating the trust boundary.
+
+Intentionally NOT flagged by the orphan check: expected services that aren't running (that's a different problem class — service down, not orphan). Track separately if it ever opens an issue.
+
 ### n8n workflow editing (2.x)
 - **All four MailBOX workflows must be `active=true` on n8n 2.x.** Pre-2.x guidance (sub-workflows `active=false`) was retracted — 2.x throws *"Workflow is not active and cannot be executed"* and dark-classifies the inbox until caught (STAQPRO-181 hit this for ~12h on M2 post-2.14.2). Gate: `mailbox-n8n-verify` profile.
 - `n8n update:workflow --active=...` is a no-op at runtime without a container restart.
