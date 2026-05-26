@@ -1,10 +1,7 @@
 // MBOX-168 — unit tests for the orphan-container detector.
 
 import { describe, expect, it } from 'vitest';
-import {
-  expectedContainerNames,
-  findOrphanContainers,
-} from '@/lib/queries-orphans';
+import { expectedContainerNames, findOrphanContainers } from '@/lib/queries-orphans';
 
 // A minimal fixture mirroring MailBOX's real compose layout: two services
 // with explicit container_name, one falling through to the default
@@ -73,11 +70,7 @@ describe('findOrphanContainers — happy path', () => {
     expect(r.orphan_count).toBe(0);
     expect(r.orphan_names).toEqual([]);
     expect(r.reason).toBeNull();
-    expect(r.expected_names).toEqual([
-      'mailbox-dashboard',
-      'mailbox-n8n-1',
-      'mailbox-postgres-1',
-    ]);
+    expect(r.expected_names).toEqual(['mailbox-dashboard', 'mailbox-n8n-1', 'mailbox-postgres-1']);
   });
 
   it('flags a single orphan with its name and an operator-facing reason', async () => {
@@ -153,15 +146,13 @@ describe('findOrphanContainers — degraded paths', () => {
     const r = await findOrphanContainers({
       composeYaml: COMPOSE_FIXTURE,
       projectName: 'mailbox',
-      runningContainers: { unavailable: 'docker socket /var/run/docker.sock not present in dashboard container' },
+      runningContainers: {
+        unavailable: 'docker socket /var/run/docker.sock not present in dashboard container',
+      },
     });
     expect(r.status).toBe('red');
     expect(r.reason).toMatch(/socket .* not present/);
-    expect(r.expected_names).toEqual([
-      'mailbox-dashboard',
-      'mailbox-n8n-1',
-      'mailbox-postgres-1',
-    ]);
+    expect(r.expected_names).toEqual(['mailbox-dashboard', 'mailbox-n8n-1', 'mailbox-postgres-1']);
   });
 
   it('honours an alternate compose project name', async () => {

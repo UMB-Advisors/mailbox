@@ -7,7 +7,7 @@ import {
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
 import { checkSwap } from '@/lib/preflight/swap';
-import { getGitStateWithTimeout, type GitState } from '@/lib/queries-git';
+import { type GitState, getGitStateWithTimeout } from '@/lib/queries-git';
 import { findOrphanContainers, type OrphanResult } from '@/lib/queries-orphans';
 import { type DraftingMetrics, getDraftingMetrics } from '@/lib/queries-status';
 import {
@@ -148,15 +148,6 @@ export default async function StatusPage() {
     ),
   ]);
 
-  // Format helper: bytes → "X MiB" / "Y GiB" for the swap tile. Kept inline
-  // (single-use, single-section) rather than promoted to format-body.ts.
-  const formatBytes = (b: number): string => {
-    if (b === 0) return '0';
-    const mib = b / (1024 * 1024);
-    if (mib < 1024) return `${mib.toFixed(1)} MiB`;
-    return `${(mib / 1024).toFixed(2)} GiB`;
-  };
-
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
     n8nFailures: n8nFailures24h,
@@ -289,9 +280,7 @@ export default async function StatusPage() {
                     ? 'unable to read /proc/meminfo'
                     : `threshold ${swap.threshold_mib} MiB — RAM over-committed if exceeded`
               }
-              tone={
-                swap.status === 'red' ? 'red' : swap.status === 'yellow' ? 'orange' : 'default'
-              }
+              tone={swap.status === 'red' ? 'red' : swap.status === 'yellow' ? 'orange' : 'default'}
               mono
             />
             <Stat
@@ -435,8 +424,7 @@ export default async function StatusPage() {
                     {orphans.orphan_count} orphan container
                     {orphans.orphan_count === 1 ? '' : 's'} running outside docker-compose.yml —
                     likely the "memory eaten by ghost process" failure class (DR-25 misdiagnosis).
-                    Investigate with{' '}
-                    <code className="font-mono">docker stop &lt;name&gt;</code>.
+                    Investigate with <code className="font-mono">docker stop &lt;name&gt;</code>.
                   </p>
                   <ul className="mt-2 font-mono text-xs text-accent-red">
                     {orphans.orphan_names.map((n) => (

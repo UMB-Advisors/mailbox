@@ -4,11 +4,8 @@
 // suite runs identically on macOS dev and the Jetson without needing a
 // docker daemon.
 
-import { describe, expect, it, vi } from 'vitest';
-import {
-  type DockerHttpClient,
-  listRunningContainers,
-} from '@/lib/queries-docker';
+import { describe, expect, it } from 'vitest';
+import { type DockerHttpClient, listRunningContainers } from '@/lib/queries-docker';
 
 function buildClient(
   fn: (path: string) => Promise<{ statusCode: number; body: string }>,

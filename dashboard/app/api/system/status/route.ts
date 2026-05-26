@@ -6,7 +6,7 @@ import {
 } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
 import { checkSwap, type SwapResult } from '@/lib/preflight/swap';
-import { getGitStateWithTimeout, type GitState } from '@/lib/queries-git';
+import { type GitState, getGitStateWithTimeout } from '@/lib/queries-git';
 import { findOrphanContainers, type OrphanResult } from '@/lib/queries-orphans';
 import {
   getActiveWorkflowCount,

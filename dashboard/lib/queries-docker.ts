@@ -118,8 +118,7 @@ function classifyError(err: unknown): string {
     return 'docker socket /var/run/docker.sock not present in dashboard container — add the bind mount in docker-compose.yml';
   if (e.code === 'EACCES')
     return 'docker socket present but permission denied — group docker missing on dashboard user';
-  if (e.code === 'ECONNREFUSED')
-    return 'docker socket refused connection — daemon not running';
+  if (e.code === 'ECONNREFUSED') return 'docker socket refused connection — daemon not running';
   if ((e.message || '').includes('timed out')) return e.message;
   return `docker socket error: ${e.message || 'unknown'}`;
 }
@@ -150,18 +149,14 @@ export async function listRunningContainers(
   }
 
   if (res.statusCode < 200 || res.statusCode >= 300) {
-    return unavailable(
-      `docker API returned HTTP ${res.statusCode}: ${res.body.slice(0, 200)}`,
-    );
+    return unavailable(`docker API returned HTTP ${res.statusCode}: ${res.body.slice(0, 200)}`);
   }
 
   let raw: unknown;
   try {
     raw = JSON.parse(res.body);
   } catch (err) {
-    return unavailable(
-      `docker API returned non-JSON body: ${(err as Error).message}`,
-    );
+    return unavailable(`docker API returned non-JSON body: ${(err as Error).message}`);
   }
   if (!Array.isArray(raw)) {
     return unavailable('docker API returned non-array container list');

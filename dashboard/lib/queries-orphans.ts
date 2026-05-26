@@ -30,7 +30,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
-import { listRunningContainers, type DockerHttpClient } from './queries-docker';
+import { type DockerHttpClient, listRunningContainers } from './queries-docker';
 
 const DEFAULT_REPO_MOUNT = '/app/repo';
 const DEFAULT_COMPOSE_FILENAME = 'docker-compose.yml';
@@ -72,11 +72,7 @@ export interface FindOrphanContainersOptions {
 }
 
 function projectName(opts: FindOrphanContainersOptions): string {
-  return (
-    opts.projectName ??
-    process.env.COMPOSE_PROJECT_NAME?.trim() ??
-    DEFAULT_PROJECT_NAME
-  );
+  return opts.projectName ?? process.env.COMPOSE_PROJECT_NAME?.trim() ?? DEFAULT_PROJECT_NAME;
 }
 
 function composeFilePath(opts: FindOrphanContainersOptions): string {
