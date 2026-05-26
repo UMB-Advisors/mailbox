@@ -97,7 +97,10 @@ function ruleMatches(rule: AutoSendRule, ctx: AutoSendEvalContext, now: Date): b
   if (rule.min_confidence !== null) {
     const conf = toConfidence(ctx.confidence);
     const floor = Number(rule.min_confidence);
-    if (conf === null || conf < floor) return false;
+    // A non-finite floor (NaN from a malformed stored value) can't be a
+    // meaningful threshold; fail the match rather than let NaN comparisons
+    // pass silently (NaN < x is always false → would otherwise match).
+    if (conf === null || !Number.isFinite(floor) || conf < floor) return false;
   }
 
   if (rule.active_from_min !== null && rule.active_to_min !== null) {
@@ -113,10 +116,13 @@ function ruleMatches(rule: AutoSendRule, ctx: AutoSendEvalContext, now: Date): b
 // Returns the reason a guardrail tripped, or null if auto-send is permitted.
 // Order matters only for which reason is reported; all are absolute blocks.
 function autoSendGuardrailBlock(ctx: AutoSendEvalContext): string | null {
-  if (ctx.autoSendBlocked) return 'guardrail_auto_send_blocked';
+  // Forbidden-category check first so an escalate/unknown draft reports
+  // guardrail_escalate_category in the audit even when it's also
+  // auto_send_blocked — the category is the more specific, actionable reason.
   if (ctx.category && AUTO_SEND_FORBIDDEN_CATEGORIES.has(ctx.category)) {
     return 'guardrail_escalate_category';
   }
+  if (ctx.autoSendBlocked) return 'guardrail_auto_send_blocked';
   // A null/below-floor confidence can never auto-send. Mirrors evaluateUrgency's
   // low_conf bias: missing confidence is treated as low, not silently safe.
   const conf = toConfidence(ctx.confidence);
