@@ -27,9 +27,8 @@ import { LOW_CONF_FLOOR } from '@/lib/urgency';
 // Mirrors the cloud-route safety net (lib/classification/prompt.ts:routeFor
 // sends these to the human-reviewed cloud path) — escalate is by definition
 // "get a human", unknown means the classifier wasn't sure what this even is.
-export const AUTO_SEND_FORBIDDEN_CATEGORIES: ReadonlySet<ClassificationCategory> = new Set<
-  ClassificationCategory
->(['escalate', 'unknown']);
+export const AUTO_SEND_FORBIDDEN_CATEGORIES: ReadonlySet<ClassificationCategory> =
+  new Set<ClassificationCategory>(['escalate', 'unknown']);
 
 // The context a single draft presents to the evaluator. Confidence and sender
 // are pre-resolved by the caller (the draft-finalize query) so this function

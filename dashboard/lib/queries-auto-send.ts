@@ -139,9 +139,7 @@ export async function deleteAutoSendRule(id: number): Promise<boolean> {
 // category/confidence come from the draft denorm columns (set at stub insert,
 // same columns the urgency SQL in lib/queries.ts reads); sender from the draft
 // from_addr (mirrors vipMatchExpr). Returns null when the draft doesn't exist.
-export async function getAutoSendEvalContext(
-  draftId: number,
-): Promise<AutoSendEvalContext | null> {
+export async function getAutoSendEvalContext(draftId: number): Promise<AutoSendEvalContext | null> {
   const db = getKysely();
   const row = await db
     .selectFrom('drafts')
@@ -186,9 +184,7 @@ export async function recordAutoSendAudit(
     .execute();
 }
 
-export async function listAutoSendAuditForDraft(
-  draftId: number,
-): Promise<AutoSendAuditEntry[]> {
+export async function listAutoSendAuditForDraft(draftId: number): Promise<AutoSendAuditEntry[]> {
   const db = getKysely();
   const rows = await db
     .selectFrom('auto_send_audit')
