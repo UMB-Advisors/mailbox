@@ -93,19 +93,29 @@ export function clearCalendarCache(): void {
 }
 
 // Compact one-line render: "Mon May 19 14:00-15:00 — <summary>".
+// Render in the operator's timezone (GENERIC_TIMEZONE) rather than the Node
+// process tz — the mailbox-dashboard container sets no TZ so it defaults to UTC,
+// which would show wrong availability and make the LLM propose booked slots.
 export function formatEventLine(ev: CalendarEvent): string {
   const start = new Date(ev.start);
   const end = new Date(ev.end);
   if (Number.isNaN(start.getTime())) return '';
+  const tz = process.env.GENERIC_TIMEZONE ?? 'UTC';
   const day = start.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+    timeZone: tz,
   });
   const fmtTime = (d: Date) =>
     Number.isNaN(d.getTime())
       ? ''
-      : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      : d.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: tz,
+        });
   const range = Number.isNaN(end.getTime())
     ? fmtTime(start)
     : `${fmtTime(start)}-${fmtTime(end)}`;
