@@ -159,6 +159,20 @@ export const ACTION_ITEM_SOURCES = ['inbound', 'outbound'] as const;
 
 export type ActionItemSource = (typeof ACTION_ITEM_SOURCES)[number];
 
+// Task-handoff providers (MBOX-129). v1 ships Google Tasks only; the const
+// tuple is the SoT so the push route + zod schema + per-appliance
+// TASK_PROVIDER env read the same set. 'linear' is reserved for the v2 toggle
+// (see MBOX-129 "Out of scope"). Like ACTION_ITEM_TYPES this is NOT backed by
+// a Postgres CHECK constraint — task_external_id/url live on the free-form
+// drafts.action_items jsonb; the enum is enforced at the application boundary.
+export const TASK_PROVIDERS = ['google_tasks', 'linear'] as const;
+
+export type TaskProvider = (typeof TASK_PROVIDERS)[number];
+
+// MBOX-129 v1 default. Operator can override per-appliance via TASK_PROVIDER
+// env once the v2 provider toggle lands; today only 'google_tasks' is wired.
+export const DEFAULT_TASK_PROVIDER: TaskProvider = 'google_tasks';
+
 // ── Curated view interfaces (the dashboard's consumer-facing surface) ───────
 
 // MBOX-131 — a single structured action item extracted from the inbound email
@@ -169,6 +183,13 @@ export interface ActionItem {
   due_at: string | null; // ISO; null unless a date hint present
   source: ActionItemSource; // who owes: counterparty (inbound) vs operator (outbound)
   confidence: number; // 0..1
+  // MBOX-129 — task-handoff fields. All null until the operator pushes the item
+  // to their task system (Google Tasks v1). Live on the same drafts.action_items
+  // jsonb array — no new table. Re-push is idempotent: it UPDATEs the existing
+  // task keyed on task_external_id rather than creating a duplicate.
+  task_external_id?: string | null; // provider task id; null until pushed
+  task_external_url?: string | null; // deep link to view in the target system
+  task_pushed_at?: string | null; // ISO; when the push last succeeded
 }
 
 export interface Draft {

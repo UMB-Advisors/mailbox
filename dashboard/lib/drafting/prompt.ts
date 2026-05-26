@@ -51,6 +51,13 @@ export interface DraftPromptInput {
   // Different semantics from rag_refs (vector-similar emails) and kb_refs
   // (operator-uploaded SOPs) → different surface, per Neo Architect.
   exemplar_refs?: ReadonlyArray<{ snippet: string; sent_at: string; subject?: string }>;
+  // MBOX-130 — compact Google Calendar snapshot lines for `scheduling` drafts
+  // (now → now+14d busy blocks). Lets the drafter propose concrete time slots
+  // instead of "let me check my calendar." Privacy-gated upstream (LOCAL
+  // always; CLOUD only when CALENDAR_CLOUD_ROUTE_ENABLED=1) — by the time the
+  // lines reach here they've already passed the gate, so this is a pure render
+  // slot. Empty → no calendar block (graceful degrade to no-calendar prompt).
+  calendar_snapshot?: ReadonlyArray<string>;
 }
 
 // D-45 egress allowlist: when the assembled prompt is sent to a non-local
@@ -200,6 +207,28 @@ function kbBlock(input: DraftPromptInput): string {
   return lines.join('\n');
 }
 
+// MBOX-130 — calendar snapshot block. Distinct from rag/kb/exemplar slots: it
+// is the operator's own near-term availability, framed so the LLM proposes
+// concrete times rather than punting ("let me check my calendar"). The lines
+// are already privacy-gated (caller only passes them on the LOCAL route, or on
+// CLOUD when CALENDAR_CLOUD_ROUTE_ENABLED=1). Cap at 25 lines so a packed
+// 2-week calendar can't blow the local model's 4k ctx.
+const CALENDAR_LINES_CAP = 25;
+function calendarBlock(input: DraftPromptInput): string {
+  if (!input.calendar_snapshot || input.calendar_snapshot.length === 0) return '';
+  const lines: string[] = [
+    '',
+    '## Your calendar (next 2 weeks — busy blocks)',
+    'These are times you are ALREADY booked. Propose 1-3 concrete open slots',
+    'that avoid these when the email is asking to schedule. Do not reveal event',
+    'titles to the recipient — only use them to find open time.',
+  ];
+  for (const line of input.calendar_snapshot.slice(0, CALENDAR_LINES_CAP)) {
+    lines.push(`- ${line}`);
+  }
+  return lines.join('\n');
+}
+
 export function buildUserPrompt(input: DraftPromptInput): string {
   const safeBody = (input.body_text ?? '').slice(0, MAX_BODY_CHARS);
   return [
@@ -225,6 +254,9 @@ export function buildUserPrompt(input: DraftPromptInput): string {
     exemplarBlock(input),
     ragBlock(input),
     kbBlock(input),
+    // MBOX-130 — calendar availability for `scheduling` drafts. Empty for every
+    // other category and whenever the snapshot was unavailable/gated.
+    calendarBlock(input),
     '',
     '## Output format',
     'Return ONLY the body of the reply email. No subject line, no headers, no quoted original. Plain text only.',
