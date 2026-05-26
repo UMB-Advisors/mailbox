@@ -218,7 +218,15 @@ dbDescribe('auto-send rules — real Postgres', () => {
       // Cooldown 429 → not sent; draft remains queued for the operator.
       expect(out.auto_send.sent).toBe(false);
       expect(await getDraftStatus(seeded.draftId)).toBe('pending');
-      expect(fetchSpy).not.toHaveBeenCalled();
+      // Scope the assertion to the SEND webhook specifically. draft-finalize
+      // also fetches Ollama for MBOX-131 action-item extraction (non-gating,
+      // runs before auto-send), so a blanket `not.toHaveBeenCalled()` would
+      // false-positive on that unrelated call. What this test guards is that
+      // the cooldown gate short-circuits BEFORE triggerSendWebhook fires.
+      const sendWebhookCalls = fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes('/webhook/mailbox-send'),
+      );
+      expect(sendWebhookCalls).toHaveLength(0);
 
       // Clean up the cooldown so it doesn't leak into other suites.
       await pool.query(
