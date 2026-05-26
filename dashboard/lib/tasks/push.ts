@@ -20,7 +20,7 @@
 
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
-import { DEFAULT_TASK_PROVIDER, type ActionItem, type TaskProvider } from '@/lib/types';
+import { type ActionItem, DEFAULT_TASK_PROVIDER, type TaskProvider } from '@/lib/types';
 import { pushToGoogleTasks, TaskPushError } from './google-tasks';
 
 export interface PushOutcome {
@@ -84,6 +84,20 @@ async function recordPushAudit(
 }
 
 // Push a single item (by index) or all unpushed items (bulk) on a draft.
+//
+// CONCURRENCY CAVEAT (MBOX-129): the read-then-write below is NOT serialized
+// against concurrent requests. The action_items snapshot is read outside the
+// writeback transaction, so two concurrent `{ all: true }` pushes for the same
+// draft can both observe the same un-pushed items and double-create tasks in
+// Google (the UI `pushBusy` guard is client-side only and does not protect
+// against multi-tab / multi-operator races). A `SELECT … FOR UPDATE` on the
+// draft row would close this, but it would have to wrap the per-item Google
+// API calls (8s timeout each) to cover the create, holding a Postgres row lock
+// across external network I/O for the whole bulk loop — a worse failure mode
+// (lock contention / pool starvation). The per-item PATCH idempotency only
+// kicks in AFTER task_external_id is persisted, so it does not cover the
+// concurrent first-push window. Revisit with an advisory lock keyed on draft_id
+// if concurrent bulk pushes become a real operator path.
 export async function pushActionItems(input: {
   draftId: number;
   index?: number;

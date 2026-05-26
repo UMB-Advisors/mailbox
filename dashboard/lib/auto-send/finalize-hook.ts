@@ -80,9 +80,21 @@ export async function runAutoSendForFinalizedDraft(draftId: number): Promise<Aut
     if (decision.effectiveAction === 'auto_send') {
       // Reuse the operator approve/send path with actor='auto'. The cooldown
       // check + idempotency lock + audit trigger all live inside this call.
+      //
+      // fromStates covers EVERY legal pre-send status, not just the one we
+      // expect here. A draft reaching this hook is normally 'pending' (the
+      // stub was set pending at Insert Draft Stub, draft-finalize doesn't
+      // change status). But 'awaiting_cloud' is a live status for in-flight
+      // cloud-route drafts, and 'edited' is reachable via the operator edit
+      // path — if either ever becomes the status at finalize time, omitting
+      // it would 409 the CAS, silently stranding the draft with no
+      // operator-visible error. Including all three is safe: the
+      // status='approved' WHERE-guard inside transitionToApprovedAndSend is
+      // still the atomic CAS, so a draft already past these states no-ops
+      // cleanly. Kept in sync with applyDropAction's status guard.
       const res = await transitionToApprovedAndSend(draftId, {
-        fromStates: ['pending', 'edited'],
-        fromStatesLabel: 'pending or edited',
+        fromStates: ['pending', 'awaiting_cloud', 'edited'],
+        fromStatesLabel: 'pending, awaiting_cloud, or edited',
         clearError: true,
         routeName: 'auto_send',
         actor: 'auto',
@@ -125,8 +137,10 @@ export async function runAutoSendForFinalizedDraft(draftId: number): Promise<Aut
         },
         'eval_error',
       );
-    } catch {
-      // ignore — auditing must never mask the queue fallback
+    } catch (auditErr) {
+      // Non-gating — auditing must never mask the queue fallback. Log so a
+      // persistent audit-write failure is visible rather than swallowed.
+      console.warn('auto-send audit write failed', auditErr);
     }
     return { ...queued, reason: 'eval_error' };
   }

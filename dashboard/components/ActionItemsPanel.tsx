@@ -39,6 +39,19 @@ function emptyItem(): ActionItem {
   return { text: '', type: 'commitment', due_at: null, source: 'outbound', confidence: 1 };
 }
 
+// True only when the push returned a real per-task deep link. Google Tasks
+// often omits webViewLink; the generic tasks.google.com homepage (and an empty
+// value) are not deep links, so the "View in Tasks" button is hidden for them.
+function hasTaskDeepLink(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return !(u.hostname === 'tasks.google.com' && (u.pathname === '' || u.pathname === '/'));
+  } catch {
+    return false;
+  }
+}
+
 export function ActionItemsPanel({
   draftId,
   initialItems,
@@ -71,13 +84,11 @@ export function ActionItemsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(index === -1 ? { all: true } : { index }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | {
-            error?: string;
-            action_items?: ActionItem[];
-            results?: Array<{ ok: boolean; error?: string }>;
-          }
-        | null;
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        action_items?: ActionItem[];
+        results?: Array<{ ok: boolean; error?: string }>;
+      } | null;
       if (!res.ok) throw new Error(data?.error ?? `push failed (${res.status})`);
       if (data?.action_items) {
         setItems(data.action_items);
@@ -103,9 +114,10 @@ export function ActionItemsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action_items: next }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | { error?: string; draft?: { action_items: ActionItem[] } }
-        | null;
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        draft?: { action_items: ActionItem[] };
+      } | null;
       if (!res.ok) throw new Error(data?.error ?? `save failed (${res.status})`);
       const saved = data?.draft?.action_items ?? next;
       setItems(saved);
@@ -200,7 +212,13 @@ export function ActionItemsPanel({
             className="flex items-start gap-2 rounded-sm border border-border bg-bg-panel p-2"
           >
             {editingIndex === i ? (
-              <ItemEditor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onCancel={cancel} />
+              <ItemEditor
+                draft={draft}
+                setDraft={setDraft}
+                busy={busy}
+                onSave={save}
+                onCancel={cancel}
+              />
             ) : (
               <>
                 <div className="min-w-0 flex-1">
@@ -220,17 +238,23 @@ export function ActionItemsPanel({
                       {sourceLabel(item.source)}
                     </span>
                     {/* MBOX-129 — once pushed, surface a "View in Tasks" deep
-                        link + "Remove from Tasks" affordance. */}
+                        link + "Unlink from Tasks" affordance. The View link is
+                        shown ONLY when the push returned a real per-task deep
+                        link; Google Tasks often omits webViewLink, and the
+                        generic tasks.google.com homepage is not a deep link so
+                        we hide the button rather than send the operator there. */}
                     {item.task_external_id && (
                       <>
-                        <a
-                          href={item.task_external_url ?? 'https://tasks.google.com/'}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-green hover:underline"
-                        >
-                          <ExternalLink size={10} /> View in Tasks
-                        </a>
+                        {hasTaskDeepLink(item.task_external_url) && (
+                          <a
+                            href={item.task_external_url as string}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-green hover:underline"
+                          >
+                            <ExternalLink size={10} /> View in Tasks
+                          </a>
+                        )}
                         {!readOnly && (
                           <button
                             type="button"
@@ -251,7 +275,7 @@ export function ActionItemsPanel({
                             disabled={busy || pushBusy !== null || editingIndex !== null}
                             className="inline-flex items-center gap-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-dim hover:text-accent-red disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <XCircle size={10} /> Remove from Tasks
+                            <XCircle size={10} /> Unlink from Tasks
                           </button>
                         )}
                       </>
@@ -300,7 +324,13 @@ export function ActionItemsPanel({
 
         {editingIndex !== null && editingIndex >= items.length && (
           <li className="rounded-sm border border-accent-blue/40 bg-bg-panel p-2">
-            <ItemEditor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onCancel={cancel} />
+            <ItemEditor
+              draft={draft}
+              setDraft={setDraft}
+              busy={busy}
+              onSave={save}
+              onCancel={cancel}
+            />
           </li>
         )}
       </ul>

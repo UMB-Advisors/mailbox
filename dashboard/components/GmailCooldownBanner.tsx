@@ -109,9 +109,9 @@ export function GmailCooldownBanner({ cooldown, onForceResume }: Props) {
             <div className="mt-2 border-t border-accent-red/20 pt-2">
               {armed && (
                 <p className="mb-1.5 font-sans text-xs text-accent-red">
-                  Clearing now while Google's probation is still active will re-trigger the 429
-                  and extend the penalty +15 min. Only proceed if Google's stated retry-after
-                  has already passed. Click again within {ARM_WINDOW_MS / 1000}s to confirm.
+                  Clearing now while Google's probation is still active will re-trigger the 429 and
+                  extend the penalty +15 min. Only proceed if Google's stated retry-after has
+                  already passed. Click again within {ARM_WINDOW_MS / 1000}s to confirm.
                 </p>
               )}
               <button

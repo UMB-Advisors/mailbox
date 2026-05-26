@@ -21,8 +21,8 @@
 // Either terminal frame closes the stream. The named `event:` lets the chat
 // client attach a listener per type.
 
-import type { ChatTurnEvent } from '@/lib/chat/orchestrate';
 import type { RuntimeKind } from '@umb-advisors/llm';
+import type { ChatTurnEvent } from '@/lib/chat/orchestrate';
 
 /** Serialize one ChatTurnEvent to an SSE frame string. */
 export function toChatSseFrame(event: ChatTurnEvent): string {

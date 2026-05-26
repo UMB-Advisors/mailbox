@@ -139,9 +139,7 @@ export async function deleteAutoSendRule(id: number): Promise<boolean> {
 // category/confidence come from the draft denorm columns (set at stub insert,
 // same columns the urgency SQL in lib/queries.ts reads); sender from the draft
 // from_addr (mirrors vipMatchExpr). Returns null when the draft doesn't exist.
-export async function getAutoSendEvalContext(
-  draftId: number,
-): Promise<AutoSendEvalContext | null> {
+export async function getAutoSendEvalContext(draftId: number): Promise<AutoSendEvalContext | null> {
   const db = getKysely();
   const row = await db
     .selectFrom('drafts')
@@ -186,9 +184,7 @@ export async function recordAutoSendAudit(
     .execute();
 }
 
-export async function listAutoSendAuditForDraft(
-  draftId: number,
-): Promise<AutoSendAuditEntry[]> {
+export async function listAutoSendAuditForDraft(draftId: number): Promise<AutoSendAuditEntry[]> {
   const db = getKysely();
   const rows = await db
     .selectFrom('auto_send_audit')
@@ -212,6 +208,11 @@ export async function listAutoSendAuditForDraft(
 // Mark a draft auto_send_blocked + reject it (the 'drop' action). Sets the
 // state-transition GUCs so the migration-009 trigger attributes the reject to
 // actor='auto'. Done in one txn so the block + status flip are atomic.
+//
+// Status guard covers every legal pre-send status — pending, awaiting_cloud,
+// edited — kept in sync with the auto_send path's fromStates in
+// lib/auto-send/finalize-hook.ts. An 'edited' draft matching a drop rule must
+// be dropped, not silently no-op'd because the guard omitted its status.
 export async function applyDropAction(draftId: number): Promise<void> {
   const db = getKysely();
   await db.transaction().execute(async (trx) => {
@@ -227,7 +228,7 @@ export async function applyDropAction(draftId: number): Promise<void> {
         updated_at: sql<string>`NOW()`,
       })
       .where('id', '=', draftId)
-      .where('status', 'in', ['pending', 'awaiting_cloud'])
+      .where('status', 'in', ['pending', 'awaiting_cloud', 'edited'])
       .execute();
   });
 }

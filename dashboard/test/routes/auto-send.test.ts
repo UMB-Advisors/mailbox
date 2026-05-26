@@ -24,7 +24,9 @@ async function clearRules(): Promise<void> {
   await pool.query('DELETE FROM mailbox.auto_send_rules');
 }
 
-async function auditRows(draftId: number): Promise<
+async function auditRows(
+  draftId: number,
+): Promise<
   Array<{ matched_action: string; effective_action: string; shadow: boolean; reason: string }>
 > {
   const pool = getTestPool();
@@ -45,7 +47,13 @@ dbDescribe('auto-send rules — real Postgres', () => {
     await clearRules();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clear rules AFTER each test too (not just before) so the LAST test's
+    // rule never leaks past this file. Files share one Postgres (serial per
+    // vitest.config fileParallelism:false); a leftover `auto_send` rule would
+    // otherwise auto-approve another file's `reorder` draft — e.g.
+    // pipeline-smoke, which asserts the finalized draft stays `pending`.
+    await clearRules();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -136,7 +144,9 @@ dbDescribe('auto-send rules — real Postgres', () => {
 
     it('drop rule: rejects the draft and writes a drop audit row', async () => {
       const { POST } = await import('@/app/api/auto-send-rules/route');
-      await POST(fakeRequest({ body: { name: 'drop reorder', action: 'drop', category: 'reorder' } }));
+      await POST(
+        fakeRequest({ body: { name: 'drop reorder', action: 'drop', category: 'reorder' } }),
+      );
 
       const out = await finalize();
       expect(out.auto_send.effective_action).toBe('drop');
@@ -201,7 +211,12 @@ dbDescribe('auto-send rules — real Postgres', () => {
       );
       // Stub the webhook so a regression that bypasses the cooldown would be
       // caught by an unexpected fetch (the gate should short-circuit first).
-      const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
+      // Typed with a fetch-shaped arg list so `mock.calls` carries the URL
+      // argument — a no-arg `vi.fn()` gives empty call tuples and breaks the
+      // `[input]` destructuring below under `tsc --noEmit`.
+      const fetchSpy = vi.fn(
+        async (..._args: Parameters<typeof fetch>) => new Response('{}', { status: 200 }),
+      );
       vi.stubGlobal('fetch', fetchSpy);
       vi.stubEnv('N8N_WEBHOOK_URL', 'http://n8n.test/webhook/mailbox-send');
 
@@ -214,7 +229,15 @@ dbDescribe('auto-send rules — real Postgres', () => {
       // Cooldown 429 → not sent; draft remains queued for the operator.
       expect(out.auto_send.sent).toBe(false);
       expect(await getDraftStatus(seeded.draftId)).toBe('pending');
-      expect(fetchSpy).not.toHaveBeenCalled();
+      // Scope the assertion to the SEND webhook specifically. draft-finalize
+      // also fetches Ollama for MBOX-131 action-item extraction (non-gating,
+      // runs before auto-send), so a blanket `not.toHaveBeenCalled()` would
+      // false-positive on that unrelated call. What this test guards is that
+      // the cooldown gate short-circuits BEFORE triggerSendWebhook fires.
+      const sendWebhookCalls = fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes('/webhook/mailbox-send'),
+      );
+      expect(sendWebhookCalls).toHaveLength(0);
 
       // Clean up the cooldown so it doesn't leak into other suites.
       await pool.query(

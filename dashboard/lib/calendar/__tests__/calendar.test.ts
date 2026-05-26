@@ -17,16 +17,27 @@ import {
 const ENV_KEYS = ['CALENDAR_CONTEXT_ENABLED', 'CALENDAR_CLOUD_ROUTE_ENABLED'] as const;
 
 describe('formatEventLine', () => {
-  it('renders a compact "Day HH:MM-HH:MM — summary" line', () => {
+  // Pin GENERIC_TIMEZONE so the rendered clock is deterministic — the formatter
+  // reads this env (not the Node process tz) to render the operator's local time.
+  const savedTz = process.env.GENERIC_TIMEZONE;
+  beforeEach(() => {
+    process.env.GENERIC_TIMEZONE = 'UTC';
+  });
+  afterEach(() => {
+    if (savedTz === undefined) delete process.env.GENERIC_TIMEZONE;
+    else process.env.GENERIC_TIMEZONE = savedTz;
+  });
+
+  it('renders a compact "Day HH:MM-HH:MM — summary" line in GENERIC_TIMEZONE', () => {
     const line = formatEventLine({
       start: '2026-05-19T14:00:00.000Z',
       end: '2026-05-19T15:00:00.000Z',
       summary: 'STATE 1:1',
     });
-    // Time portion is locale/tz-dependent in CI, so assert structure not exact
-    // clock — the dash separator + summary are the load-bearing parts.
+    // With GENERIC_TIMEZONE=UTC the 14:00 UTC input must render as the exact
+    // clock the prompt will contain — no locale/tz hedge.
+    expect(line).toContain('14:00-15:00');
     expect(line).toContain('— STATE 1:1');
-    expect(line).toMatch(/\d{2}:\d{2}-\d{2}:\d{2}/);
   });
 
   it('falls back to (busy) when summary is empty', () => {

@@ -58,8 +58,7 @@ export interface CalendarFetchInput {
   now?: Date;
 }
 
-const CALENDAR_EVENTS_URL =
-  'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+const CALENDAR_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 
 export function isCalendarContextEnabled(): boolean {
   return process.env.CALENDAR_CONTEXT_ENABLED === '1';
@@ -93,22 +92,30 @@ export function clearCalendarCache(): void {
 }
 
 // Compact one-line render: "Mon May 19 14:00-15:00 — <summary>".
+// Render in the operator's timezone (GENERIC_TIMEZONE) rather than the Node
+// process tz — the mailbox-dashboard container sets no TZ so it defaults to UTC,
+// which would show wrong availability and make the LLM propose booked slots.
 export function formatEventLine(ev: CalendarEvent): string {
   const start = new Date(ev.start);
   const end = new Date(ev.end);
   if (Number.isNaN(start.getTime())) return '';
+  const tz = process.env.GENERIC_TIMEZONE ?? 'UTC';
   const day = start.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+    timeZone: tz,
   });
   const fmtTime = (d: Date) =>
     Number.isNaN(d.getTime())
       ? ''
-      : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  const range = Number.isNaN(end.getTime())
-    ? fmtTime(start)
-    : `${fmtTime(start)}-${fmtTime(end)}`;
+      : d.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: tz,
+        });
+  const range = Number.isNaN(end.getTime()) ? fmtTime(start) : `${fmtTime(start)}-${fmtTime(end)}`;
   const summary = (ev.summary || '(busy)').slice(0, 80);
   return `${day} ${range} — ${summary}`;
 }
@@ -116,10 +123,7 @@ export function formatEventLine(ev: CalendarEvent): string {
 // Map a raw Google Calendar v3 event into our compact shape, filtered to events
 // the operator actually attends. All-day events (date, not dateTime) are kept —
 // they still block availability. Cancelled events are dropped.
-function coerceEvents(
-  rawItems: unknown,
-  operatorEmail: string | null,
-): CalendarEvent[] {
+function coerceEvents(rawItems: unknown, operatorEmail: string | null): CalendarEvent[] {
   if (!Array.isArray(rawItems)) return [];
   const out: CalendarEvent[] = [];
   for (const raw of rawItems) {
@@ -178,9 +182,7 @@ function operatorIsInvolved(o: Record<string, unknown>, operatorEmail: string): 
 
 // Fetch the calendar snapshot for a draft. Never throws — every failure maps to
 // a typed reason + empty lines so the draft path can fall back gracefully.
-export async function getCalendarSnapshot(
-  input: CalendarFetchInput,
-): Promise<CalendarSnapshot> {
+export async function getCalendarSnapshot(input: CalendarFetchInput): Promise<CalendarSnapshot> {
   if (!isCalendarContextEnabled()) {
     return { reason: 'disabled', lines: [] };
   }
@@ -224,7 +226,9 @@ async function fetchSnapshot(input: CalendarFetchInput): Promise<CalendarSnapsho
 
   const now = input.now ?? new Date();
   const timeMin = now.toISOString();
-  const timeMax = new Date(now.getTime() + lookaheadDays(input) * 24 * 60 * 60 * 1000).toISOString();
+  const timeMax = new Date(
+    now.getTime() + lookaheadDays(input) * 24 * 60 * 60 * 1000,
+  ).toISOString();
   const url = new URL(CALENDAR_EVENTS_URL);
   url.searchParams.set('timeMin', timeMin);
   url.searchParams.set('timeMax', timeMax);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CATEGORIES } from '@/lib/classification/prompt';
+import { DOMAIN_RE } from '@/lib/schemas/common';
 import { AUTO_SEND_ACTIONS } from '@/lib/types';
 
 // MBOX-16 / FR-23 — auto-send rule validation (POST/PATCH /api/auto-send-rules,
@@ -8,10 +9,8 @@ import { AUTO_SEND_ACTIONS } from '@/lib/types';
 // normalize sender_domain to lowercase so the evaluator's case-insensitive
 // match is cheap.
 
-// Bare domain — one-or-more dot-separated labels, no scheme, no '@', no path.
-// Mirrors lib/schemas/vip.ts:DOMAIN_RE (sender_domain has the same shape as a
-// VIP domain entry).
-const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+// DOMAIN_RE is shared from lib/schemas/common.ts — sender_domain has the same
+// shape as a VIP domain entry, so the two can't drift.
 
 const MINUTES_IN_DAY = 1440;
 
