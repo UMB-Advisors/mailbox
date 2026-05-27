@@ -150,6 +150,14 @@ services:
     restart: unless-stopped
   caddy:
     build: ./caddy
+    # MBOX-184 — GHCR digest-pin indirection. `image:` names the local tag the
+    # `--build` path produces by default (CADDY_IMAGE unset → the local tag
+    # below), so M1's `docker compose up -d --build` keeps rebuilding + tagging
+    # locally exactly as today (NON-BREAKING). An OTA/clean appliance sets
+    # CADDY_IMAGE to a GHCR digest-pinned ref (ghcr.io/umb-advisors/mailbox-caddy@sha256:…
+    # from deploy/image-manifest.json) and runs a plain `up -d` (no --build) to
+    # pull that exact digest. See .env.example "OTA image pinning (MBOX-184)".
+    image: ${CADDY_IMAGE:-mailbox-caddy:local}
     ports:
     - 80:80
     - 443:443
@@ -178,6 +186,12 @@ services:
         # time; needs read:packages scope. dashboard/.npmrc references this
         # via ${GITHUB_PACKAGES_TOKEN}. Token never lands in any image layer.
         GITHUB_PACKAGES_TOKEN: ${GITHUB_PACKAGES_TOKEN}
+    # MBOX-184 — GHCR digest-pin indirection (see the caddy service for the
+    # full rationale). DASHBOARD_IMAGE unset → the local tag below, so M1's
+    # `up -d --build` rebuilds + tags locally as today (NON-BREAKING). OTA /
+    # clean appliances set DASHBOARD_IMAGE to a GHCR digest-pinned ref and run
+    # a plain `up -d` to pull that exact digest.
+    image: ${DASHBOARD_IMAGE:-mailbox-dashboard:local}
     container_name: mailbox-dashboard
     restart: unless-stopped
     environment:

@@ -5,7 +5,11 @@
 // docker daemon.
 
 import { describe, expect, it } from 'vitest';
-import { type DockerHttpClient, listRunningContainers } from '@/lib/queries-docker';
+import {
+  type DockerHttpClient,
+  digestFromImageRef,
+  listRunningContainers,
+} from '@/lib/queries-docker';
 
 function buildClient(
   fn: (path: string) => Promise<{ statusCode: number; body: string }>,
@@ -18,18 +22,21 @@ const SAMPLE_RUNNING_BODY = JSON.stringify([
     Id: 'aaaa1111',
     Names: ['/mailbox-dashboard'],
     Image: 'mailbox-mailbox-dashboard:latest',
+    ImageID: 'sha256:aaaa1111config',
     State: 'running',
   },
   {
     Id: 'bbbb2222',
     Names: ['/mailbox-n8n-1'],
     Image: 'n8nio/n8n:2.14.2',
+    ImageID: 'sha256:bbbb2222config',
     State: 'running',
   },
   {
     Id: 'cccc3333',
     Names: ['/mailbox-postgres-1'],
     Image: 'postgres:17-alpine',
+    ImageID: 'sha256:cccc3333config',
     State: 'running',
   },
 ]);
@@ -61,6 +68,7 @@ describe('listRunningContainers — happy path', () => {
     expect(r.containers[0]).toEqual({
       name: 'mailbox-dashboard',
       image: 'mailbox-mailbox-dashboard:latest',
+      image_id: 'sha256:aaaa1111config',
       state: 'running',
     });
     expect(r.containers.map((c) => c.name)).toEqual([
@@ -93,6 +101,28 @@ describe('listRunningContainers — happy path', () => {
     if (!r.available) throw new Error('unexpected unavailable');
     expect(r.containers).toHaveLength(1);
     expect(r.containers[0].name).toBe('good');
+  });
+});
+
+describe('digestFromImageRef — MBOX-184', () => {
+  it('extracts the digest from a GHCR digest-pinned ref', () => {
+    expect(digestFromImageRef('ghcr.io/umb-advisors/mailbox-dashboard@sha256:abc123')).toBe(
+      'sha256:abc123',
+    );
+  });
+
+  it('returns null for a tag-only local-build ref', () => {
+    expect(digestFromImageRef('mailbox-mailbox-dashboard:latest')).toBeNull();
+  });
+
+  it('returns null for an untagged bare repo name', () => {
+    expect(digestFromImageRef('ghcr.io/umb-advisors/mailbox-caddy')).toBeNull();
+  });
+
+  it('takes the last @sha256 when the ref also carries a tag', () => {
+    expect(digestFromImageRef('ghcr.io/umb-advisors/mailbox-caddy:abc123@sha256:def456')).toBe(
+      'sha256:def456',
+    );
   });
 });
 
