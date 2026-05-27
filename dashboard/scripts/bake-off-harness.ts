@@ -1,4 +1,5 @@
 #!/usr/bin/env -S npx tsx
+
 // dashboard/scripts/bake-off-harness.ts
 //
 // STAQPRO-342 — bake-off harness CLI. Hits a llama.cpp HTTP endpoint with
@@ -38,7 +39,8 @@
 // Treat the same as `dashboard/eval/results/` (gitignored).
 
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { access, appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -79,6 +81,9 @@ interface CliArgs {
   num_predict: number;
   /** If true, prompt is a JSON-envelope drafter; if false, free-text. */
   expect_function_call: boolean;
+  /** If true, allow truncating an existing {run-tag}.jsonl. Default false:
+   *  a collision throws so a prior run's results aren't silently clobbered. */
+  overwrite: boolean;
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -97,6 +102,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let seed = 42;
   let num_predict = 512;
   let expect_function_call = true;
+  let overwrite = false;
 
   const need = (flag: string, v: string | undefined): string => {
     if (v === undefined || v === '') throw new Error(`${flag} requires a value`);
@@ -180,6 +186,10 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       expect_function_call = false;
       continue;
     }
+    if (a === '--overwrite') {
+      overwrite = true;
+      continue;
+    }
     if (a === '--help' || a === '-h') {
       console.log(USAGE);
       process.exit(0);
@@ -208,6 +218,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     seed,
     num_predict,
     expect_function_call,
+    overwrite,
   };
 }
 
@@ -255,7 +266,40 @@ Decoding (pinned for fair comparison):
 Run-shape:
   --limit <n|all>            Cap traces for smoke (default all)
   --free-text                Disable function-call validity check (default: JSON envelope expected)
+  --overwrite                Allow truncating an existing {run-tag}.jsonl (default: error on collision)
 `;
+
+// ── Output-collision guard (MBOX-113) ─────────────────────────────────
+//
+// `writeFile(jsonlPath, '')` truncates a prior run's JSONL silently when a
+// --run-tag collides. Guard it: error by default (suggesting a unique tag),
+// truncate only when the operator passes --overwrite. Exported for testing.
+
+export async function assertJsonlNotClobbered(
+  jsonlPath: string,
+  runTag: string,
+  overwrite: boolean,
+): Promise<void> {
+  let exists = false;
+  try {
+    await access(jsonlPath, fsConstants.F_OK);
+    exists = true;
+  } catch {
+    exists = false;
+  }
+  if (!exists) return;
+  if (overwrite) {
+    console.error(
+      `[bake-off] WARNING: overwriting existing ${jsonlPath} (--overwrite). ` +
+        'Prior run results for this tag are lost.',
+    );
+    return;
+  }
+  throw new Error(
+    `[bake-off] refusing to clobber existing output ${jsonlPath} for --run-tag "${runTag}". ` +
+      'Use a unique --run-tag (e.g. append a timestamp) or pass --overwrite to truncate it.',
+  );
+}
 
 // ── Inline trace-set loader (~30 LOC; no second consumer yet) ─────────
 
@@ -315,8 +359,13 @@ async function loadTraceSetForBakeOff(dir: string): Promise<LoadedTraceSet> {
 // thread-history) is bigger; that comparison happens in Phase 5 as a
 // follow-up sweep against the winner from this minimal-prompt round.
 //
-// To pin: this assembler is captured in run provenance as
-// `prompt_assembly_sha = sha256(BAKEOFF_PROMPT_SNAPSHOT_TAG + assembler-source-bytes)`.
+// To pin: this assembler's provenance is the explicit
+// `BAKEOFF_PROMPT_SNAPSHOT_TAG` below. Bump it whenever the prompt's
+// SEMANTICS change (system/user content, envelope contract, decoding
+// shape). Do NOT derive provenance from the function source bytes — that
+// churns under transpiler/whitespace changes with no semantic delta and
+// produces spurious "prompt changed" provenance diffs across re-runs
+// (MBOX-113). The tag is the single source of truth the operator controls.
 
 const BAKEOFF_PROMPT_SNAPSHOT_TAG = 'bake-off-minimal-drafter-v0.1-2026-05-16';
 
@@ -355,13 +404,12 @@ function assembleMinimalDrafterPrompt(
 }
 
 function computePromptAssemblySha(): string {
-  // Hash the snapshot tag + the assembler source so we'd notice if the
-  // body of `assembleMinimalDrafterPrompt` ever changes without a tag bump.
-  return createHash('sha256')
-    .update(BAKEOFF_PROMPT_SNAPSHOT_TAG)
-    .update(assembleMinimalDrafterPrompt.toString())
-    .digest('hex')
-    .slice(0, 16);
+  // Hash ONLY the explicit snapshot tag — stable across transpiler/
+  // whitespace churn. Bump BAKEOFF_PROMPT_SNAPSHOT_TAG when the prompt
+  // actually changes; the operator owns that signal (MBOX-113). Hashing
+  // `assembleMinimalDrafterPrompt.toString()` was fragile: it changed the
+  // recorded sha under no-semantic-change toolchain edits.
+  return createHash('sha256').update(BAKEOFF_PROMPT_SNAPSHOT_TAG).digest('hex').slice(0, 16);
 }
 
 // ── Main ───────────────────────────────────────────────────────────────
@@ -386,7 +434,9 @@ async function main(): Promise<void> {
   const jsonlPath = path.join(args.out, `${args.run_tag}.jsonl`);
   const summaryPath = path.join(args.out, `${args.run_tag}.summary.json`);
 
-  // Truncate the JSONL if it exists from a partial prior run.
+  // Guard against silently clobbering a prior run's JSONL on a --run-tag
+  // collision (MBOX-113). Truncate only when safe or --overwrite was passed.
+  await assertJsonlNotClobbered(jsonlPath, args.run_tag, args.overwrite);
   await writeFile(jsonlPath, '');
 
   const endpoint: ModelEndpoint = {

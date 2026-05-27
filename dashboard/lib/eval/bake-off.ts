@@ -199,8 +199,11 @@ export function checkFunctionCallValid(
     // Try direct parse first.
     parsed = JSON.parse(output);
   } catch {
-    // Fallback: strip leading/trailing prose around a JSON block.
-    const m = output.match(/\{[\s\S]*\}/);
+    // Fallback: strip leading/trailing prose around a JSON block. Lazy
+    // quantifier so multi-block output (e.g. `{"body":"x"} junk {"y":1}`)
+    // matches the FIRST balanced-ish block instead of spanning to the last
+    // `}` and failing JSON.parse on the trailing garbage (MBOX-113).
+    const m = output.match(/\{[\s\S]*?\}/);
     if (!m) return false;
     try {
       parsed = JSON.parse(m[0]);

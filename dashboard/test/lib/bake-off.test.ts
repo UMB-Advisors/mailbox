@@ -77,6 +77,19 @@ describe('checkFunctionCallValid — STAQPRO-342', () => {
     expect(checkFunctionCallValid(out, true)).toBe(true);
   });
 
+  it('returns true for multi-block output — lazy match grabs the first block (MBOX-113)', () => {
+    // Greedy `/\{[\s\S]*\}/` would span from the first `{` to the LAST `}`,
+    // producing `{"body":"reply"} extra {"junk":1}` which fails JSON.parse.
+    // Lazy `/\{[\s\S]*?\}/` stops at the first `}` → valid first block.
+    const out = '{"body":"reply"} extra {"junk":1}';
+    expect(checkFunctionCallValid(out, true)).toBe(true);
+  });
+
+  it('returns true for multi-block output wrapped in prose (MBOX-113)', () => {
+    const out = 'Here you go:\n{"body":"reply text"}\nAnd some trailing {"noise":true}';
+    expect(checkFunctionCallValid(out, true)).toBe(true);
+  });
+
   it('returns false on empty output', () => {
     expect(checkFunctionCallValid('', true)).toBe(false);
     expect(checkFunctionCallValid('   ', true)).toBe(false);
