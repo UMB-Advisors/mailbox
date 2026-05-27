@@ -22,6 +22,12 @@
 #                  Safer — names don't shift between reboots.
 #   --mount-point  Where to mount the rootfs partition (default: auto-created
 #                  temp dir under /tmp, cleaned up on exit).
+#   --env-path     Path to the appliance repo .env RELATIVE to the rootfs
+#                  (default: home/bob/mailbox/.env). When that file exists on
+#                  the NVMe, MAILBOX_LAN_HOSTNAME=<slug>.local is written/updated
+#                  in place (idempotent) so docker-compose serves the per-customer
+#                  mDNS hostname on first `up`. Absent file → warn, skip (the
+#                  provisioning runbook seeds .env from .env.example later).
 #   --dry-run      Print planned action and exit 0 — no mounts, no writes.
 #   --yes          Skip the interactive confirmation prompt (require literal YES).
 #
@@ -65,6 +71,10 @@ SLUG=""
 DEVICE=""
 BY_ID=""
 MOUNT_POINT_ARG=""
+# Repo .env path relative to the rootfs. Matches the M1 layout
+# (/home/bob/mailbox/.env per root CLAUDE.md → Deploy flow). Overridable
+# via --env-path if a golden image uses a different repo location.
+ENV_REL_PATH="home/bob/mailbox/.env"
 
 usage() {
   sed -n '/^# USAGE/,/^# EXAMPLES/{ /^# EXAMPLES/d; s/^# \{0,1\}//; p }' "$0"
@@ -79,6 +89,7 @@ while [[ $# -gt 0 ]]; do
     --device)       DEVICE="${2:?--device requires a path}"; shift 2 ;;
     --by-id)        BY_ID="${2:?--by-id requires a path}"; shift 2 ;;
     --mount-point)  MOUNT_POINT_ARG="${2:?--mount-point requires a path}"; shift 2 ;;
+    --env-path)     ENV_REL_PATH="${2:?--env-path requires a path}"; shift 2 ;;
     -h|--help)      usage; exit 0 ;;
     -*)             echo "$PROG: unknown flag: $1" >&2; usage >&2; exit 1 ;;
     *)              echo "$PROG: unexpected argument: $1" >&2; usage >&2; exit 1 ;;
@@ -203,6 +214,7 @@ echo "  Files to be set    :"
 echo "    /etc/hostname        → '$SLUG'"
 echo "    /etc/hosts           → 127.0.1.1 entry updated to '$SLUG'"
 echo "    /etc/mailbox-customer → '$SLUG' (with prep timestamp)"
+echo "    ${ENV_REL_PATH} (relative to rootfs) → MAILBOX_LAN_HOSTNAME=${SLUG}.local (if present)"
 echo "    /etc/ssh/ssh_host_*  → deleted (keys regenerated on first boot)"
 echo "    /etc/ssh/regenerate-on-boot → marker file created"
 echo "    /var/lib/tailscale/tailscaled.state → deleted"
@@ -295,6 +307,27 @@ personalize_log "Stamping /etc/mailbox-customer with slug '$SLUG'"
 printf '# Set by factory-prep-nvme.sh on %s\n%s\n' "$(date -Iseconds)" "$SLUG" \
   > "$MNT/etc/mailbox-customer"
 
+# ── personalization: per-customer LAN hostname (MBOX-158) ─────────────────────
+# docker-compose interpolates MAILBOX_LAN_HOSTNAME into the Caddy LAN listener
+# (STAQPRO-410). Write/update it here so the appliance serves
+# https://<slug>.local/ on first `up` without a manual .env edit. Idempotent:
+# update the key in place if present, append otherwise. Skip (warn) if the repo
+# .env isn't on the NVMe — the provisioning runbook seeds it from .env.example.
+ENV_REL_PATH_CLEAN="${ENV_REL_PATH#/}"
+NVME_ENV_PATH="$MNT/$ENV_REL_PATH_CLEAN"
+LAN_HOSTNAME_LINE="MAILBOX_LAN_HOSTNAME=${SLUG}.local"
+if [[ -f "$NVME_ENV_PATH" ]]; then
+  personalize_log "Setting $LAN_HOSTNAME_LINE in $ENV_REL_PATH_CLEAN"
+  if grep -qE '^[[:space:]]*MAILBOX_LAN_HOSTNAME=' "$NVME_ENV_PATH"; then
+    sed -i -E "s|^[[:space:]]*MAILBOX_LAN_HOSTNAME=.*|${LAN_HOSTNAME_LINE}|" "$NVME_ENV_PATH"
+  else
+    printf '%s\n' "$LAN_HOSTNAME_LINE" >> "$NVME_ENV_PATH"
+  fi
+else
+  personalize_log "WARN: $ENV_REL_PATH_CLEAN not found on NVMe — skipping MAILBOX_LAN_HOSTNAME."
+  personalize_log "      Set '$LAN_HOSTNAME_LINE' during provisioning (see .env.example)."
+fi
+
 # ── personalization: permissions ──────────────────────────────────────────────
 personalize_log "Setting permissions on modified files"
 chmod 0644 "$MNT/etc/hostname" "$MNT/etc/hosts" "$MNT/etc/mailbox-customer"
@@ -316,6 +349,11 @@ echo "  Identity wiped   : SSH host keys, Tailscale state, journals, bash histor
 echo "  Identity set     :"
 echo "    /etc/hostname            → $SLUG"
 echo "    /etc/mailbox-customer    → $SLUG"
+if [[ -f "$NVME_ENV_PATH" ]]; then
+  echo "    $ENV_REL_PATH_CLEAN → MAILBOX_LAN_HOSTNAME=${SLUG}.local"
+else
+  echo "    $ENV_REL_PATH_CLEAN → NOT FOUND (set MAILBOX_LAN_HOSTNAME=${SLUG}.local during provisioning)"
+fi
 echo "    /etc/ssh/regenerate-on-boot → marker created"
 echo
 echo "Next steps:"
