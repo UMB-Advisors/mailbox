@@ -105,5 +105,40 @@ If you get a 500 or the request hangs:
 - Sub-workflows that use `executeWorkflowTrigger` should have `active: false`. Activating them emits "no native trigger" cosmetic errors every restart.
 - `n8n update:workflow --active=…` is a NO-OP at runtime unless n8n is restarted. The flag persists to the DB but the live runtime keeps the old activation state cached.
 - Bcrypt hashes in `.env` (Caddy basic_auth) need `$` → `$$` escaping or docker compose silently truncates them.
+- **Cross-node values**: never read a value produced by a non-adjacent node via bare `$json.<field>` — use `$('Node').item.json.<field>`. `$json` re-points the instant a node is inserted upstream (this is exactly how MBOX-344 broke every send for 4 days). See the dedicated section below; guarded by `dashboard/test/n8n-expr-lint.test.ts`.
 
 See `dashboard/CLAUDE.md` and the project memory note for the wider operational gotchas list.
+
+## Cross-node `$json` references — use `$('Node').item.json.*`
+
+`$json` always resolves to the **output of the node immediately upstream** on the main
+path. The moment another node is inserted on that path, every `$json.<field>` in the
+downstream node silently re-points at the new node's output — which usually does not
+carry the same fields.
+
+**Rule:** if a node needs a value produced by a node that is **not** its immediate
+main-input predecessor, reference it explicitly by node name:
+
+```
+{{ $('Load Draft').item.json.message_id }}   ✅ survives a node inserted upstream
+{{ $json.message_id }}                        ❌ breaks the moment a node is spliced in
+```
+
+**MBOX-344 (2026-05-22 → 2026-05-26, M1 send outage):** the `Acquire Send Lock` Postgres
+node (`RETURNING id` only) was inserted between `Load Draft` and `Gmail Reply` (via the
+`Lock Acquired?` IF). `Gmail Reply` still read `{{ $json.message_id }}` / `{{ $json.draft_body }}`,
+so after the splice `$json` was `{ id }` → both fields went empty → Gmail `400 "Invalid id value"`
+→ every approve→send failed for four days. Fix: repoint to `{{ $('Load Draft').item.json.* }}`.
+(See also the project MEMORY note "n8n `{{ $json.x }}` refs break silently when a node is
+inserted upstream".)
+
+**Automated guard (MBOX-345):** `dashboard/test/n8n-expr-lint.test.ts` runs inside the
+`dashboard (typecheck + test)` CI gate. It enforces a FLOOR assertion — MailBOX-Send's
+`Gmail Reply` `messageId`/`message` must reference `$('Load Draft')`, never bare `$json` —
+plus a general rule that flags any node reading a `$json.<field>` that its sole Postgres
+`executeQuery` predecessor provably does not return. Run it pre-deploy via
+`scripts/smoke-send-lock.sh` (guarded static pre-check) or directly:
+
+```bash
+cd dashboard && npx vitest run test/n8n-expr-lint.test.ts
+```

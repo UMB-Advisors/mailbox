@@ -108,6 +108,30 @@ assert_eq() {
   fi
 }
 
+# ──────────── Static n8n expression lint pre-check (MBOX-345) ────────────
+# Catch the MBOX-344 class (a node inserted upstream silently blanking a
+# downstream $json.* read) BEFORE touching the appliance. Runs locally against
+# the committed workflow JSON via the vitest guard. The authoritative gate is
+# the same test in CI (`dashboard (typecheck + test)`); this is a convenience
+# pre-deploy hook. Guarded so a missing npx / uninstalled dashboard (e.g. when
+# run on the appliance) skips instead of failing the smoke.
+LINT_DIR="$(cd "$(dirname "$0")/.." && pwd)/dashboard"
+if command -v npx >/dev/null 2>&1 && [[ -d "$LINT_DIR/node_modules" ]]; then
+  pretty blue "── Static n8n expr-lint (MBOX-345) ──"
+  LINT_LOG="$(mktemp)"
+  if ( cd "$LINT_DIR" && npx vitest run test/n8n-expr-lint.test.ts >"$LINT_LOG" 2>&1 ); then
+    pretty green "  ✓ n8n workflow expressions lint clean"
+    rm -f "$LINT_LOG"
+  else
+    pretty red "  ✗ n8n expr-lint FAILED — a workflow reads a \$json field its predecessor doesn't produce (MBOX-344 class):"
+    cat "$LINT_LOG" >&2
+    rm -f "$LINT_LOG"
+    exit 1
+  fi
+else
+  pretty yellow "Skipping static n8n expr-lint (npx/dashboard unavailable) — CI gate is authoritative."
+fi
+
 # ───────────────────────── Setup ─────────────────────────
 pretty blue "═══ MailBOX-Send idempotency lock smoke ═══"
 pretty blue "Host: $HOST  ($([ -z "$SSH_PREFIX" ] && echo 'local' || echo 'via ssh'))"
