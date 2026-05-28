@@ -56,13 +56,6 @@ export interface DockerContainer {
    * path it's a local tag like `mailbox-mailbox-dashboard:latest` (no digest).
    */
   image: string;
-  /**
-   * The image *config* digest (`sha256:…`), from the `ImageID` field. This
-   * is the local content-addressable id of the image the container is
-   * actually running, regardless of how it was referenced. MBOX-184 uses it
-   * as a fallback identity signal when `image` carries no `@sha256:` ref.
-   */
-  image_id: string;
   state: string; // 'running' | 'exited' | …
 }
 
@@ -198,7 +191,6 @@ export async function listRunningContainers(
     containers.push({
       name,
       image: typeof obj.Image === 'string' ? (obj.Image as string) : '',
-      image_id: typeof obj.ImageID === 'string' ? (obj.ImageID as string) : '',
       state: typeof obj.State === 'string' ? (obj.State as string) : '',
     });
   }

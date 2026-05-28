@@ -406,7 +406,7 @@ export async function getAccessToken(provider: OAuthProvider, timeoutMs = 5_000)
   // or revoked partial consent. Surface as 'auth' → caller prompts a reconnect.
   const conn = await getConnection(provider);
   const required = PROVIDER_SCOPE[provider];
-  if (!conn.scope || !conn.scope.split(/\s+/).includes(required)) {
+  if (!conn.scope?.split(/\s+/).includes(required)) {
     throw new OAuthTokenError(
       `${provider} grant is missing required scope ${required} — reconnect to re-consent`,
       'auth',
