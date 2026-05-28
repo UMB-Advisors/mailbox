@@ -410,7 +410,8 @@ function RuleFields({
             className={fieldCls}
           >
             <option value="">Any</option>
-            {CATEGORIES.map((c) => (
+            {/* spam_marketing is dropped pre-draft (never a draft to match); unknown routes to cloud and shouldn't auto-send */}
+            {CATEGORIES.filter((c) => c !== 'spam_marketing' && c !== 'unknown').map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
