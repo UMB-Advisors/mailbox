@@ -45,6 +45,13 @@ export const listDraftsQuerySchema = z.object({
     .optional()
     .transform((s) => (s ? parseInt(s, 10) : 50))
     .pipe(z.number().int().positive().max(250)),
+  // MBOX-162 V3 — `urgent=1` restricts to high-priority drafts (≥1 urgency
+  // signal) and enriches each row with `urgency` + `account` (the Priority /
+  // cross-account view). Absent/0 → the plain status-filtered list.
+  urgent: z
+    .string()
+    .optional()
+    .transform((s) => s === '1' || s === 'true'),
 });
 
 export type ListDraftsQuery = z.infer<typeof listDraftsQuerySchema>;

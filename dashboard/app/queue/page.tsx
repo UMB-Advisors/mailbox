@@ -1,6 +1,6 @@
 import type { CooldownState } from '@/components/GmailCooldownBanner';
 import { QueueClient } from '@/components/QueueClient';
-import { listDrafts } from '@/lib/queries';
+import { getHighPriorityQueue, listDrafts } from '@/lib/queries';
 import { getGmailCooldown } from '@/lib/queries-system-state';
 import type { DraftStatus, DraftWithMessage } from '@/lib/types';
 
@@ -17,9 +17,9 @@ const EMPTY_COOLDOWN: CooldownState = {
 // maps to a different `mailbox.drafts.status` slice. STAQPRO-382 Phase 2a-2
 // (2026-05-15) wires the URL ?folder= search param into the server fetch so
 // each rail click drops to the right list.
-type FolderKey = 'queue' | 'approved' | 'sent' | 'rejected' | 'all';
+type FolderKey = 'queue' | 'priority' | 'approved' | 'sent' | 'rejected' | 'all';
 
-const VALID_FOLDERS: FolderKey[] = ['queue', 'approved', 'sent', 'rejected', 'all'];
+const VALID_FOLDERS: FolderKey[] = ['queue', 'priority', 'approved', 'sent', 'rejected', 'all'];
 
 function parseFolder(raw: string | string[] | undefined): FolderKey {
   if (Array.isArray(raw)) return parseFolder(raw[0]);
@@ -33,6 +33,10 @@ function parseFolder(raw: string | string[] | undefined): FolderKey {
 function statusesForFolder(folder: FolderKey): DraftStatus[] {
   switch (folder) {
     case 'queue':
+      return ['pending', 'edited'];
+    case 'priority':
+      // Same actionable slice as 'queue'; getHighPriorityQueue narrows it to
+      // drafts firing ≥1 urgency signal across all accounts.
       return ['pending', 'edited'];
     case 'approved':
       return ['approved'];
@@ -64,7 +68,7 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
 
   try {
     const [list, stuck, cooldown] = await Promise.all([
-      listDrafts(statusesForFolder(folder), 50),
+      folder === 'priority' ? getHighPriorityQueue(50) : listDrafts(statusesForFolder(folder), 50),
       wantsStuck ? listDrafts(['approved'], 50) : Promise.resolve([] as DraftWithMessage[]),
       // STAQPRO-331 #5 — initial cooldown read for the banner. Client-side
       // polling refreshes it alongside the drafts list.
