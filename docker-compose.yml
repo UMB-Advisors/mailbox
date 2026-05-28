@@ -155,8 +155,9 @@ services:
     # below), so M1's `docker compose up -d --build` keeps rebuilding + tagging
     # locally exactly as today (NON-BREAKING). An OTA/clean appliance sets
     # CADDY_IMAGE to a GHCR digest-pinned ref (ghcr.io/umb-advisors/mailbox-caddy@sha256:…
-    # from deploy/image-manifest.json) and runs a plain `up -d` (no --build) to
-    # pull that exact digest. See .env.example "OTA image pinning (MBOX-184)".
+    # — the digest the /status panel reads live from the registry, MBOX-347) and
+    # runs a plain `up -d` (no --build) to pull that exact digest. See
+    # .env.example "OTA image pinning (MBOX-184)".
     image: ${CADDY_IMAGE:-mailbox-caddy:local}
     ports:
     - 80:80

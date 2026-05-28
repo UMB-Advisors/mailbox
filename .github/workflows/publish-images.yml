@@ -1,15 +1,19 @@
 name: Publish images (GHCR)
 
-# MBOX-184 — build + publish the two locally-built services (mailbox-dashboard
-# and caddy) to GHCR as versioned + digest-pinned multi-arch images, then
-# record the resulting digests in deploy/image-manifest.json on master.
+# MBOX-184 / MBOX-347 — build + publish the two locally-built services
+# (mailbox-dashboard and caddy) to GHCR as versioned + digest-pinned multi-arch
+# images.
 #
 # This is the safe, non-destructive half of the OTA story: it only PUBLISHES
-# images and updates a committed manifest. The dashboard's read-only "OTA
-# updates" /status panel reads that manifest and compares it against the
-# digests of the running containers. The "Update now" apply orchestration
-# (pull→recreate→migrate→smoke→commit/rollback + per-update audit log) is a
-# separate, deferred follow-up — NOT in this workflow.
+# images. The dashboard's read-only "OTA updates" /status panel resolves the
+# latest published digest by reading the GHCR registry directly at runtime
+# (lib/queries-update.ts, MBOX-347) and compares it against the digests of the
+# running containers — there is NO committed manifest file and NO CI commit
+# back to master (the old record-manifest [skip ci] push was removed in
+# MBOX-347 because it re-derived over git a fact the registry already serves and
+# drove the MBOX-163 invisible-drift class). The "Update now" apply
+# orchestration (pull→recreate→migrate→smoke→commit/rollback + per-update audit
+# log) is a separate, deferred follow-up — NOT in this workflow.
 #
 # Gating: this runs via workflow_run AFTER the existing "CI" workflow
 # (.github/workflows/ci.yml — the dashboard typecheck + test job) completes
@@ -35,7 +39,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # commit the updated deploy/image-manifest.json back to master
+  contents: read # checkout only — no commit back to master (MBOX-347)
   packages: write # push images to GHCR
 
 env:
@@ -64,11 +68,6 @@ jobs:
           - service: mailbox-caddy
             context: caddy
             dockerfile: caddy/Dockerfile
-
-    outputs:
-      # Not used cross-job (the record job re-derives from the manifest), but
-      # surfaced for log readability.
-      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -117,74 +116,6 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-      - name: Emit per-service digest artifact
-        run: |
-          mkdir -p /tmp/digests
-          printf '%s\n' "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.service }}.digest"
-          printf '%s\n' "sha-${GITHUB_SHA}" > "/tmp/digests/${{ matrix.service }}.tag"
-
-      - name: Upload digest artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: digest-${{ matrix.service }}
-          path: /tmp/digests/
-          retention-days: 1
-
-  # Collect the per-service digests and commit an updated manifest back to
-  # master so the read-only /status panel and `.env` digest-pin docs reflect
-  # the latest published bundle. Only runs on master publishes (not tag-only).
-  record-manifest:
-    name: record manifest
-    runs-on: ubuntu-latest
-    needs: publish
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master')
-
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          ref: master
-
-      - name: Download digest artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
-        with:
-          path: /tmp/digests
-          pattern: digest-*
-          merge-multiple: true
-
-      - name: Rewrite deploy/image-manifest.json
-        env:
-          GIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-        run: |
-          set -euo pipefail
-          DASH_DIGEST="$(cat /tmp/digests/mailbox-dashboard.digest)"
-          CADDY_DIGEST="$(cat /tmp/digests/mailbox-caddy.digest)"
-          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          # jq-free, deterministic rewrite via node (always present on the runner).
-          node - "$DASH_DIGEST" "$CADDY_DIGEST" "$NOW" "$GIT_SHA" <<'NODE'
-          const fs = require('node:fs');
-          const [, , dash, caddy, now, sha] = process.argv;
-          const p = 'deploy/image-manifest.json';
-          const m = JSON.parse(fs.readFileSync(p, 'utf8'));
-          m.generated_at = now;
-          m.git_sha = sha;
-          m.services['mailbox-dashboard'].digest = dash.trim();
-          m.services['mailbox-dashboard'].tag = `sha-${sha}`;
-          m.services['mailbox-caddy'].digest = caddy.trim();
-          m.services['mailbox-caddy'].tag = `sha-${sha}`;
-          fs.writeFileSync(p, `${JSON.stringify(m, null, 2)}\n`);
-          NODE
-
-      - name: Commit manifest if changed
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- deploy/image-manifest.json; then
-            echo "manifest unchanged — nothing to commit"
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add deploy/image-manifest.json
-          git commit -m "chore(ota): record published image digests (MBOX-184) [skip ci]"
-          git push origin HEAD:master
+      # MBOX-347 — no manifest record/commit step. The latest published digest
+      # is read live from GHCR by the dashboard at runtime
+      # (lib/queries-update.ts); the build+push above is the entire workflow.
