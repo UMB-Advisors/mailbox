@@ -11,6 +11,7 @@
 
 import type { Category } from '@/lib/classification/prompt';
 import { CATEGORY_DESCRIPTIONS } from '@/lib/classification/prompt';
+import { grammarForCategory } from './grammar-dispatch';
 import type { PersonaContext } from './persona';
 
 export const DRAFT_LOCAL_MODEL = 'qwen3:4b-ctx4k';
@@ -71,6 +72,12 @@ export interface AssembledPrompt {
   // Temperature tuned for voice variation while preserving fidelity. Higher
   // than the classifier (which is 0 for reproducibility).
   temperature: number;
+  // MBOX-120 — optional GBNF grammar for constrained decoding. Only set for
+  // CONSTRAINED_CATEGORIES (reorder/scheduling) when CONSTRAINED_DECODING_ENABLED
+  // is on; otherwise absent (the common case — spike default OFF). n8n forwards
+  // it to the LLM call as `options.grammar`; only the llama.cpp local runtime
+  // consumes it, real Ollama ignores it.
+  grammar?: string;
 }
 
 const MAX_BODY_CHARS = 6000;
@@ -272,10 +279,14 @@ export function assemblePrompt(input: DraftPromptInput): AssembledPrompt {
     { role: 'system', content: buildSystemPrompt(input.persona) },
     { role: 'user', content: buildUserPrompt(input) },
   ];
+  // MBOX-120 — attach a GBNF grammar only for constrained categories when the
+  // flag is on; null on every normal path so the field stays absent.
+  const grammar = grammarForCategory(input.category);
   return {
     messages,
     max_tokens: 600,
     // 0.7 = enough variation to avoid robot-feel; low enough to stay grounded.
     temperature: 0.7,
+    ...(grammar !== null && { grammar }),
   };
 }
