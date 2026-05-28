@@ -10,7 +10,6 @@ import type { ActionKind } from './ActionButtons';
 import { AppShell } from './AppShell';
 import { DraftCard } from './DraftCard';
 import { DraftDetail } from './DraftDetail';
-import { EditModal } from './EditModal';
 import { EmptyState } from './EmptyState';
 import { type CooldownState, GmailCooldownBanner } from './GmailCooldownBanner';
 import { NewDraftsBanner } from './NewDraftsBanner';
@@ -73,7 +72,10 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
   const [cooldown, setCooldown] = useState<CooldownState>(initialCooldown);
   const [removed, setRemoved] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<Busy>(null);
-  const [editing, setEditing] = useState<DraftWithMessage | null>(null);
+  // P2 (MBOX-162) — inline edit mode for the selected draft (replaces the
+  // EditModal overlay). Controlled here so the `e` keyboard shortcut can
+  // toggle it; reset whenever the selected draft changes (see effect below).
+  const [isEditing, setIsEditing] = useState(false);
   const [toast, setToast] = useState<ToastMsg>(null);
   const [newCount, setNewCount] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(
@@ -215,6 +217,14 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [fetchData]);
+
+  // P2 — exit inline edit when the selected draft changes (operator clicks a
+  // different row, or approve/reject auto-advances). An in-progress unsaved
+  // edit is discarded, matching the old modal's close-on-switch behavior.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on selection change only.
+  useEffect(() => {
+    setIsEditing(false);
+  }, [selectedId]);
 
   const dismissToast = () => setToast(null);
   const dismissNewDrafts = () => setNewCount(0);
@@ -441,18 +451,22 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     }
   }
 
+  // P2 — inline edit save. Targets the currently `selected` draft (the inline
+  // editor lives in its detail pane) and persists via the existing edit route.
+  // Re-throws on failure so InlineDraftEditor stays open with the operator's
+  // changes intact and surfaces the error inline.
   async function onEditSave(body: string, subject: string | null) {
-    if (!editing) return;
-    setBusy({ draftId: editing.id, kind: 'edit' });
+    if (!selected) return;
+    setBusy({ draftId: selected.id, kind: 'edit' });
     try {
-      const res = await fetch(apiUrl(`/api/drafts/${editing.id}/edit`), {
+      const res = await fetch(apiUrl(`/api/drafts/${selected.id}/edit`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ draft_body: body, draft_subject: subject }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? `Edit failed (${res.status})`);
-      setEditing(null);
+      setIsEditing(false);
       setToast({ kind: 'success', text: 'Saved' });
       fetchData(true);
     } catch (err) {
@@ -540,7 +554,9 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     function handleKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (editing !== null) return;
+      // While inline-editing, suppress nav/action keys — the operator saves or
+      // cancels the edit first (InlineDraftEditor owns Escape-to-cancel).
+      if (isEditing) return;
       // STAQPRO-331 #7 — Escape closes the help overlay even when the
       // popover is also open; let the help close first so the operator
       // can re-orient before the popover steals focus.
@@ -593,7 +609,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
         case 'e': {
           if (!selected || mode === 'archive' || busy) return;
           e.preventDefault();
-          setEditing(selected);
+          setIsEditing(true);
           return;
         }
         // STAQPRO-331 #7 — `r` is an alias for `x` (reject-popover open).
@@ -722,7 +738,10 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
         busy={busyKindFor(selected.id)}
         readOnly={mode === 'archive'}
         onApprove={() => fireAction('approve', selected)}
-        onEdit={() => setEditing(selected)}
+        isEditing={isEditing}
+        onEditStart={() => setIsEditing(true)}
+        onEditCancel={() => setIsEditing(false)}
+        onEditSave={onEditSave}
         onReject={(payload) => fireReject(payload, selected)}
         onReclassify={(category) => fireReclassify(selected, category)}
         rejectPopoverOpen={rejectPopoverOpen}
@@ -850,9 +869,6 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
         )}
       </div>
 
-      {editing && (
-        <EditModal draft={editing} onSave={onEditSave} onClose={() => setEditing(null)} />
-      )}
       {shortcutsHelpOpen && <ShortcutsHelp onClose={() => setShortcutsHelpOpen(false)} />}
       {toast && <Toast {...toast} onDismiss={dismissToast} />}
     </AppShell>
