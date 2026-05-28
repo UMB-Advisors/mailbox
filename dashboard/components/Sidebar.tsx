@@ -19,6 +19,7 @@ import {
   Archive,
   BookOpen,
   Check,
+  Flame,
   Inbox,
   type LucideIcon,
   MessageSquare,
@@ -30,7 +31,7 @@ import {
 } from 'lucide-react';
 import { apiUrl } from '@/lib/api';
 
-export type FolderKey = 'queue' | 'approved' | 'sent' | 'rejected' | 'all';
+export type FolderKey = 'queue' | 'priority' | 'approved' | 'sent' | 'rejected' | 'all';
 export type SurfaceSlug = 'chat' | 'classifications' | 'knowledge-base' | 'status' | 'settings';
 export type SidebarActive =
   | { kind: 'folder'; folder: FolderKey }
@@ -51,6 +52,8 @@ interface SurfaceEntry {
 
 const FOLDERS: FolderEntry[] = [
   { key: 'queue', label: 'Queue', icon: Inbox },
+  // MBOX-162 V3 — cross-account high-priority view (all inboxes, urgency-filtered).
+  { key: 'priority', label: 'Priority', icon: Flame },
   { key: 'approved', label: 'Approved', icon: Check },
   { key: 'sent', label: 'Sent', icon: Send },
   { key: 'rejected', label: 'Rejected', icon: X },

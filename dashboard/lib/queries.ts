@@ -30,6 +30,7 @@ export async function listDrafts(
   const rows = await db
     .selectFrom('drafts as d')
     .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
+    .innerJoin('accounts as a', 'a.id', 'd.account_id')
     .where('d.status', 'in', statuses)
     .selectAll('d')
     .select((eb) =>
@@ -50,6 +51,13 @@ export async function listDrafts(
         created_at: eb.ref('m.created_at'),
         draft_id: eb.ref('m.draft_id'),
       }).as('message'),
+    )
+    .select((eb) =>
+      jsonBuildObject({
+        id: eb.ref('a.id'),
+        email_address: eb.ref('a.email_address'),
+        display_label: eb.ref('a.display_label'),
+      }).as('account'),
     )
     .orderBy('d.created_at', 'desc')
     .limit(safeLimit)
@@ -204,13 +212,36 @@ export async function getQueueWithUrgency(
   statuses: DraftStatus[] = ['pending', 'edited'],
   limit = 50,
   env: Record<string, string | undefined> = process.env,
+  // MBOX-162 V3 — when true, restrict to drafts firing ≥1 urgency signal
+  // (the Priority / cross-account view). Same OR-of-signals predicate as
+  // countUrgentDrafts, applied set-wise in SQL (no per-row evaluator pass).
+  urgentOnly = false,
 ): Promise<DraftWithUrgency[]> {
   const db = getKysely();
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
-  const rows = await db
+  let query = db
     .selectFrom('drafts as d')
     .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
-    .where('d.status', 'in', statuses)
+    .innerJoin('accounts as a', 'a.id', 'd.account_id')
+    .where('d.status', 'in', statuses);
+  if (urgentOnly) {
+    query = query.where((eb) =>
+      eb.or([
+        eb(sql<boolean>`(d.classification_category = 'escalate')`, '=', true),
+        eb(vipMatchExpr(), '=', true),
+        eb(agedMatchExpr(env), '=', true),
+        eb(
+          sql<boolean>`(
+            d.classification_confidence IS NULL
+            OR d.classification_confidence < ${LOW_CONF_FLOOR}
+          )`,
+          '=',
+          true,
+        ),
+      ]),
+    );
+  }
+  const rows = await query
     .selectAll('d')
     .select((eb) =>
       jsonBuildObject({
@@ -230,6 +261,13 @@ export async function getQueueWithUrgency(
         created_at: eb.ref('m.created_at'),
         draft_id: eb.ref('m.draft_id'),
       }).as('message'),
+    )
+    .select((eb) =>
+      jsonBuildObject({
+        id: eb.ref('a.id'),
+        email_address: eb.ref('a.email_address'),
+        display_label: eb.ref('a.display_label'),
+      }).as('account'),
     )
     .select([
       sql<boolean>`(d.classification_category = 'escalate')`.as('is_escalate'),
@@ -260,6 +298,17 @@ export async function getQueueWithUrgency(
     })),
   );
   return withHistory;
+}
+
+// MBOX-162 V3 — the cross-account Priority view: every actionable draft
+// (pending + edited) firing ≥1 urgency signal, across ALL connected accounts,
+// each row carrying its `account` + `urgency`. One SQL pass (getQueueWithUrgency
+// with urgentOnly), so it scales the same as the regular queue.
+export async function getHighPriorityQueue(
+  limit = 50,
+  env: Record<string, string | undefined> = process.env,
+): Promise<DraftWithUrgency[]> {
+  return getQueueWithUrgency(['pending', 'edited'], limit, env, true);
 }
 
 // Red-flag count for the dashboard header (GET /api/queue/urgent-count). Counts

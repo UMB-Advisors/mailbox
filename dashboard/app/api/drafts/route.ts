@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { parseQuery } from '@/lib/middleware/validate';
-import { listDrafts } from '@/lib/queries';
+import { getQueueWithUrgency, listDrafts } from '@/lib/queries';
 import { listDraftsQuerySchema } from '@/lib/schemas/drafts';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +10,11 @@ export async function GET(req: NextRequest) {
   if (!q.ok) return q.response;
 
   try {
-    const drafts = await listDrafts(q.data.status, q.data.limit);
+    // MBOX-162 V3 — urgent=1 routes to the urgency-aware query (filtered to
+    // high-priority, enriched with urgency + account); otherwise the plain list.
+    const drafts = q.data.urgent
+      ? await getQueueWithUrgency(q.data.status, q.data.limit, process.env, true)
+      : await listDrafts(q.data.status, q.data.limit);
     return NextResponse.json({ drafts, total: drafts.length });
   } catch (error) {
     console.error('GET /api/drafts failed:', error);

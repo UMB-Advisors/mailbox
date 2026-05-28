@@ -34,13 +34,13 @@ type ToastMsg = {
 // `mode` is derived from folder and replaces the previous `view: 'pending' |
 // 'sent'` internal state. The Sidebar (left rail) handles folder switching;
 // the inline Inbox/Sent tab nav is gone.
-type FolderKey = 'queue' | 'approved' | 'sent' | 'rejected' | 'all';
+type FolderKey = 'queue' | 'priority' | 'approved' | 'sent' | 'rejected' | 'all';
 type Mode = 'active' | 'archive';
 
 function modeForFolder(folder: FolderKey): Mode {
-  // 'queue' and 'all' include pending+edited drafts that are still
+  // 'queue', 'priority' and 'all' include pending+edited drafts that are still
   // actionable. The others show already-actioned drafts.
-  return folder === 'queue' || folder === 'all' ? 'active' : 'archive';
+  return folder === 'queue' || folder === 'priority' || folder === 'all' ? 'active' : 'archive';
 }
 
 interface Props {
@@ -86,6 +86,8 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     switch (folder) {
       case 'queue':
         return 'pending,edited';
+      case 'priority':
+        return 'pending,edited';
       case 'approved':
         return 'approved';
       case 'sent':
@@ -97,13 +99,20 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     }
   })();
 
+  // MBOX-162 V3 — the priority folder polls the urgency-aware list endpoint so
+  // the client refresh stays consistent with the SSR fetch (getHighPriorityQueue).
+  const urgentParam = folder === 'priority' ? '&urgent=1' : '';
+  const showAccount = folder === 'priority';
+
   const wantsStuck = folder === 'queue';
 
   const fetchData = useCallback(
     async (silent: boolean) => {
       try {
         const [listRes, stuckRes, cooldownRes] = await Promise.all([
-          fetch(apiUrl(`/api/drafts?status=${statusQuery}&limit=50`), { cache: 'no-store' }),
+          fetch(apiUrl(`/api/drafts?status=${statusQuery}&limit=50${urgentParam}`), {
+            cache: 'no-store',
+          }),
           // Stuck-approved banner only needs refreshing on the queue folder;
           // skip the round trip otherwise.
           wantsStuck
@@ -143,7 +152,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
         // Background poll — swallow transient errors.
       }
     },
-    [statusQuery, wantsStuck, mode],
+    [statusQuery, urgentParam, wantsStuck, mode],
   );
 
   // STAQPRO-331 #11 — visibility-aware polling. Skip ticks when the tab is
@@ -574,6 +583,8 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
     switch (folder) {
       case 'queue':
         return 'pending';
+      case 'priority':
+        return 'high-priority';
       case 'approved':
         return 'approved';
       case 'sent':
@@ -695,6 +706,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
                       draft={draft}
                       isSelected={draft.id === selected?.id}
                       mode={mode === 'active' ? 'pending' : 'sent'}
+                      showAccount={showAccount}
                       onSelect={() => {
                         setSelectedId(draft.id);
                         setMobileDetailOpen(true);

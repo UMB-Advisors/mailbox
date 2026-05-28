@@ -144,6 +144,15 @@ export const URGENCY_SIGNALS = ['escalate', 'vip', 'aged', 'low_conf'] as const;
 
 export type UrgencySignal = (typeof URGENCY_SIGNALS)[number];
 
+// Short operator-facing labels for the urgency signal chips (MBOX-134 engine,
+// surfaced in the cross-account Priority view, MBOX-162 V3).
+export const URGENCY_SIGNAL_LABELS: Record<UrgencySignal, string> = {
+  escalate: 'Escalation',
+  vip: 'VIP',
+  aged: 'Overdue',
+  low_conf: 'Low confidence',
+};
+
 // Action-item vocabulary (MBOX-131). `type` classifies the ask; `source`
 // records who owes the action — counterparty ('inbound') vs operator
 // ('outbound'). Kept as const tuples here as the SoT so the zod schema
@@ -274,9 +283,24 @@ export interface ThreadMessageOutbound {
 
 export type ThreadMessage = ThreadMessageInbound | ThreadMessageOutbound;
 
+// MBOX-348/MBOX-162 — the connected mailbox a draft belongs to. Populated by
+// the query layer from the accounts join; the badge in the Priority/cross-account
+// view reads display_label ?? email_address.
+export interface AccountRef {
+  id: number;
+  email_address: string;
+  display_label: string | null;
+}
+
 export interface DraftWithMessage extends Draft {
   message: InboxMessage;
   thread_history?: ThreadMessage[];
+  // Owning mailbox (MBOX-348). Optional so consumers/tests that predate the
+  // accounts join still typecheck; the live query layer always populates it.
+  account?: AccountRef;
+  // Urgency signals (MBOX-134). Populated only on the urgency-aware query path
+  // (getQueueWithUrgency / the Priority folder); undefined elsewhere.
+  urgency?: { urgent: boolean; signals: UrgencySignal[] };
 }
 
 export interface ClassificationLog {
