@@ -28,7 +28,7 @@ import {
   getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
-import { getBootstrapState } from '@/lib/queries-system-state';
+import { getBootstrapState, getGmailCooldown } from '@/lib/queries-system-state';
 import {
   checkUpdateAvailability,
   OTA_CHECK_CEILING_MS,
@@ -61,6 +61,7 @@ export default async function StatusPage() {
     classificationHealth,
     draftingMetrics,
     bootstrapState,
+    gmailCooldown,
   ] = await Promise.all([
     getQueueDepth().catch(() => null),
     getLastError().catch(() => ({ message: null, at: null })),
@@ -81,6 +82,8 @@ export default async function StatusPage() {
     getDraftingMetrics(7).catch(() => null),
     // STAQPRO-226 — Gmail bootstrap mode (first-install rate limiting).
     getBootstrapState().catch(() => null),
+    // MBOX-185 (FR-22) — gmail cooldown feeds the GMAIL_RATE_LIMITED alert.
+    getGmailCooldown().catch(() => null),
   ]);
 
   // MBOX-163 — appliance git state, 500ms-ceiling helper (clears the loser
@@ -194,6 +197,21 @@ export default async function StatusPage() {
       memAvailableGiB: memory.memAvailableGiB,
       minMemGiB: memory.minMemGiB,
     },
+    // MBOX-185 (FR-22) — keep the page's alerts in lockstep with the
+    // /api/system/status route + the email push path (all three call
+    // evaluateAlerts). Reuse the data this page already fetched/computed.
+    gmailRateLimit: gmailCooldown
+      ? {
+          active: gmailCooldown.isActive,
+          minutes_remaining: gmailCooldown.recommended_safe_at
+            ? (gmailCooldown.recommended_safe_at.getTime() - Date.now()) / 60000
+            : 0,
+        }
+      : null,
+    classifyLag: { lag_minutes: classifyLagSeconds === null ? null : classifyLagSeconds / 60 },
+    diskFree: diskFree
+      ? { free_bytes: diskFree.free_bytes, total_bytes: diskFree.total_bytes }
+      : null,
   });
 
   const uptimeSeconds = Math.round(process.uptime());

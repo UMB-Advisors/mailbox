@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
-import {
-  COST_SPIKE_MIN_TRIGGER_USD,
-  DRAFT_BACKLOG_THRESHOLD_HOURS,
-  evaluateAlerts,
-} from '@/lib/alerts';
+import { gatherAlertInputs } from '@/lib/alert-inputs';
+import { evaluateAlerts } from '@/lib/alerts';
 import { checkMemoryPressure } from '@/lib/preflight/memory';
 import { checkSwap, type SwapResult } from '@/lib/preflight/swap';
 import { type GitState, getGitStateWithTimeout } from '@/lib/queries-git';
@@ -11,16 +8,13 @@ import { findOrphanContainers, type OrphanResult } from '@/lib/queries-orphans';
 import {
   getActiveWorkflowCount,
   getCloudSpend24h,
-  getCloudSpendLastHour,
   getDiskFree,
-  getDraftBacklogAged,
   getDraftCounts24h,
   getEditRate7d,
   getJobHealth,
   getLastEmailReceivedAt,
   getLastError,
   getLastInferenceLatency,
-  getN8nFailures24h,
   getOllamaLoadedModels,
   getQdrantCollectionHealth,
   getQueueDepth,
@@ -63,9 +57,6 @@ export async function GET() {
     ollamaModels,
     draftCounts24h,
     cloudSpend24h,
-    draftBacklogAged,
-    n8nFailures24h,
-    cloudSpendLastHour,
     editRate7d,
     qdrantCollection,
     jobHealth,
@@ -79,9 +70,6 @@ export async function GET() {
     getOllamaLoadedModels(),
     getDraftCounts24h().catch(() => null),
     getCloudSpend24h().catch(() => null),
-    getDraftBacklogAged(DRAFT_BACKLOG_THRESHOLD_HOURS).catch(() => null),
-    getN8nFailures24h(),
-    getCloudSpendLastHour(),
     getEditRate7d().catch(() => ({ edit_rate: null, sample_size: 0 })),
     getQdrantCollectionHealth(),
     getJobHealth().catch(() => null),
@@ -155,23 +143,13 @@ export async function GET() {
     ),
   ]);
 
-  const alerts = evaluateAlerts({
-    draftBacklog: draftBacklogAged,
-    n8nFailures: n8nFailures24h,
-    cloudCostSpike:
-      cloudSpendLastHour !== null && cloudSpend24h !== null
-        ? {
-            last_hour_usd: cloudSpendLastHour,
-            trailing_24h_usd: cloudSpend24h.total_usd,
-            min_trigger_usd: COST_SPIKE_MIN_TRIGGER_USD,
-          }
-        : null,
-    memoryPressure: {
-      status: memory.status,
-      memAvailableGiB: memory.memAvailableGiB,
-      minMemGiB: memory.minMemGiB,
-    },
-  });
+  // MBOX-185 (FR-22) — alerts are now assembled by the shared gatherAlertInputs
+  // helper so this status page and the email push path (/api/internal/
+  // alert-check) evaluate the same thresholds against the same data. The helper
+  // also folds in the gmail-rate-limit / classify-lag / disk-free alerts added
+  // for FR-22. The raw per-stat fields above (memory_pressure, swap, disk, …)
+  // still come from the route's own fetches for the page's tiles.
+  const alerts = evaluateAlerts(await gatherAlertInputs());
 
   return NextResponse.json({
     uptime_seconds: Math.round(process.uptime()),

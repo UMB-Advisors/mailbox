@@ -1,4 +1,10 @@
-import type { CategoryCount, DigestDraftItem, DigestPayload } from '@/lib/queries-digest';
+import type { Alert } from '@/lib/alerts';
+import type {
+  CategoryCount,
+  DigestDraftItem,
+  DigestHealth,
+  DigestPayload,
+} from '@/lib/queries-digest';
 import type { UrgencySignal } from '@/lib/types';
 
 // MBOX-132 — daily digest HTML renderer. Turns getDigestPayload() into an
@@ -28,6 +34,8 @@ const C = {
   red: '#b91c1c',
   redBg: '#fef2f2',
   redBorder: '#fecaca',
+  amber: '#b45309',
+  green: '#15803d',
   chipBg: '#f4f4f5',
   chipInk: '#3f3f46',
 } as const;
@@ -70,6 +78,7 @@ export function renderDigest(
   const html = wrapDocument(
     [
       headerSection(dateLabel, urgentCount, pendingCount),
+      healthSection(payload.health),
       urgentSection(payload.urgent_untouched, queueUrl),
       categorySection(payload.counts_by_category),
       oldestSection(payload.oldest_pending),
@@ -94,6 +103,42 @@ function headerSection(dateLabel: string, urgent: number, pending: number): stri
         </div>
       </td></tr>
     </table>
+  </td></tr>`;
+}
+
+// MBOX-185 (FR-22) — appliance health block. Two stat chips (sent / failed in
+// the last 24h) plus a list of currently-firing health alerts (memory, swap,
+// classify-lag, gmail-cooldown, disk-free, etc.). When nothing is firing it
+// renders a single green "all systems nominal" line so the operator gets a
+// positive confirmation, not silence.
+function healthSection(health: DigestHealth): string {
+  const stats = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${C.sub};">
+        <strong style="color:${C.ink};">${health.sent_24h}</strong> sent (24h)
+        &nbsp;·&nbsp;
+        <strong style="color:${health.failed_24h > 0 ? C.red : C.ink};">${health.failed_24h}</strong> send failures
+      </td>
+    </tr></table>`;
+
+  const alertsHtml =
+    health.firing_alerts.length === 0
+      ? `<div style="margin-top:8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${C.green};">All systems nominal — no health alerts firing.</div>`
+      : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">${health.firing_alerts
+          .map(alertRow)
+          .join('\n')}</table>`;
+
+  return sectionShell('Appliance health', C.sub, `${stats}${alertsHtml}`);
+}
+
+function alertRow(a: Alert): string {
+  const color = a.severity === 'alarm' ? C.red : C.amber;
+  const tag = a.severity === 'alarm' ? 'ALARM' : 'WARN';
+  return `
+  <tr><td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${C.sub};line-height:1.5;">
+    <span style="display:inline-block;background:${color};color:#ffffff;font-size:9px;font-weight:bold;letter-spacing:0.04em;padding:1px 6px;border-radius:9999px;margin-right:6px;">${tag}</span>
+    <span style="color:${C.ink};font-weight:bold;">${esc(a.code)}</span>
+    <span> — ${esc(a.message)}</span>
   </td></tr>`;
 }
 

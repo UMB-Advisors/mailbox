@@ -1,6 +1,9 @@
 import { sql } from 'kysely';
+import { gatherFiringAlerts } from '@/lib/alert-inputs';
+import type { Alert } from '@/lib/alerts';
 import { getKysely } from '@/lib/db';
 import { getQueueWithUrgency } from '@/lib/queries';
+import { getDraftCounts24h } from '@/lib/queries-system';
 import type { ClassificationCategory, DraftStatus, UrgencySignal } from '@/lib/types';
 
 // MBOX-132 — daily digest payload query. Assembles the once-per-day operator
@@ -38,6 +41,17 @@ export interface CategoryCount {
   count: number;
 }
 
+// MBOX-185 (FR-22) — the digest's health block. sent_24h / failed_24h answer
+// "did the box actually send for me yesterday?"; firing_alerts is the SAME
+// evaluateAlerts output the /status page and the email push path use (memory /
+// swap / classify-lag / gmail-cooldown / disk-free etc.) so the digest does NOT
+// run a second stats engine — it renders whatever is currently red/amber.
+export interface DigestHealth {
+  sent_24h: number;
+  failed_24h: number;
+  firing_alerts: Alert[];
+}
+
 export interface DigestPayload {
   // Count of queue drafts grouped by classification_category, descending by
   // count. Drives the "pending by category" headline + section.
@@ -48,6 +62,9 @@ export interface DigestPayload {
   // The oldest pending drafts (FIFO — what's been waiting longest), capped.
   // Drives the "oldest waiting" tail so nothing rots silently in the queue.
   oldest_pending: DigestDraftItem[];
+  // FR-22 health rollup — sent count, send failures, and currently-firing
+  // health alerts. Drives the "Appliance health" section.
+  health: DigestHealth;
 }
 
 export interface DigestPayloadOptions {
@@ -137,7 +154,26 @@ export async function getDigestPayload(opts: DigestPayloadOptions = {}): Promise
     signals: [],
   }));
 
-  return { counts_by_category, urgent_untouched, oldest_pending };
+  const health = await getDigestHealth();
+
+  return { counts_by_category, urgent_untouched, oldest_pending, health };
+}
+
+// MBOX-185 (FR-22) — digest health rollup. Reuses getDraftCounts24h for the
+// sent/failed counts and gatherFiringAlerts (the shared evaluateAlerts surface)
+// for the health stats, so the digest reports the same numbers the /status page
+// and the alert push path do. Fails closed: a failed health fetch degrades to
+// zeroed counts + no alerts rather than failing the whole digest render.
+export async function getDigestHealth(): Promise<DigestHealth> {
+  const [counts, firing_alerts] = await Promise.all([
+    getDraftCounts24h().catch(() => ({ sent: 0, failed: 0 })),
+    gatherFiringAlerts().catch(() => [] as Alert[]),
+  ]);
+  return {
+    sent_24h: counts.sent,
+    failed_24h: counts.failed,
+    firing_alerts,
+  };
 }
 
 // ── digest_sends ledger (migration 029) — once-per-day de-dupe guard ────────

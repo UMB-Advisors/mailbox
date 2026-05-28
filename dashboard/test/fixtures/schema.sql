@@ -1301,6 +1301,21 @@ CREATE TABLE IF NOT EXISTS mailbox.ota_update_attempts (
 CREATE INDEX IF NOT EXISTS ota_update_attempts_started_at_idx
   ON mailbox.ota_update_attempts (started_at DESC);
 
+-- ── MBOX-185 (migration 035): FR-22 threshold-alert email ledger ────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Once-per-code-per-day
+-- de-dupe guard for the email threshold-alert push path (mirrors digest_sends).
+-- See dashboard/migrations/035-create-alert-sends-v1.
+CREATE TABLE IF NOT EXISTS mailbox.alert_sends (
+  id          SERIAL PRIMARY KEY,
+  alert_key   TEXT NOT NULL,
+  code        TEXT NOT NULL,
+  severity    TEXT NOT NULL,
+  sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  recipient   TEXT,
+  subject     TEXT,
+  CONSTRAINT alert_sends_alert_key_uniq UNIQUE (alert_key)
+);
+
 --
 -- PostgreSQL database dump complete
 --

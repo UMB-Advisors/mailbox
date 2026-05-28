@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLASSIFY_LAG_ALARM_MINUTES,
+  CLASSIFY_LAG_WARN_MINUTES,
   COST_SPIKE_MIN_TRIGGER_USD,
+  DISK_FREE_ALARM_PCT,
+  DISK_FREE_WARN_PCT,
   DRAFT_BACKLOG_THRESHOLD_HOURS,
   evaluateAlerts,
+  evaluateClassifyLag,
   evaluateCloudCostSpike,
+  evaluateDiskFree,
   evaluateDraftBacklog,
+  evaluateGmailRateLimit,
   evaluateMemoryPressure,
   evaluateN8nFailures,
 } from '@/lib/alerts';
@@ -135,23 +142,92 @@ describe('evaluateMemoryPressure', () => {
   });
 });
 
+// MBOX-185 (FR-22) — gmail rate-limit / classify-lag / disk-free evaluators.
+
+describe('evaluateGmailRateLimit', () => {
+  it('returns null when the cooldown is not active', () => {
+    expect(evaluateGmailRateLimit({ active: false, minutes_remaining: 0 })).toBeNull();
+  });
+
+  it('emits alarm while the cooldown is active', () => {
+    const a = evaluateGmailRateLimit({ active: true, minutes_remaining: 42 });
+    expect(a?.severity).toBe('alarm');
+    expect(a?.code).toBe('GMAIL_RATE_LIMITED');
+    expect(a?.message).toMatch(/42 more min/);
+  });
+});
+
+describe('evaluateClassifyLag', () => {
+  it('returns null when there is no backlog (lag_minutes null)', () => {
+    expect(evaluateClassifyLag({ lag_minutes: null })).toBeNull();
+  });
+
+  it('returns null below the warn threshold', () => {
+    expect(evaluateClassifyLag({ lag_minutes: CLASSIFY_LAG_WARN_MINUTES })).toBeNull();
+  });
+
+  it('emits warn just above the warn threshold', () => {
+    const a = evaluateClassifyLag({ lag_minutes: CLASSIFY_LAG_WARN_MINUTES + 1 });
+    expect(a?.severity).toBe('warn');
+    expect(a?.code).toBe('CLASSIFY_LAG');
+  });
+
+  it('emits alarm above the alarm threshold', () => {
+    const a = evaluateClassifyLag({ lag_minutes: CLASSIFY_LAG_ALARM_MINUTES + 1 });
+    expect(a?.severity).toBe('alarm');
+    expect(a?.message).toMatch(/dark inbox/);
+  });
+});
+
+describe('evaluateDiskFree', () => {
+  it('returns null when total is 0 (no disk info)', () => {
+    expect(evaluateDiskFree({ free_bytes: 0, total_bytes: 0 })).toBeNull();
+  });
+
+  it('returns null when free fraction is comfortable', () => {
+    expect(evaluateDiskFree({ free_bytes: 50, total_bytes: 100 })).toBeNull();
+  });
+
+  it('emits warn below the warn pct but above alarm', () => {
+    // 8% free: below 10% warn, above 5% alarm
+    const a = evaluateDiskFree({ free_bytes: 8, total_bytes: 100 });
+    expect(a?.severity).toBe('warn');
+    expect(a?.code).toBe('DISK_FREE_LOW');
+  });
+
+  it('emits alarm below the alarm pct', () => {
+    // 3% free: below 5% alarm
+    const a = evaluateDiskFree({ free_bytes: 3, total_bytes: 100 });
+    expect(a?.severity).toBe('alarm');
+    expect(a?.value).toBeCloseTo(0.03, 2);
+  });
+
+  it('exposes pct thresholds as constants', () => {
+    expect(DISK_FREE_WARN_PCT).toBe(0.1);
+    expect(DISK_FREE_ALARM_PCT).toBe(0.05);
+  });
+});
+
 describe('evaluateAlerts', () => {
+  const NULL_INPUTS = {
+    draftBacklog: null,
+    n8nFailures: null,
+    cloudCostSpike: null,
+    memoryPressure: null,
+    gmailRateLimit: null,
+    classifyLag: null,
+    diskFree: null,
+  } as const;
+
   it('returns empty array when all inputs are null', () => {
-    expect(
-      evaluateAlerts({
-        draftBacklog: null,
-        n8nFailures: null,
-        cloudCostSpike: null,
-        memoryPressure: null,
-      }),
-    ).toEqual([]);
+    expect(evaluateAlerts({ ...NULL_INPUTS })).toEqual([]);
   });
 
   it('omits non-firing alerts but includes firing ones', () => {
     const result = evaluateAlerts({
+      ...NULL_INPUTS,
       draftBacklog: { aged_count: 8, threshold_hours: 4 },
       n8nFailures: { failed_count: 1, total_count: 1000 },
-      cloudCostSpike: null,
       memoryPressure: { status: 'green', memAvailableGiB: 4.0, minMemGiB: 1.5 },
     });
     expect(result).toHaveLength(1);
@@ -161,14 +237,22 @@ describe('evaluateAlerts', () => {
 
   it('includes memory pressure alarm alongside other firing alerts', () => {
     const result = evaluateAlerts({
-      draftBacklog: null,
-      n8nFailures: null,
-      cloudCostSpike: null,
+      ...NULL_INPUTS,
       memoryPressure: { status: 'red', memAvailableGiB: 0.8, minMemGiB: 1.5 },
     });
     expect(result).toHaveLength(1);
     expect(result[0].code).toBe('MEMORY_PRESSURE');
     expect(result[0].severity).toBe('alarm');
+  });
+
+  it('folds in the FR-22 alerts (gmail rate-limit + disk-free)', () => {
+    const result = evaluateAlerts({
+      ...NULL_INPUTS,
+      gmailRateLimit: { active: true, minutes_remaining: 10 },
+      diskFree: { free_bytes: 3, total_bytes: 100 },
+    });
+    const codes = result.map((a) => a.code).sort();
+    expect(codes).toEqual(['DISK_FREE_LOW', 'GMAIL_RATE_LIMITED']);
   });
 
   it('preserves the threshold-hours metadata constant', () => {
