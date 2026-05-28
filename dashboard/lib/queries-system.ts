@@ -372,6 +372,29 @@ export async function getDraftCounts24h(): Promise<DraftCounts24h> {
   return counts;
 }
 
+// MBOX-185 — "sends needing attention" count. drafts.status='failed' is a dead
+// stat (migration 016 dropped 'failed' from the CHECK; send-side failures leave
+// the row at 'approved' per root CLAUDE.md), so the digest must NOT source send
+// trouble from there. The live signal is the same one the dashboard's
+// StuckApproved banner surfaces: rows still at status='approved' after a send
+// was attempted (the migration-025 idempotency lock stamped send_attempt_at).
+// A successful Mark Sent flips status='sent' AND clears send_attempt_at, so a
+// row matching this predicate is one where Gmail Reply errored or n8n hung
+// mid-send — exactly "needs the operator to verify in Gmail Sent and retry".
+// Point-in-time (not 24h-windowed) to match the banner, which surfaces every
+// stuck row regardless of age. Uses the partial index
+// idx_drafts_send_attempt_at (WHERE send_attempt_at IS NOT NULL).
+export async function getStuckApprovedCount(): Promise<number> {
+  const db = getKysely();
+  const r = await db
+    .selectFrom('drafts')
+    .select((eb) => eb.fn.countAll<string>().as('c'))
+    .where('status', '=', 'approved')
+    .where('send_attempt_at', 'is not', null)
+    .executeTakeFirstOrThrow();
+  return Number(r.c);
+}
+
 // Audit 2026-05-15: per-job observability for in-process sweepers.
 // Feeds /api/system/status (FR-29) so the operator sees the last run +
 // failure count per job without SSHing to logs.

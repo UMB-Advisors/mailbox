@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import type { Alert } from '@/lib/alerts';
 import { renderDigest } from '@/lib/digest/render';
-import type { DigestPayload } from '@/lib/queries-digest';
+import type { DigestHealth, DigestPayload } from '@/lib/queries-digest';
 
 // MBOX-132 — pure unit tests for the digest HTML renderer (no DB). Covers the
 // subject line, section presence/suppression, deep-link behavior, and HTML
 // escaping of attacker-influenced inbound fields.
+// MBOX-185 — extended with the FR-22 health-section cases.
 
 const NOW = new Date('2026-05-22T09:00:00Z');
 
+// Default health block: no failures, no firing alerts. Tests that care about
+// health override it.
+function health(over: Partial<DigestHealth> = {}): DigestHealth {
+  return { sent_24h: 0, stuck_approved: 0, firing_alerts: [], ...over };
+}
+
 function emptyPayload(): DigestPayload {
-  return { counts_by_category: [], urgent_untouched: [], oldest_pending: [] };
+  return { counts_by_category: [], urgent_untouched: [], oldest_pending: [], health: health() };
 }
 
 describe('renderDigest', () => {
@@ -31,6 +39,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      health: health(),
     };
     const { subject, html } = renderDigest(payload, { now: NOW });
     expect(subject).toContain('1 urgent');
@@ -63,6 +72,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      health: health(),
     };
     const withUrl = renderDigest(payload, {
       now: NOW,
@@ -89,6 +99,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      health: health(),
     };
     const evil = renderDigest(payload, { now: NOW, queueUrl: 'javascript:alert(1)' });
     expect(evil.html).not.toContain('javascript:');
@@ -110,6 +121,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      health: health(),
     };
     const { html } = renderDigest(payload, { now: NOW });
     expect(html).not.toContain('<script>alert(1)</script>');
@@ -122,5 +134,37 @@ describe('renderDigest', () => {
     expect(subject).toContain('0 urgent');
     expect(subject).toContain('0 pending');
     expect(html).toContain('MailBox One — Daily digest');
+  });
+
+  // MBOX-185 (FR-22) — health section.
+  it('renders the health section with sent / stuck-approved counts', () => {
+    const payload = emptyPayload();
+    payload.health = health({ sent_24h: 12, stuck_approved: 2 });
+    const { html } = renderDigest(payload, { now: NOW });
+    expect(html).toContain('Appliance health');
+    expect(html).toContain('12');
+    expect(html).toContain('sent (24h)');
+    expect(html).toContain('sends needing attention');
+  });
+
+  it('shows "All systems nominal" when no health alerts are firing', () => {
+    const { html } = renderDigest(emptyPayload(), { now: NOW });
+    expect(html).toContain('All systems nominal');
+  });
+
+  it('renders firing health alerts (code + escaped message)', () => {
+    const alert: Alert = {
+      severity: 'alarm',
+      code: 'MEMORY_PRESSURE',
+      message: 'MemAvailable 0.80 GiB below threshold',
+      value: 0.8,
+      threshold: 1.5,
+    };
+    const payload = emptyPayload();
+    payload.health = health({ firing_alerts: [alert] });
+    const { html } = renderDigest(payload, { now: NOW });
+    expect(html).toContain('MEMORY_PRESSURE');
+    expect(html).toContain('ALARM');
+    expect(html).not.toContain('All systems nominal');
   });
 });

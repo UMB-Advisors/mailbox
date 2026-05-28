@@ -33,6 +33,16 @@ export interface Accounts {
   is_default: Generated<boolean>;
 }
 
+export interface AlertSends {
+  alert_key: string;
+  code: string;
+  id: Generated<number>;
+  recipient: string | null;
+  sent_at: Generated<string>;
+  severity: string;
+  subject: string | null;
+}
+
 export interface AutoSendAudit {
   account_id: Generated<number>;
   draft_id: number;
@@ -361,6 +371,7 @@ export interface VOverrideRate {
 
 export interface DB {
   accounts: Accounts;
+  alert_sends: AlertSends;
   auto_send_audit: AutoSendAudit;
   auto_send_rules: AutoSendRules;
   chat_conversations: ChatConversations;
