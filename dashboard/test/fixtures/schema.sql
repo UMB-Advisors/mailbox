@@ -1283,6 +1283,24 @@ ALTER TABLE mailbox.oauth_tokens ADD CONSTRAINT oauth_tokens_pkey PRIMARY KEY (p
 CREATE INDEX IF NOT EXISTS drafts_account_id_idx ON mailbox.drafts (account_id);
 CREATE INDEX IF NOT EXISTS classification_log_account_id_idx ON mailbox.classification_log (account_id);
 
+-- ── MBOX-349 (migration 034): per-update OTA audit log ──────────────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Append-only ledger of
+-- customer-initiated "Update now" attempts (one row per attempt, 'started' →
+-- terminal). See dashboard/migrations/034-create-ota-update-attempts-v1.
+CREATE TABLE IF NOT EXISTS mailbox.ota_update_attempts (
+  id          SERIAL PRIMARY KEY,
+  from_digest TEXT,
+  to_digest   TEXT,
+  result      TEXT NOT NULL DEFAULT 'started',
+  detail      TEXT,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at TIMESTAMPTZ,
+  CONSTRAINT ota_update_attempts_result_check
+    CHECK (result IN ('started', 'succeeded', 'rolled_back', 'failed'))
+);
+CREATE INDEX IF NOT EXISTS ota_update_attempts_started_at_idx
+  ON mailbox.ota_update_attempts (started_at DESC);
+
 --
 -- PostgreSQL database dump complete
 --

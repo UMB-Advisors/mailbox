@@ -169,3 +169,16 @@ export const gmailCycleCompleteBodySchema = z.object({
 });
 
 export type GmailCycleCompleteBody = z.infer<typeof gmailCycleCompleteBodySchema>;
+
+// POST /api/internal/ota/update-now — MBOX-349 customer-initiated OTA execute.
+// from_digest/to_digest are optional image-digest strings echoed into the
+// audit row (resolved by the MBOX-184 detection panel client-side). Both are
+// nullable: a detection miss can still trigger an attempt that records NULLs.
+// No free-form fields reach the shell layer — the orchestrator only uses these
+// for the audit trail and the rollback target hint.
+export const otaUpdateNowBodySchema = z.object({
+  from_digest: z.string().min(1).max(200).nullish(),
+  to_digest: z.string().min(1).max(200).nullish(),
+});
+
+export type OtaUpdateNowBody = z.infer<typeof otaUpdateNowBodySchema>;

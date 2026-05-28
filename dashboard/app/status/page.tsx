@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/AppShell';
+import { OtaUpdateButton } from '@/components/OtaUpdateButton';
 import {
   type Alert,
   COST_SPIKE_MIN_TRIGGER_USD,
@@ -412,6 +413,17 @@ export default async function StatusPage() {
                 />
               </div>
             )}
+            {/* MBOX-349 — customer-initiated OTA "Update now" execute path.
+                Pull → recreate → migrate → smoke → commit-or-rollback, with a
+                per-update audit row (mailbox.ota_update_attempts). Gated
+                server-side on Gmail cooldown + in-flight draft (route guards
+                mirror lib/transitions.ts) and client-side behind a 5s
+                arm-then-confirm. Replaces the read-only placeholder from
+                MBOX-184. End-to-end field validation is MBOX-350. */}
+            <div className="mt-3 border-t border-border-subtle pt-3">
+              <div className="mb-2 text-xs uppercase tracking-wider text-ink-dim">OTA update</div>
+              <OtaUpdateButton />
+            </div>
           </section>
 
           {/* MBOX-168 — orphan containers. We render the name list (not just
