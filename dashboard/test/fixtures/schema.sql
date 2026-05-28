@@ -1216,6 +1216,71 @@ CREATE TABLE IF NOT EXISTS mailbox.oauth_tokens (
 ALTER TABLE mailbox.drafts
   ADD COLUMN IF NOT EXISTS scheduling_calendar_unavailable BOOLEAN NOT NULL DEFAULT false;
 
+-- ── MBOX-348 (migration 033): multi-account — accounts table + account_id ─────
+-- Hand-applied to fixture pending next pg_dump refresh. Mirrors
+-- migrations/033-add-account-id-multi-account-v1-2026-05-28.sql so codegen
+-- (lib/db/schema.ts) and the test bootstrap reflect the multi-account shape.
+CREATE TABLE IF NOT EXISTS mailbox.accounts (
+  id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email_address text NOT NULL UNIQUE,
+  display_label text,
+  is_default    boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_default
+  ON mailbox.accounts (is_default) WHERE is_default;
+
+DO $$
+DECLARE
+  default_acct  integer;
+  default_email text;
+  t             text;
+  scoped_tables text[] := ARRAY[
+    'inbox_messages', 'drafts', 'classification_log', 'sent_history',
+    'kb_documents', 'vip_senders', 'auto_send_rules', 'auto_send_audit',
+    'chat_conversations', 'chat_messages', 'oauth_tokens', 'draft_feedback',
+    'rejected_history'
+  ];
+BEGIN
+  SELECT email_address INTO default_email
+    FROM mailbox.onboarding
+    WHERE email_address IS NOT NULL
+    ORDER BY id
+    LIMIT 1;
+  IF default_email IS NULL THEN
+    default_email := 'primary@appliance.local';
+  END IF;
+
+  INSERT INTO mailbox.accounts (email_address, display_label, is_default)
+  VALUES (default_email, 'Primary (backfilled)', true)
+  RETURNING id INTO default_acct;
+
+  FOREACH t IN ARRAY scoped_tables LOOP
+    EXECUTE format('ALTER TABLE mailbox.%I ADD COLUMN account_id integer', t);
+    EXECUTE format('UPDATE mailbox.%I SET account_id = %s WHERE account_id IS NULL', t, default_acct);
+    EXECUTE format('ALTER TABLE mailbox.%I ALTER COLUMN account_id SET DEFAULT %s', t, default_acct);
+    EXECUTE format('ALTER TABLE mailbox.%I ALTER COLUMN account_id SET NOT NULL', t);
+    EXECUTE format(
+      'ALTER TABLE mailbox.%I ADD CONSTRAINT %I FOREIGN KEY (account_id) REFERENCES mailbox.accounts(id)',
+      t, t || '_account_fk'
+    );
+  END LOOP;
+END $$;
+
+ALTER TABLE mailbox.inbox_messages DROP CONSTRAINT inbox_messages_message_id_key;
+ALTER TABLE mailbox.inbox_messages
+  ADD CONSTRAINT inbox_messages_account_message_uq UNIQUE (account_id, message_id);
+
+DROP INDEX mailbox.sent_history_message_id_unique;
+CREATE UNIQUE INDEX sent_history_account_message_unique
+  ON mailbox.sent_history (account_id, message_id) WHERE message_id IS NOT NULL;
+
+ALTER TABLE mailbox.oauth_tokens DROP CONSTRAINT oauth_tokens_pkey;
+ALTER TABLE mailbox.oauth_tokens ADD CONSTRAINT oauth_tokens_pkey PRIMARY KEY (provider, account_id);
+
+CREATE INDEX IF NOT EXISTS drafts_account_id_idx ON mailbox.drafts (account_id);
+CREATE INDEX IF NOT EXISTS classification_log_account_id_idx ON mailbox.classification_log (account_id);
+
 --
 -- PostgreSQL database dump complete
 --

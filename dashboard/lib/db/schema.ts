@@ -25,7 +25,47 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
 export type Numeric = ColumnType<string, number | string, number | string>;
 
+export interface Accounts {
+  created_at: Generated<string>;
+  display_label: string | null;
+  email_address: string;
+  id: Generated<number>;
+  is_default: Generated<boolean>;
+}
+
+export interface AutoSendAudit {
+  account_id: Generated<number>;
+  draft_id: number;
+  effective_action: string;
+  evaluated_at: Generated<string>;
+  id: Generated<Int8>;
+  matched_action: string;
+  reason: string;
+  rule_id: number | null;
+  rule_name: string | null;
+  shadow: Generated<boolean>;
+}
+
+export interface AutoSendRules {
+  account_id: Generated<number>;
+  action: string;
+  active_from_min: number | null;
+  active_to_min: number | null;
+  category: string | null;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  min_confidence: Numeric | null;
+  name: string;
+  priority: Generated<number>;
+  sender_domain: string | null;
+  shadow_until: string | null;
+  updated_at: Generated<string>;
+}
+
 export interface ChatConversations {
+  account_id: Generated<number>;
   created_at: Generated<string>;
   id: Generated<number>;
   title: string | null;
@@ -33,6 +73,7 @@ export interface ChatConversations {
 }
 
 export interface ChatMessages {
+  account_id: Generated<number>;
   content: string;
   conversation_id: number;
   created_at: Generated<string>;
@@ -46,6 +87,7 @@ export interface ChatMessages {
 }
 
 export interface ClassificationLog {
+  account_id: Generated<number>;
   category: string;
   confidence: number;
   created_at: Generated<string>;
@@ -67,6 +109,7 @@ export interface DigestSends {
 }
 
 export interface DraftFeedback {
+  account_id: Generated<number>;
   draft_id: number;
   free_text: string | null;
   id: Generated<number>;
@@ -76,6 +119,7 @@ export interface DraftFeedback {
 }
 
 export interface Drafts {
+  account_id: Generated<number>;
   action_items: Generated<Json>;
   approved_at: string | null;
   auto_send_blocked: Generated<boolean>;
@@ -104,6 +148,7 @@ export interface Drafts {
   rag_retrieval_reason: Generated<string>;
   received_at: string | null;
   references: string | null;
+  scheduling_calendar_unavailable: Generated<boolean>;
   send_attempt_at: string | null;
   sent_at: string | null;
   sent_gmail_message_id: string | null;
@@ -115,6 +160,7 @@ export interface Drafts {
 }
 
 export interface InboxMessages {
+  account_id: Generated<number>;
   body: string | null;
   classification: string | null;
   classified_at: string | null;
@@ -148,6 +194,7 @@ export interface JobRuns {
 }
 
 export interface KbDocuments {
+  account_id: Generated<number>;
   chunk_count: Generated<number>;
   error_message: string | null;
   filename: string;
@@ -167,6 +214,17 @@ export interface KbDocuments {
 export interface Migrations {
   applied_at: Generated<string>;
   version: string;
+}
+
+export interface OauthTokens {
+  account_email: string | null;
+  account_id: Generated<number>;
+  connected_at: Generated<string>;
+  last_fetched_at: string | null;
+  provider: string;
+  refresh_token_enc: string | null;
+  scope: string | null;
+  updated_at: Generated<string>;
 }
 
 export interface Onboarding {
@@ -196,6 +254,7 @@ export interface Persona {
 }
 
 export interface RejectedHistory {
+  account_id: Generated<number>;
   classification_category: string;
   classification_confidence: number;
   created_at: Generated<string>;
@@ -209,6 +268,7 @@ export interface RejectedHistory {
 }
 
 export interface SentHistory {
+  account_id: Generated<number>;
   action_items: Generated<Json>;
   body_text: string | null;
   classification_category: string;
@@ -269,36 +329,8 @@ export interface VDraftingMetrics {
   status: string | null;
 }
 
-export interface AutoSendAudit {
-  draft_id: number;
-  effective_action: string;
-  evaluated_at: Generated<string>;
-  id: Generated<Int8>;
-  matched_action: string;
-  reason: string;
-  rule_id: number | null;
-  rule_name: string | null;
-  shadow: Generated<boolean>;
-}
-
-export interface AutoSendRules {
-  action: string;
-  active_from_min: number | null;
-  active_to_min: number | null;
-  category: string | null;
-  created_at: Generated<string>;
-  created_by: string | null;
-  enabled: Generated<boolean>;
-  id: Generated<number>;
-  min_confidence: Numeric | null;
-  name: string;
-  priority: Generated<number>;
-  sender_domain: string | null;
-  shadow_until: string | null;
-  updated_at: Generated<string>;
-}
-
 export interface VipSenders {
+  account_id: Generated<number>;
   added_at: Generated<string>;
   added_by: string | null;
   email_or_domain: string;
@@ -318,6 +350,7 @@ export interface VOverrideRate {
 }
 
 export interface DB {
+  accounts: Accounts;
   auto_send_audit: AutoSendAudit;
   auto_send_rules: AutoSendRules;
   chat_conversations: ChatConversations;
@@ -330,6 +363,7 @@ export interface DB {
   job_runs: JobRuns;
   kb_documents: KbDocuments;
   migrations: Migrations;
+  oauth_tokens: OauthTokens;
   onboarding: Onboarding;
   persona: Persona;
   rejected_history: RejectedHistory;
