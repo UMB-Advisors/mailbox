@@ -24,10 +24,10 @@ export function StageIndicator({ currentSlug }: { currentSlug: WizardStepSlug })
                 className={[
                   'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
                   status === 'active'
-                    ? 'border-orange-500 bg-orange-500/10 text-orange-300 ring-2 ring-orange-500/40'
+                    ? 'border-accent-orange bg-accent-orange/10 text-accent-orange ring-2 ring-accent-orange/40'
                     : status === 'completed'
-                      ? 'border-neutral-600 bg-neutral-800 text-neutral-300'
-                      : 'border-neutral-700 bg-transparent text-neutral-500',
+                      ? 'border-border bg-bg-panel text-ink-muted'
+                      : 'border-border bg-transparent text-ink-dim',
                 ].join(' ')}
               >
                 {status === 'completed' ? '✓' : i + 1}
@@ -36,10 +36,10 @@ export function StageIndicator({ currentSlug }: { currentSlug: WizardStepSlug })
                 className={[
                   'truncate text-xs sm:text-sm',
                   status === 'active'
-                    ? 'font-semibold text-neutral-100'
+                    ? 'font-semibold text-ink'
                     : status === 'completed'
-                      ? 'text-neutral-400'
-                      : 'text-neutral-500',
+                      ? 'text-ink-muted'
+                      : 'text-ink-dim',
                 ].join(' ')}
               >
                 {step.title}

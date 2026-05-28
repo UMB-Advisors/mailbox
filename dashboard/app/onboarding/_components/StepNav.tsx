@@ -82,7 +82,7 @@ export function StepNav({ slug }: StepNavProps) {
       {error ? (
         <div
           role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-300"
+          className="rounded-lg border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm text-accent-red"
         >
           <span className="font-mono text-xs">{error}</span>
         </div>
@@ -93,7 +93,7 @@ export function StepNav({ slug }: StepNavProps) {
             type="button"
             onClick={handleBack}
             disabled={busy}
-            className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+            className="rounded-lg border border-border px-4 py-2 text-sm text-ink-muted hover:bg-bg-panel disabled:opacity-50"
           >
             Back
           </button>
@@ -104,7 +104,7 @@ export function StepNav({ slug }: StepNavProps) {
           type="button"
           onClick={handleAdvance}
           disabled={busy}
-          className="rounded-lg bg-orange-500 px-5 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-400 disabled:opacity-50"
+          className="rounded-lg bg-accent-orange px-5 py-2 text-sm font-semibold text-white hover:bg-accent-orange/90 disabled:opacity-50"
         >
           {busy ? 'Saving…' : isLast ? 'Finish' : 'Next'}
         </button>

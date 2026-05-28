@@ -19,12 +19,12 @@ export function StepShell({ slug, children }: StepShellProps) {
   return (
     <div className="mx-auto w-full max-w-2xl">
       <StageIndicator currentSlug={slug} />
-      <article className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-6 shadow-lg sm:p-8">
+      <article className="rounded-2xl border border-border bg-bg-surface p-6 shadow-lg sm:p-8">
         <header className="mb-4">
-          <h1 className="text-xl font-semibold text-neutral-100 sm:text-2xl">{step.title}</h1>
-          <p className="mt-2 text-sm text-neutral-400">{step.intent}</p>
+          <h1 className="text-xl font-semibold text-ink sm:text-2xl">{step.title}</h1>
+          <p className="mt-2 text-sm text-ink-muted">{step.intent}</p>
         </header>
-        <div className="text-sm text-neutral-300">{children}</div>
+        <div className="text-sm text-ink-muted">{children}</div>
         <StepNav slug={slug} />
       </article>
     </div>
