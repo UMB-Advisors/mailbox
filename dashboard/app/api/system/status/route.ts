@@ -25,6 +25,7 @@ import {
   getQdrantCollectionHealth,
   getQueueDepth,
 } from '@/lib/queries-system';
+import { checkUpdateAvailability, type UpdateAvailability } from '@/lib/queries-update';
 import { buildRagEvalSnapshot } from '@/lib/rag/eval-baseline';
 
 export const dynamic = 'force-dynamic';
@@ -127,6 +128,25 @@ export async function GET() {
     ),
   ]);
 
+  // MBOX-184 — read-only OTA "Update available" detection. Same bounded,
+  // total-failure-safe pattern as the orphan check (manifest read off the
+  // MBOX-163 repo bind + one MBOX-168 docker.sock call). Read-only; the
+  // "Update now" action is a deferred follow-up.
+  const updates: UpdateAvailability = await Promise.race<UpdateAvailability>([
+    checkUpdateAvailability(),
+    new Promise<UpdateAvailability>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            update_available: false,
+            services: [],
+            reason: 'update_available check timed out (>800ms)',
+          }),
+        800,
+      ),
+    ),
+  ]);
+
   const alerts = evaluateAlerts({
     draftBacklog: draftBacklogAged,
     n8nFailures: n8nFailures24h,
@@ -170,6 +190,7 @@ export async function GET() {
     },
     swap_in_use: swap,
     orphan_containers: orphans,
+    ota_updates: updates,
     alerts,
     git_state: gitState,
     generated_at: new Date().toISOString(),

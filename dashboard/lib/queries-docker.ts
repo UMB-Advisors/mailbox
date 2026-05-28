@@ -49,8 +49,33 @@ export interface DockerContainer {
    * slash so it matches user-facing names in docker-compose / docker ps.
    */
   name: string;
+  /**
+   * The image *reference* the container was started from, as Docker reports
+   * it in the `Image` field. For a digest-pinned GHCR deploy this is
+   * `ghcr.io/umb-advisors/mailbox-dashboard@sha256:…`; for M1's local-build
+   * path it's a local tag like `mailbox-mailbox-dashboard:latest` (no digest).
+   */
   image: string;
+  /**
+   * The image *config* digest (`sha256:…`), from the `ImageID` field. This
+   * is the local content-addressable id of the image the container is
+   * actually running, regardless of how it was referenced. MBOX-184 uses it
+   * as a fallback identity signal when `image` carries no `@sha256:` ref.
+   */
+  image_id: string;
   state: string; // 'running' | 'exited' | …
+}
+
+/**
+ * Extract the `@sha256:…` digest out of an image reference, if present.
+ * `ghcr.io/umb-advisors/mailbox-dashboard@sha256:abc…` → `sha256:abc…`.
+ * A tag-only ref (`mailbox-dashboard:latest`) → null. Exported for the
+ * MBOX-184 update-availability comparison.
+ */
+export function digestFromImageRef(imageRef: string): string | null {
+  const at = imageRef.lastIndexOf('@sha256:');
+  if (at === -1) return null;
+  return imageRef.slice(at + 1); // drop the '@', keep 'sha256:…'
 }
 
 export interface ListContainersOk {
@@ -173,6 +198,7 @@ export async function listRunningContainers(
     containers.push({
       name,
       image: typeof obj.Image === 'string' ? (obj.Image as string) : '',
+      image_id: typeof obj.ImageID === 'string' ? (obj.ImageID as string) : '',
       state: typeof obj.State === 'string' ? (obj.State as string) : '',
     });
   }

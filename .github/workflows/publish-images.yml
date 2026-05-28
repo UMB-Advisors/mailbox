@@ -1,0 +1,190 @@
+name: Publish images (GHCR)
+
+# MBOX-184 — build + publish the two locally-built services (mailbox-dashboard
+# and caddy) to GHCR as versioned + digest-pinned multi-arch images, then
+# record the resulting digests in deploy/image-manifest.json on master.
+#
+# This is the safe, non-destructive half of the OTA story: it only PUBLISHES
+# images and updates a committed manifest. The dashboard's read-only "OTA
+# updates" /status panel reads that manifest and compares it against the
+# digests of the running containers. The "Update now" apply orchestration
+# (pull→recreate→migrate→smoke→commit/rollback + per-update audit log) is a
+# separate, deferred follow-up — NOT in this workflow.
+#
+# Gating: this runs via workflow_run AFTER the existing "CI" workflow
+# (.github/workflows/ci.yml — the dashboard typecheck + test job) completes
+# SUCCESSFULLY on master. That reuses the existing test gate without
+# duplicating the test job here. Tag pushes (v*) trigger a publish directly
+# (a tag is an explicit release intent; CI also runs on the underlying commit).
+
+on:
+  # Publish after CI passes on master (the digest comparison cares about
+  # master, which is what the appliance pulls — see CLAUDE.md "Deploy flow").
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [master]
+  # Explicit release tags publish directly.
+  push:
+    tags: ['v*']
+  # Manual re-publish (e.g. after rotating the packages token).
+  workflow_dispatch:
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # commit the updated deploy/image-manifest.json back to master
+  packages: write # push images to GHCR
+
+env:
+  REGISTRY: ghcr.io
+  # GHCR requires a lowercase org/repo path. The org is UMB-Advisors → lowercase.
+  IMAGE_NS: ghcr.io/umb-advisors
+
+jobs:
+  # Skip the entire publish when the gating CI run did not succeed. For
+  # tag-push and manual dispatch there is no triggering workflow_run, so the
+  # conclusion is empty and the job proceeds.
+  publish:
+    name: build + push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: mailbox-dashboard
+            context: dashboard
+            dockerfile: dashboard/Dockerfile
+          - service: mailbox-caddy
+            context: caddy
+            dockerfile: caddy/Dockerfile
+
+    outputs:
+      # Not used cross-job (the record job re-derives from the manifest), but
+      # surfaced for log readability.
+      digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Multi-arch: the appliance is ARM64 (Jetson Orin Nano); the pending
+      # customer-#2 hardware may be x86. Build both so a single digest-pinned
+      # ref works on either. QEMU emulates arm64 on the amd64 runner.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NS }}/${{ matrix.service }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The dashboard image installs @umb-advisors/* from GitHub Packages
+          # during `npm ci`; reuse the MBOX-337 packages-token pattern. The
+          # caddy build ignores this arg (no ARG declared in caddy/Dockerfile).
+          build-args: |
+            GITHUB_PACKAGES_TOKEN=${{ secrets.GH_PACKAGES_TOKEN }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Emit per-service digest artifact
+        run: |
+          mkdir -p /tmp/digests
+          printf '%s\n' "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.service }}.digest"
+          printf '%s\n' "sha-${GITHUB_SHA}" > "/tmp/digests/${{ matrix.service }}.tag"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.service }}
+          path: /tmp/digests/
+          retention-days: 1
+
+  # Collect the per-service digests and commit an updated manifest back to
+  # master so the read-only /status panel and `.env` digest-pin docs reflect
+  # the latest published bundle. Only runs on master publishes (not tag-only).
+  record-manifest:
+    name: record manifest
+    runs-on: ubuntu-latest
+    needs: publish
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'master')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Rewrite deploy/image-manifest.json
+        env:
+          GIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          DASH_DIGEST="$(cat /tmp/digests/mailbox-dashboard.digest)"
+          CADDY_DIGEST="$(cat /tmp/digests/mailbox-caddy.digest)"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # jq-free, deterministic rewrite via node (always present on the runner).
+          node - "$DASH_DIGEST" "$CADDY_DIGEST" "$NOW" "$GIT_SHA" <<'NODE'
+          const fs = require('node:fs');
+          const [, , dash, caddy, now, sha] = process.argv;
+          const p = 'deploy/image-manifest.json';
+          const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+          m.generated_at = now;
+          m.git_sha = sha;
+          m.services['mailbox-dashboard'].digest = dash.trim();
+          m.services['mailbox-dashboard'].tag = `sha-${sha}`;
+          m.services['mailbox-caddy'].digest = caddy.trim();
+          m.services['mailbox-caddy'].tag = `sha-${sha}`;
+          fs.writeFileSync(p, `${JSON.stringify(m, null, 2)}\n`);
+          NODE
+
+      - name: Commit manifest if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- deploy/image-manifest.json; then
+            echo "manifest unchanged — nothing to commit"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add deploy/image-manifest.json
+          git commit -m "chore(ota): record published image digests (MBOX-184) [skip ci]"
+          git push origin HEAD:master

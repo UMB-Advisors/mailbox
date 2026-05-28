@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "MBOX-184 — OTA image manifest (read-only half).",
+    "",
+    "This file is the COMMITTED record of the latest GHCR-published image per",
+    "locally-built service. It is the source of truth the dashboard's read-only",
+    "'Update available' panel compares against the digests of the containers",
+    "actually running on the appliance (lib/queries-update.ts → /status).",
+    "",
+    "How it is produced: the .github/workflows/publish-images.yml job builds +",
+    "pushes each service to GHCR on push-to-master / tag, captures the resulting",
+    "manifest digest (docker/build-push-action `outputs.digest`), and commits an",
+    "updated copy of this file back to master. Between releases this is simply a",
+    "frozen snapshot of the last publish.",
+    "",
+    "The `digest` is the image manifest digest (sha256:…) returned by the",
+    "registry on push — the same digest you would pin with",
+    "`image: <repo>@<digest>` in docker-compose. `tag` is the human-facing",
+    "git-SHA tag the same image also carries.",
+    "",
+    "Until the first CI publish runs, digests are the empty-string sentinel and",
+    "the panel renders 'no published bundle yet — CI has not published to GHCR'.",
+    "Do NOT hand-edit digests; let CI own them."
+  ],
+  "schema_version": 1,
+  "generated_at": null,
+  "git_sha": null,
+  "services": {
+    "mailbox-dashboard": {
+      "repo": "ghcr.io/umb-advisors/mailbox-dashboard",
+      "tag": "",
+      "digest": ""
+    },
+    "mailbox-caddy": {
+      "repo": "ghcr.io/umb-advisors/mailbox-caddy",
+      "tag": "",
+      "digest": ""
+    }
+  }
+}

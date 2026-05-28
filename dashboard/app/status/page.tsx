@@ -28,6 +28,11 @@ import {
   getQueueDepth,
 } from '@/lib/queries-system';
 import { getBootstrapState } from '@/lib/queries-system-state';
+import {
+  checkUpdateAvailability,
+  shortDigest,
+  type UpdateAvailability,
+} from '@/lib/queries-update';
 import { buildRagEvalSnapshot, type RagEvalSnapshot } from '@/lib/rag/eval-baseline';
 
 export const dynamic = 'force-dynamic';
@@ -142,6 +147,27 @@ export default async function StatusPage() {
             orphan_names: [],
             expected_names: [],
             reason: 'orphan_containers check timed out (>800ms)',
+          }),
+        800,
+      ),
+    ),
+  ]);
+
+  // MBOX-184 — read-only "Update available" detection. Compares the committed
+  // deploy/image-manifest.json (latest GHCR-published digests) against the
+  // digests of the running mailbox-dashboard + caddy containers (via the same
+  // MBOX-168 read-only docker.sock reader). Read-only — NO action button here.
+  // Bounded at 800ms total, same pattern as the orphan check (manifest read +
+  // one docker call). The helper itself is total-failure-safe.
+  const updates: UpdateAvailability = await Promise.race<UpdateAvailability>([
+    checkUpdateAvailability(),
+    new Promise<UpdateAvailability>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            update_available: false,
+            services: [],
+            reason: 'update_available check timed out (>800ms)',
           }),
         800,
       ),
@@ -448,6 +474,18 @@ export default async function StatusPage() {
             </Card>
           </section>
 
+          {/* MBOX-184 — read-only OTA "Update available" panel. Compares the
+              committed deploy/image-manifest.json (latest GHCR-published
+              digests) against the digests of the running mailbox-dashboard +
+              caddy containers. NO action button — the "Update now" orchestration
+              is a deferred follow-up (see UpdateAvailabilityCard). */}
+          <section className="mb-6">
+            <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
+              OTA updates
+            </h2>
+            <UpdateAvailabilityCard updates={updates} />
+          </section>
+
           <section className="mb-6">
             <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
               Drafts (last 24h)
@@ -710,6 +748,75 @@ function Card({ title, children }: { title?: string; children: React.ReactNode }
       {title && <div className="mb-2 text-xs uppercase tracking-wider text-ink-dim">{title}</div>}
       {children}
     </div>
+  );
+}
+
+// MBOX-184 — read-only "Update available" card. Renders, per locally-built
+// service (mailbox-dashboard + caddy), whether the running container's image
+// digest matches the latest GHCR-published digest recorded in
+// deploy/image-manifest.json. Read-only by design: this is the safe,
+// non-destructive half of the OTA story.
+//
+// MBOX-184 follow-up: the "Update now" button hooks in HERE — a deferred
+// planned slice owns the pull→recreate→migrate→smoke→commit/rollback
+// orchestration plus the per-update audit log. Do NOT wire an action button
+// in this commit; this card stays informational.
+function UpdateAvailabilityCard({ updates }: { updates: UpdateAvailability }) {
+  if (updates.reason) {
+    return (
+      <Card>
+        <p className="text-sm text-ink-dim">update check unavailable: {updates.reason}</p>
+      </Card>
+    );
+  }
+  if (updates.services.length === 0) {
+    return (
+      <Card>
+        <p className="text-sm text-ink-dim">no services in image manifest</p>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      {updates.update_available ? (
+        <p className="text-sm text-accent-orange">
+          Update available — a newer image has been published to GHCR. Apply with{' '}
+          <code className="font-mono">
+            git pull &amp;&amp; docker compose up -d --remove-orphans
+          </code>{' '}
+          on the appliance (see root CLAUDE.md “Deploy flow”).
+        </p>
+      ) : (
+        <p className="text-sm text-accent-green">Up to date — no newer published images.</p>
+      )}
+      <ul className="mt-3 space-y-1 text-xs">
+        {updates.services.map((s) => {
+          const tone =
+            s.state === 'update_available'
+              ? 'text-accent-orange'
+              : s.state === 'up_to_date'
+                ? 'text-accent-green'
+                : 'text-ink-dim';
+          return (
+            <li key={s.service} className="flex items-baseline justify-between gap-3 font-mono">
+              <span className="text-ink-muted">{s.service}</span>
+              <span className={`text-right ${tone}`}>
+                {s.state === 'update_available'
+                  ? `${shortDigest(s.running_digest)} → ${shortDigest(s.manifest_digest)}`
+                  : s.state === 'up_to_date'
+                    ? `up to date (${shortDigest(s.running_digest)})`
+                    : s.state}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-3 text-xs text-ink-dim">
+        Source-of-truth: <code className="font-mono">deploy/image-manifest.json</code> (latest
+        GHCR-published digests, written by CI) vs running container digests via the MBOX-168
+        read-only docker.sock reader. Read-only — apply updates from the shell. MBOX-184.
+      </p>
+    </Card>
   );
 }
 
