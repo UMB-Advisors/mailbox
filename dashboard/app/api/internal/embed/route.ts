@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { parseJson } from '@/lib/middleware/validate';
+import { resolveIngestAccountId } from '@/lib/queries-accounts';
 import { embedText } from '@/lib/rag/embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from '@/lib/rag/excerpt';
 import { normalizeSender, upsertEmailPoint } from '@/lib/rag/qdrant';
@@ -30,6 +31,20 @@ export async function POST(req: NextRequest) {
   const b = await parseJson(req, embedRequestBodySchema);
   if (!b.ok) return b.response;
   const body = b.data;
+
+  // MBOX-348 — resolve the owning mailbox (default account when omitted). An
+  // unknown account is a caller bug, not transient infra → 400 (consistent with
+  // the bad-body-shape contract above), never a silent 200.
+  const acct = await resolveIngestAccountId({
+    account_id: body.account_id,
+    account_email: body.account_email,
+  });
+  if (!acct.ok) {
+    return NextResponse.json(
+      { ok: false, message_id: body.message_id, reason: acct.reason },
+      { status: 400 },
+    );
+  }
 
   const excerpt = buildBodyExcerpt(body.body);
   const input = buildEmbeddingInput(body.subject ?? null, excerpt);
@@ -66,6 +81,8 @@ export async function POST(req: NextRequest) {
     // STAQPRO-191 — single-persona appliances all seed 'default'. Future
     // multi-persona ingestion will plumb persona_key through the schema.
     persona_key: 'default',
+    // MBOX-348 — the resolved owning account for this point.
+    account_id: acct.account_id,
   });
 
   if (!upsert.ok) {

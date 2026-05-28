@@ -7,6 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 //   - 200 + ok:false reason='embed_unavailable' on Ollama failure
 //   - 200 + ok:false reason='qdrant_upsert_failed:...' on Qdrant failure
 //   - 400 on bad input (caller bug, not infra failure)
+//   - 400 on unknown account (MBOX-348 fan-out misconfig, not infra failure)
+
+// MBOX-348 — the route now resolves the owning account via the DB. Mock it so
+// this contract test stays DB-free (default path → account 1); individual tests
+// override for the unknown-account branch.
+vi.mock('@/lib/queries-accounts', () => ({
+  resolveIngestAccountId: vi.fn(async () => ({ ok: true, account_id: 1 })),
+}));
 
 const validBody = {
   message_id: 'test-msg-1',
@@ -115,5 +123,19 @@ describe('POST /api/internal/embed — STAQPRO-190', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('validation_failed');
+  });
+
+  it('returns 400 when the fan-out names an unknown account (MBOX-348)', async () => {
+    const { resolveIngestAccountId } = await import('@/lib/queries-accounts');
+    vi.mocked(resolveIngestAccountId).mockResolvedValueOnce({
+      ok: false,
+      reason: 'unknown account_email ghost@nope.com',
+    });
+    const { POST } = await import('@/app/api/internal/embed/route');
+    const res = await POST(fakeReq({ ...validBody, account_email: 'ghost@nope.com' }) as never);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.reason).toMatch(/unknown account_email/);
   });
 });

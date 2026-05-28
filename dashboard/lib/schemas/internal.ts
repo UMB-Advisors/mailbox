@@ -122,6 +122,12 @@ export type LlmChatStreamBody = z.infer<typeof llmChatStreamBodySchema>;
 // here would break the live workflow.
 export const inboxMessageInsertBodySchema = z.object({
   message_id: z.string().min(1, 'message_id (Gmail message id) required'),
+  // MBOX-348 — multi-account ingestion target. The fan-out passes ONE of these
+  // to route the message into the right inbox; the legacy single-account path
+  // sends neither and the route falls back to the default account. Both omitted
+  // is the un-changed single-account behavior.
+  account_id: z.number().int().positive().optional(),
+  account_email: z.string().trim().min(1).optional(),
   thread_id: z.string().optional().default(''),
   from_addr: z.string().optional().default(''),
   to_addr: z.string().optional().default(''),

@@ -18,6 +18,11 @@ export const embedRequestBodySchema = z.object({
   sent_at: z.string().min(1, 'sent_at (ISO 8601) required'),
   direction: z.enum(['inbound', 'outbound']),
   classification_category: z.string().nullable().optional(),
+  // MBOX-348 — the mailbox.accounts row this point belongs to. The multi-account
+  // fan-out passes ONE of these; both omitted → default account (single-account
+  // path, un-changed).
+  account_id: z.number().int().positive().optional(),
+  account_email: z.string().trim().min(1).optional(),
 });
 
 export type EmbedRequestBody = z.infer<typeof embedRequestBodySchema>;

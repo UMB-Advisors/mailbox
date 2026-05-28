@@ -39,6 +39,9 @@ interface BackfillRow {
   sent_at: string;
   direction: Direction;
   classification_category: string | null;
+  // MBOX-348 — owning account, carried from the SQL row so backfilled points
+  // are tagged with the same account_id the migration assigned.
+  account_id: number;
 }
 
 async function fetchInbox(pool: Pool, lookbackDays: number): Promise<BackfillRow[]> {
@@ -53,7 +56,8 @@ async function fetchInbox(pool: Pool, lookbackDays: number): Promise<BackfillRow
       COALESCE(body, '')           AS body,
       COALESCE(received_at, NOW()) AS sent_at,
       'inbound'::text              AS direction,
-      classification              AS classification_category
+      classification              AS classification_category,
+      account_id                   AS account_id
     FROM mailbox.inbox_messages
     WHERE COALESCE(received_at, created_at) > NOW() - make_interval(days => $1)
       AND message_id IS NOT NULL
@@ -75,7 +79,8 @@ async function fetchSent(pool: Pool, lookbackDays: number): Promise<BackfillRow[
       COALESCE(sh.draft_sent, '')    AS body,
       sh.sent_at,
       'outbound'::text               AS direction,
-      sh.classification_category
+      sh.classification_category,
+      sh.account_id                  AS account_id
     FROM mailbox.sent_history sh
     WHERE sh.sent_at > NOW() - make_interval(days => $1)
     `,
@@ -106,6 +111,8 @@ async function backfillRow(row: BackfillRow): Promise<'ok' | 'skip' | 'fail'> {
     classification_category: row.classification_category,
     // STAQPRO-191 — single-persona appliances all seed 'default'.
     persona_key: 'default',
+    // MBOX-348 — owning account carried from the SQL row.
+    account_id: row.account_id,
   });
   return r.ok ? 'ok' : 'fail';
 }
