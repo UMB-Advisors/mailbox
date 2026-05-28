@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import { getKysely } from '@/lib/db';
 import { parseJson } from '@/lib/middleware/validate';
+import { resolveIngestAccountId } from '@/lib/queries-accounts';
 import { embedText } from '@/lib/rag/embed';
 import { buildBodyExcerpt, buildEmbeddingInput } from '@/lib/rag/excerpt';
 import { normalizeSender, upsertEmailPoint } from '@/lib/rag/qdrant';
@@ -33,7 +34,17 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, inboxMessageInsertBodySchema);
   if (!b.ok) return b.response;
-  const { message_id, received_at, ...rest } = b.data;
+  const { message_id, received_at, account_id, account_email, ...rest } = b.data;
+
+  // MBOX-348 — resolve the target mailbox. Omitted by the legacy single-account
+  // path (→ default account); set explicitly by the multi-account fan-out. An
+  // unknown account is a fan-out misconfiguration → 400 (fail loud rather than
+  // mis-file one identity's mail under another).
+  const acct = await resolveIngestAccountId({ account_id, account_email });
+  if (!acct.ok) {
+    return NextResponse.json({ error: acct.reason }, { status: 400 });
+  }
+  const resolvedAccountId = acct.account_id;
 
   try {
     const db = getKysely();
@@ -41,13 +52,17 @@ export async function POST(req: NextRequest) {
       .insertInto('inbox_messages')
       .values({
         message_id,
+        account_id: resolvedAccountId,
         ...rest,
         // received_at is optional in the body; only include when provided so
         // missing values land as NULL rather than 'undefined' string.
         ...(received_at !== undefined ? { received_at } : {}),
       })
+      // MBOX-348 — dedup is per (account_id, message_id): the same Gmail message
+      // can legitimately land in two connected inboxes. xmax=0 still discriminates
+      // a fresh insert from a dedupe-on-conflict skip.
       .onConflict((oc) =>
-        oc.column('message_id').doUpdateSet((eb) => ({
+        oc.columns(['account_id', 'message_id']).doUpdateSet((eb) => ({
           message_id: eb.ref('excluded.message_id'),
         })),
       )
@@ -65,6 +80,7 @@ export async function POST(req: NextRequest) {
     if (row.created) {
       void embedAndUpsertInbound({
         message_id: row.message_id,
+        account_id: resolvedAccountId,
         thread_id: rest.thread_id ?? null,
         sender: rest.from_addr ?? '',
         recipient: rest.to_addr ?? '',
@@ -90,6 +106,7 @@ export async function POST(req: NextRequest) {
 
 interface EmbedInboundParams {
   message_id: string;
+  account_id: number;
   thread_id: string | null;
   sender: string;
   recipient: string;
@@ -122,6 +139,8 @@ async function embedAndUpsertInbound(params: EmbedInboundParams): Promise<void> 
       // multi-persona ships, this will be the mailbox.persona.customer_key
       // for whichever mailbox the inbound landed in.
       persona_key: 'default',
+      // MBOX-348 — the resolved ingestion account for this inbound.
+      account_id: params.account_id,
     });
   } catch (err) {
     console.error('[rag] inbound embed/upsert failed (non-fatal):', err);

@@ -53,6 +53,16 @@ export interface EmailPointPayload {
   // paths seed 'default'; future multi-persona work writes the persona's
   // mailbox.persona.customer_key.
   persona_key: string;
+  // MBOX-348 (MBOX-162 V1) — the mailbox.accounts row this point belongs to.
+  // Mirrors the SQL account_id dimension into the vector store so V2 per-account
+  // RAG isolation can filter recall by account. Existing points are re-tagged to
+  // the default account by scripts/retag-qdrant-account-id.ts.
+  // NOTE (V2 follow-up): the point id is still derived from message_id alone
+  // (pointIdFromMessageId), so the same Gmail message ingested into two accounts
+  // collides on one point. Acceptable for V1 (cross-account same-message is rare
+  // and retrieval is sender-filtered today); per-account RAG isolation (V2) must
+  // key the point id on (account_id, message_id).
+  account_id: number;
 }
 
 export interface UpsertResult {
