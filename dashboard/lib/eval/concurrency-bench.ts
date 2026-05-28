@@ -47,6 +47,17 @@ const DEFAULT_MEM_SAMPLE_INTERVAL_MS = 250;
 // ── Types ──────────────────────────────────────────────────────────────
 
 /**
+ * Opaque handle returned by the injectable interval timer.
+ *
+ * Environment-agnostic on purpose: under Node `setInterval` returns a
+ * `NodeJS.Timeout`, under the DOM lib it returns `number`, and `vi.useFakeTimers()`
+ * returns its own shape. Anchoring the deps surface to this alias (rather than the
+ * global `typeof setInterval`, whose primary overload returns `number`) lets test
+ * mocks line up without casts in either environment.
+ */
+export type IntervalHandle = ReturnType<typeof setInterval>;
+
+/**
  * Scheduling mode for the N-account run.
  *
  * - `serialized`: each account fully completes (classify+draft for all its
@@ -124,15 +135,16 @@ export interface ConcurrencyBenchDeps {
   now?: () => number;
 
   /**
-   * Injectable `setInterval`. Defaults to the global `setInterval`.
-   * Pass `vi.useFakeTimers()`-compatible `setInterval` in tests.
+   * Injectable interval timer. Defaults to the global `setInterval`.
+   * Typed as an environment-agnostic handler/handle pair so test mocks line up
+   * without casts. Pass `vi.useFakeTimers()`-compatible `setInterval` in tests.
    */
-  setIntervalFn?: typeof setInterval;
+  setIntervalFn?: (handler: () => void, ms: number) => IntervalHandle;
 
   /**
-   * Injectable `clearInterval`. Defaults to the global `clearInterval`.
+   * Injectable interval clearer. Defaults to the global `clearInterval`.
    */
-  clearIntervalFn?: typeof clearInterval;
+  clearIntervalFn?: (handle: IntervalHandle) => void;
 
   /** Override the memory-sampler poll interval in ms. Default 250 ms. */
   memSampleIntervalMs?: number;

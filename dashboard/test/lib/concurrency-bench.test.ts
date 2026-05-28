@@ -14,6 +14,7 @@ import {
   type AccountConfig,
   type ConcurrencyBenchDeps,
   type ClassifyResult,
+  type IntervalHandle,
   evaluateS1Verdict,
   percentile,
   runConcurrencyBench,
@@ -247,11 +248,11 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
         classifyFn: classifyFnTracked,
         fetchFn,
         readUsedMemGiB: () => 1.0,
-        setIntervalFn: (fn, _ms) => {
+        setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle => {
           // No-op sampler — no real timers in this test.
-          return 0 as unknown as ReturnType<typeof setInterval>;
+          return 0 as unknown as IntervalHandle;
         },
-        clearIntervalFn: (_h) => { /* no-op */ },
+        clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
         memSampleIntervalMs: 99999,
       },
     );
@@ -264,9 +265,13 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
 
   it('concurrent mode: both classify calls fire before either draft resolves', async () => {
     // Track the order of classify starts + draft completions across accounts.
+    // Resolvers held in a ref object so TS control-flow analysis doesn't narrow
+    // the post-await read back to `never` (assignment happens inside a callback).
     const globalOrder: string[] = [];
-    let draftResolveAcnt0: (() => void) | null = null;
-    let draftResolveAcnt1: (() => void) | null = null;
+    const draftResolvers: { acct0: (() => void) | null; acct1: (() => void) | null } = {
+      acct0: null,
+      acct1: null,
+    };
 
     // classifyFn records that classify started for each account — resolves
     // immediately.
@@ -285,9 +290,9 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
       const acctId = callIndex === 0 ? 'acct-0' : 'acct-1';
       await new Promise<void>((resolve) => {
         if (acctId === 'acct-0') {
-          draftResolveAcnt0 = resolve;
+          draftResolvers.acct0 = resolve;
         } else {
-          draftResolveAcnt1 = resolve;
+          draftResolvers.acct1 = resolve;
         }
       });
       globalOrder.push(`${acctId}:draft:done`);
@@ -308,8 +313,9 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
         classifyFn,
         fetchFn,
         readUsedMemGiB: () => 1.0,
-        setIntervalFn: (_fn, _ms) => 0 as unknown as ReturnType<typeof setInterval>,
-        clearIntervalFn: (_h) => { /* no-op */ },
+        setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
+          0 as unknown as IntervalHandle,
+        clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
         memSampleIntervalMs: 99999,
       },
     );
@@ -330,8 +336,8 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
     expect(globalOrder.filter((e) => e.includes(':draft:done'))).toHaveLength(0);
 
     // Now resolve both drafts and let the bench finish.
-    draftResolveAcnt0?.();
-    draftResolveAcnt1?.();
+    draftResolvers.acct0?.();
+    draftResolvers.acct1?.();
     await benchPromise;
 
     // After resolution, both drafts completed.
@@ -382,8 +388,9 @@ describe('runConcurrencyBench — p95 computation (MBOX-162 S1)', () => {
       classifyFn,
       fetchFn,
       readUsedMemGiB: () => 1.0,
-      setIntervalFn: (_fn, _ms) => 0 as unknown as ReturnType<typeof setInterval>,
-      clearIntervalFn: (_h) => { /* no-op */ },
+      setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
+        0 as unknown as IntervalHandle,
+      clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
       memSampleIntervalMs: 99999,
     });
 
