@@ -29,8 +29,8 @@ import {
 } from '@/lib/queries-system';
 import { getBootstrapState } from '@/lib/queries-system-state';
 import {
-  OTA_CHECK_CEILING_MS,
   checkUpdateAvailability,
+  OTA_CHECK_CEILING_MS,
   shortDigest,
   type UpdateAvailability,
 } from '@/lib/queries-update';

@@ -26,8 +26,8 @@ import {
   getQueueDepth,
 } from '@/lib/queries-system';
 import {
-  OTA_CHECK_CEILING_MS,
   checkUpdateAvailability,
+  OTA_CHECK_CEILING_MS,
   type UpdateAvailability,
 } from '@/lib/queries-update';
 import { buildRagEvalSnapshot } from '@/lib/rag/eval-baseline';
