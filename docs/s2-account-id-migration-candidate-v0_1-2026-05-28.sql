@@ -8,6 +8,13 @@
 -- WHAT: introduces `account_id` as a first-class dimension across the
 --   pipeline tables, per DR-43 "new accounts table + FK" (not overloading
 --   customer/appliance).
+-- SCOPE (Linus, PR #166): this dry-run covers the 4 CORE pipeline tables only
+--   (inbox_messages, drafts, classification_log, sent_history). The live schema
+--   has grown other account-scoped tables that the PROMOTE-time migration must
+--   also cover: kb_documents, vip_senders, auto_send_rules, auto_send_audit,
+--   chat_conversations, chat_messages, oauth_tokens, draft_feedback,
+--   rejected_history (state_transitions inherits via its drafts FK). S2 PASS is
+--   for the core four; full promote scope is a second pass.
 -- WHY: multi-account (FR-4) — one appliance serving N Gmail identities.
 -- BACKFILL DETERMINISM (the S2 question): M1 is single-account today, so
 --   every historical row belongs to the one existing connected mailbox.
@@ -30,6 +37,10 @@ CREATE TABLE mailbox.accounts (
   is_default    boolean NOT NULL DEFAULT false,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- At most one default account (the backfill target). Partial unique index so
+-- the DO-block `SELECT id INTO ... WHERE is_default` is unambiguous.
+CREATE UNIQUE INDEX accounts_one_default ON mailbox.accounts (is_default) WHERE is_default;
 
 -- 2. Seed the single existing account (backfill target). On M1 this is the
 --    one connected mailbox; email is parameterized at promote-time.

@@ -64,8 +64,15 @@ Dry-run executed against an M1-shaped schema in a throwaway `postgres:17-alpine`
 - **Out of band:** existing Qdrant `email_messages` points need `account_id`
   added to payload (deterministic → default account; one-shot re-tag, not SQL).
 
-**Verdict: S2 PASS** — DR-43's clean-separation design migrates cleanly; risk is
-mechanics (the unique reshape + dedup-key change), not backfill ambiguity.
+**Verdict: S2 PASS for the 4-table core; promote scope incomplete** (Linus, PR #166).
+The dry-run proves DR-43's clean-separation design migrates cleanly with
+deterministic backfill for the four core pipeline tables — risk is mechanics
+(the unique reshape + dedup-key change), not backfill ambiguity. **But** the live
+schema has grown other account-scoped tables the promote-time migration must also
+cover: `kb_documents`, `vip_senders`, `auto_send_rules`, `auto_send_audit`,
+`chat_conversations`, `chat_messages`, `oauth_tokens`, `draft_feedback`,
+`rejected_history` (`state_transitions` inherits via its drafts FK). Extending the
+migration to these is a second pass before DR-43 promotes.
 
 ## S3 — Gmail quota: per-account or per-project — ANSWERED
 

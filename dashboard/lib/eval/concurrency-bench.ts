@@ -554,8 +554,13 @@ export async function runConcurrencyBench(
   const overall_classify_p95_ms = percentile(overallClassifySorted, 0.95);
   const overall_draft_p95_ms = percentile(overallDraftSorted, 0.95);
 
-  const peak_mem_gib = Math.max(...memSamples, 0);
-  // memSamples[0] is the t0 baseline (sampled before any classify/draft call).
+  // reduce, not Math.max(...spread): memSamples can hold thousands of entries
+  // on a long run, and the spread form risks a call-stack RangeError. Matches
+  // the reduce pattern used elsewhere (memory.ts / bake-off.ts).
+  const peak_mem_gib = memSamples.reduce((a, b) => Math.max(a, b), 0);
+  // memSamples always has ≥1 element (the t0 sample pushed at sampler init), so
+  // memSamples[0] is defined at runtime; the `?? 0` only satisfies
+  // noUncheckedIndexedAccess — it is not a reachable fallback path.
   const baseline_mem_gib = memSamples[0] ?? 0;
   // Workload-attributable peak: what the N-account run added on top of baseline.
   // This — not absolute host-used — is what the S1 gate compares to 4.0 GiB.

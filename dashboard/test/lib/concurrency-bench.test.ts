@@ -557,7 +557,9 @@ describe('runConcurrencyBench — memory-sampler peak aggregation (MBOX-162 S1)'
 
     expect(result.baseline_mem_gib).toBe(5.8);
     expect(result.peak_mem_gib).toBeGreaterThan(4.0); // absolute exceeds ceiling
-    expect(result.peak_workload_mem_gib).toBeLessThanOrEqual(4.0); // delta does not
+    // Pin the exact delta (peak 6.0 − baseline 5.8 = 0.2), not just "<= 4.0":
+    // a loose bound would still pass even if the delta computation were broken.
+    expect(result.peak_workload_mem_gib).toBeCloseTo(0.2, 5);
     // classify p95 = 50ms < 5000 AND workload delta ≤ 4.0 → PASS despite high absolute peak.
     expect(result.verdict.verdict).toBe('pass');
   });
