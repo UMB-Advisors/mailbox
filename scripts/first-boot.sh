@@ -42,10 +42,13 @@ readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly MAX_RETRIES=1
 readonly OLLAMA_IMAGE_DEFAULT="dustynv/ollama:0.18.4-r36.4-cu126-22.04"
 
-# Live container names (docker-compose default project = repo dir basename, but
-# the compose file pins these via container_name / the -1 suffix convention).
-readonly OLLAMA_CONTAINER="mailbox-ollama-1"
-readonly N8N_CONTAINER="mailbox-n8n-1"
+# Live container names. The ollama/n8n services do NOT pin container_name in
+# docker-compose.yml, so their real names follow the compose default project
+# convention (<projectdir>-<service>-<index>) and only equal mailbox-*-1 when the
+# checkout dir is literally "mailbox". Resolved at runtime in main() via
+# `docker compose ps -q <service>`; these are fallback defaults only.
+OLLAMA_CONTAINER="mailbox-ollama-1"
+N8N_CONTAINER="mailbox-n8n-1"
 
 # DR-18 custom-ctx model. Base MUST be qwen3:4b-instruct, never the bare
 # qwen3:4b alias — that shifted to a thinking-trained variant 2026-05-05 and
@@ -927,14 +930,19 @@ stage_build_ctx_model() {
     fi
 
     local modelfile="/tmp/Modelfile.qwen3-4b-ctx4k"
+    # No explicit TEMPLATE: inherits the chatml template from FROM qwen3:4b-instruct
+    # (DR-18 builds the ctx4k variant with only num_ctx + params, no TEMPLATE
+    # override). This artifact gates LOCAL drafts per STAQPRO-330 — MBOX-180 must
+    # verify draft OUTPUT, not just `ollama list` presence. Stop tokens MUST be
+    # quoted or the shell/Modelfile parser mangles the <|...|> pipes.
     cat > "${modelfile}" << EOF
 FROM ${CTX_BASE_MODEL}
 PARAMETER temperature 0.7
 PARAMETER top_k 20
 PARAMETER top_p 0.8
 PARAMETER num_ctx 4096
-PARAMETER stop <|im_start|>
-PARAMETER stop <|im_end|>
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"
 EOF
     docker cp "${modelfile}" "${OLLAMA_CONTAINER}:/tmp/Modelfile"
     rm -f "${modelfile}"
@@ -1238,14 +1246,29 @@ main() {
 
   # Stages 8-13 operate against the LIVE compose stack. They need the .env
   # Postgres values in the script environment (Stage 7 created/copied .env but
-  # did not export it). Source it now; set -a so the simple KEY=VALUE lines
-  # become exported vars. Bcrypt $$ escaping is Compose-only — harmless here.
+  # did not export it). Do NOT `source .env`: shell parameter expansion would
+  # corrupt a POSTGRES_PASSWORD containing a literal `$` (and the Compose-only
+  # bcrypt `$$` escaping). Extract only the keys we need with the same safe
+  # grep|cut|tr idiom Stage 6 uses for OLLAMA_IMAGE.
   if [[ -f "${REPO_ROOT}/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${REPO_ROOT}/.env"
-    set +a
+    local env_file="${REPO_ROOT}/.env"
+    local v
+    v=$(grep -E '^POSTGRES_USER=' "${env_file}" | cut -d= -f2- | tr -d '"' || true)
+    [[ -n "${v}" ]] && export POSTGRES_USER="${v}"
+    v=$(grep -E '^POSTGRES_PASSWORD=' "${env_file}" | cut -d= -f2- | tr -d '"' || true)
+    [[ -n "${v}" ]] && export POSTGRES_PASSWORD="${v}"
+    v=$(grep -E '^POSTGRES_DB=' "${env_file}" | cut -d= -f2- | tr -d '"' || true)
+    [[ -n "${v}" ]] && export POSTGRES_DB="${v}"
   fi
+
+  # Resolve the live ollama/n8n container names from compose (Stage 7 is up by
+  # now). Falls back to the mailbox-*-1 defaults if the query returns empty.
+  cd "${REPO_ROOT}"
+  local oll n8n
+  oll=$(docker compose ps -q ollama 2>/dev/null || true)
+  n8n=$(docker compose ps -q n8n 2>/dev/null || true)
+  [[ -n "${oll}" ]] && OLLAMA_CONTAINER="${oll}"
+  [[ -n "${n8n}" ]] && N8N_CONTAINER="${n8n}"
 
   # Stage 8: Migrations
   run_stage "Stage 8: Run Database Migrations" stage_run_migrations
