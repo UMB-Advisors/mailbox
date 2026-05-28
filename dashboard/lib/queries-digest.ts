@@ -3,7 +3,7 @@ import { gatherFiringAlerts } from '@/lib/alert-inputs';
 import type { Alert } from '@/lib/alerts';
 import { getKysely } from '@/lib/db';
 import { getQueueWithUrgency } from '@/lib/queries';
-import { getDraftCounts24h } from '@/lib/queries-system';
+import { getDraftCounts24h, getStuckApprovedCount } from '@/lib/queries-system';
 import type { ClassificationCategory, DraftStatus, UrgencySignal } from '@/lib/types';
 
 // MBOX-132 — daily digest payload query. Assembles the once-per-day operator
@@ -41,14 +41,20 @@ export interface CategoryCount {
   count: number;
 }
 
-// MBOX-185 (FR-22) — the digest's health block. sent_24h / failed_24h answer
-// "did the box actually send for me yesterday?"; firing_alerts is the SAME
-// evaluateAlerts output the /status page and the email push path use (memory /
-// swap / classify-lag / gmail-cooldown / disk-free etc.) so the digest does NOT
-// run a second stats engine — it renders whatever is currently red/amber.
+// MBOX-185 (FR-22) — the digest's health block. sent_24h answers "did the box
+// actually send for me yesterday?"; stuck_approved is the count of sends that
+// need the operator's attention — rows still at status='approved' after a send
+// was attempted (NOT drafts.status='failed', which is a dead stat: migration
+// 016 dropped 'failed' from the CHECK and send-side failures leave the row at
+// 'approved' per root CLAUDE.md). It's the same signal the dashboard's
+// StuckApproved banner surfaces, so the digest and the UI agree on "stuck after
+// send attempt". firing_alerts is the SAME evaluateAlerts output the /status
+// page and the email push path use (memory / swap / classify-lag /
+// gmail-cooldown / disk-free etc.) so the digest does NOT run a second stats
+// engine — it renders whatever is currently red/amber.
 export interface DigestHealth {
   sent_24h: number;
-  failed_24h: number;
+  stuck_approved: number;
   firing_alerts: Alert[];
 }
 
@@ -159,19 +165,22 @@ export async function getDigestPayload(opts: DigestPayloadOptions = {}): Promise
   return { counts_by_category, urgent_untouched, oldest_pending, health };
 }
 
-// MBOX-185 (FR-22) — digest health rollup. Reuses getDraftCounts24h for the
-// sent/failed counts and gatherFiringAlerts (the shared evaluateAlerts surface)
-// for the health stats, so the digest reports the same numbers the /status page
-// and the alert push path do. Fails closed: a failed health fetch degrades to
-// zeroed counts + no alerts rather than failing the whole digest render.
+// MBOX-185 (FR-22) — digest health rollup. sent_24h comes from
+// getDraftCounts24h; stuck_approved from getStuckApprovedCount (the live
+// "sends needing attention" signal — see that helper for why status='failed'
+// is NOT used). gatherFiringAlerts is the shared evaluateAlerts surface the
+// /status page and the alert push path use, so the digest reports the same
+// numbers everywhere. Fails closed: a failed sub-fetch degrades to zero / no
+// alerts rather than failing the whole digest render.
 export async function getDigestHealth(): Promise<DigestHealth> {
-  const [counts, firing_alerts] = await Promise.all([
-    getDraftCounts24h().catch(() => ({ sent: 0, failed: 0 })),
+  const [counts, stuck_approved, firing_alerts] = await Promise.all([
+    getDraftCounts24h().catch(() => ({ sent: 0 })),
+    getStuckApprovedCount().catch(() => 0),
     gatherFiringAlerts().catch(() => [] as Alert[]),
   ]);
   return {
     sent_24h: counts.sent,
-    failed_24h: counts.failed,
+    stuck_approved,
     firing_alerts,
   };
 }

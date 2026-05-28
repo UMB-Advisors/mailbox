@@ -13,7 +13,7 @@ const NOW = new Date('2026-05-22T09:00:00Z');
 // Default health block: no failures, no firing alerts. Tests that care about
 // health override it.
 function health(over: Partial<DigestHealth> = {}): DigestHealth {
-  return { sent_24h: 0, failed_24h: 0, firing_alerts: [], ...over };
+  return { sent_24h: 0, stuck_approved: 0, firing_alerts: [], ...over };
 }
 
 function emptyPayload(): DigestPayload {
@@ -137,14 +137,14 @@ describe('renderDigest', () => {
   });
 
   // MBOX-185 (FR-22) — health section.
-  it('renders the health section with sent/failed counts', () => {
+  it('renders the health section with sent / stuck-approved counts', () => {
     const payload = emptyPayload();
-    payload.health = health({ sent_24h: 12, failed_24h: 2 });
+    payload.health = health({ sent_24h: 12, stuck_approved: 2 });
     const { html } = renderDigest(payload, { now: NOW });
     expect(html).toContain('Appliance health');
     expect(html).toContain('12');
     expect(html).toContain('sent (24h)');
-    expect(html).toContain('send failures');
+    expect(html).toContain('sends needing attention');
   });
 
   it('shows "All systems nominal" when no health alerts are firing', () => {

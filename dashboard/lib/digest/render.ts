@@ -106,18 +106,18 @@ function headerSection(dateLabel: string, urgent: number, pending: number): stri
   </td></tr>`;
 }
 
-// MBOX-185 (FR-22) — appliance health block. Two stat chips (sent / failed in
-// the last 24h) plus a list of currently-firing health alerts (memory, swap,
-// classify-lag, gmail-cooldown, disk-free, etc.). When nothing is firing it
-// renders a single green "all systems nominal" line so the operator gets a
-// positive confirmation, not silence.
+// MBOX-185 (FR-22) — appliance health block. Two stat chips (sent in the last
+// 24h / sends needing attention) plus a list of currently-firing health alerts
+// (memory, swap, classify-lag, gmail-cooldown, disk-free, etc.). When nothing
+// is firing it renders a single green "all systems nominal" line so the
+// operator gets a positive confirmation, not silence.
 function healthSection(health: DigestHealth): string {
   const stats = `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${C.sub};">
         <strong style="color:${C.ink};">${health.sent_24h}</strong> sent (24h)
         &nbsp;·&nbsp;
-        <strong style="color:${health.failed_24h > 0 ? C.red : C.ink};">${health.failed_24h}</strong> send failures
+        <strong style="color:${health.stuck_approved > 0 ? C.red : C.ink};">${health.stuck_approved}</strong> sends needing attention
       </td>
     </tr></table>`;
 
