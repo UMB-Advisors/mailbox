@@ -1,4 +1,6 @@
-import { Check, Send, X } from 'lucide-react';
+'use client';
+
+import { Check, Pencil, Send, X } from 'lucide-react';
 import type { Category } from '@/lib/classification/prompt';
 import type { ActionItem, DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
@@ -6,6 +8,7 @@ import { ActionItemsPanel } from './ActionItemsPanel';
 import { ClassificationOverride } from './ClassificationOverride';
 import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
+import { InlineDraftEditor } from './InlineDraftEditor';
 import type { RejectPayload } from './RejectPopover';
 import { RoutingBadge } from './RoutingBadge';
 import { SenderHistoryPanel } from './SenderHistoryPanel';
@@ -17,7 +20,10 @@ export function DraftDetail({
   busy,
   readOnly = false,
   onApprove,
-  onEdit,
+  isEditing = false,
+  onEditStart,
+  onEditCancel,
+  onEditSave,
   onReject,
   onReclassify,
   rejectPopoverOpen,
@@ -27,7 +33,14 @@ export function DraftDetail({
   busy: ActionKind | null;
   readOnly?: boolean;
   onApprove: () => void;
-  onEdit: () => void;
+  // P2 (MBOX-162) — inline edit replaces the EditModal overlay. `isEditing`
+  // is controlled by QueueClient so the `e` keyboard shortcut can toggle it;
+  // onEditStart enters edit mode (the ActionButtons "Edit"), onEditSave
+  // persists via the edit route, onEditCancel exits without saving.
+  isEditing?: boolean;
+  onEditStart: () => void;
+  onEditCancel: () => void;
+  onEditSave: (body: string, subject: string | null) => Promise<void>;
   // STAQPRO-331 #1 — reject now carries structured feedback.
   onReject: (payload: RejectPayload) => void;
   // MBOX-123 — operator classification override (relabel only, no re-draft).
@@ -46,11 +59,19 @@ export function DraftDetail({
       <div className="border-b border-border px-5 py-3">
         {readOnly ? (
           <StatusBanner draft={draft} />
+        ) : isEditing ? (
+          // Approve/Reject are intentionally hidden while editing — the
+          // operator saves (or cancels) the inline edit first, then the action
+          // bar returns. Prevents approving the saved body mid-edit by mistake.
+          <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-ink-dim">
+            <Pencil size={14} aria-hidden />
+            <span>Editing draft</span>
+          </div>
         ) : (
           <ActionButtons
             busy={busy}
             onApprove={onApprove}
-            onEdit={onEdit}
+            onEdit={onEditStart}
             onReject={onReject}
             rejectPopoverOpen={rejectPopoverOpen}
             onRejectPopoverChange={onRejectPopoverChange}
@@ -66,15 +87,30 @@ export function DraftDetail({
             </span>
           )}
         </p>
-        {draft.draft_subject && (
-          <p className="mb-3 font-mono text-sm text-ink-muted">
-            <span className="text-ink-dim">Subject: </span>
-            {draft.draft_subject}
-          </p>
+        {isEditing && !readOnly ? (
+          // key={draft.id} resets the editor's working copy when the operator
+          // switches drafts (QueueClient also exits edit mode on selection
+          // change, so this is belt-and-suspenders).
+          <InlineDraftEditor
+            key={draft.id}
+            draft={draft}
+            saving={busy === 'edit'}
+            onSave={onEditSave}
+            onCancel={onEditCancel}
+          />
+        ) : (
+          <>
+            {draft.draft_subject && (
+              <p className="mb-3 font-mono text-sm text-ink-muted">
+                <span className="text-ink-dim">Subject: </span>
+                {draft.draft_subject}
+              </p>
+            )}
+            <pre className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
+              {draft.draft_body}
+            </pre>
+          </>
         )}
-        <pre className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
-          {draft.draft_body}
-        </pre>
         {/* MBOX-131 — structured action items extracted from the inbound +
             draft. Inline add/edit/delete persists via POST
             /api/drafts/[id]/action-items. `key={draft.id}` remounts the panel
