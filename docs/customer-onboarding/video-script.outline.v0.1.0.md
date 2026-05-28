@@ -5,7 +5,7 @@
 <!-- VIDEO: 3-5 min customer onboarding walkthrough — embed point for the finished help video once recorded on M1. Single source video for the whole doc set. -->
 
 ```yaml
-target_length: ~6 minutes
+target_length: ~5 minutes
 audience: small business operator, non-technical (originally scoped for CPG; v0.2 will rephrase for industry-agnostic positioning post 2026-05-08 CPG-scrub)
 tone: warm, calm, no jargon
 record_after: STAQPRO-152 wizard ships + screenshots captured
