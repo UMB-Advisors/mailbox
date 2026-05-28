@@ -6,14 +6,29 @@
 
 <!-- VOICEOVER: The appliance is now running. The first draft will hit the queue on the next 5-minute poll. -->
 
-- <!-- TODO(STAQPRO-132): bullet — what the customer sees (success card, countdown to next poll, "Open queue" CTA) -->
-- <!-- TODO(STAQPRO-132): bullet — what the appliance is doing in the background (Schedule trigger now polling Gmail every 5 min; sends the "you're live" confirmation email; persona extractor begins backfill ingest) -->
-- <!-- TODO(STAQPRO-132): bullet — what the customer needs to do (open the queue, watch for the first draft) -->
+- **What you see:** a success card confirming setup is done, a short countdown to the next inbox check, and an **Open queue** button that takes you to your approval queue.
+- **What the appliance is doing:** it starts checking your inbox every five minutes, sends you a short "you're live" confirmation email, and begins quietly learning your writing style from your recent sent mail so future drafts sound more like you.
+- **What you need to do:** click **Open queue** and keep an eye on it. The first draft appears within about five minutes of a new email arriving.
+
+## Where you'll work day to day
+
+Your home base from now on is the **approval queue** at:
+
+> `https://<your-appliance-address>/dashboard/queue`
+
+Bookmark it. Whenever a new email comes in that's worth a reply, the appliance writes a draft and puts it here. For each one you can:
+
+- **Approve** — send the draft as-is.
+- **Edit** — tweak the wording, then send.
+- **Reject** — discard the draft (nothing is sent).
+
+Nothing is ever sent without you approving it.
 
 ## Screenshots
 
-<!-- SCREENSHOT: complete-card (success state with countdown) -->
-<!-- SCREENSHOT: complete-confirmation-email (the "you're live" email arriving in their inbox) -->
+<!-- SCREENSHOT: M1 onboarding /onboarding/complete — success card with the next-check countdown and "Open queue" button -->
+<!-- SCREENSHOT: M1 operator inbox — the "you're live" confirmation email as it arrives -->
+<!-- SCREENSHOT: M1 dashboard /dashboard/queue — empty state, waiting for the first draft -->
 
 ## Voiceover beats
 
@@ -23,8 +38,16 @@
 
 ## Common questions
 
-<!-- TODO(STAQPRO-132): "What if no draft shows up?" (check that Gmail has unread mail; first poll up to 5 minutes) / "Can I undo this?" (yes — flip onboarding stage in support runbook) / "How do I add my brand voice?" (settings -> persona) -->
+**What if no draft shows up?** First, make sure there's actually new, unread mail in the connected inbox worth replying to — routine newsletters and obvious spam are skipped on purpose. The appliance checks every five minutes, so give it up to that long. If you've waited ten minutes with genuine new mail and still see nothing, see the troubleshooting page (`07-troubleshooting.md`).
+
+**Can I undo setup?** Yes — contact support and they can reset the appliance back to the start of onboarding.
+
+**How do I make drafts sound more like me?** They already use the name, brand, and signoff you set in Step 3, and they improve as the appliance reads more of your sent mail. You can fine-tune your voice any time from the settings page.
+
+**Will it ever send an email without me?** No. Every reply waits in the queue for you to approve, edit, or reject.
 
 ## What to do if it fails
 
-<!-- TODO(STAQPRO-132): no draft within 10 minutes -> check n8n execution log / "you're live" email never arrived -> check Gmail Sent + send-path probe -->
+**No draft appears within ten minutes, even though you have genuine new mail.** Open the troubleshooting page (`07-troubleshooting.md`) and check the **Classify lag** indicator on the status page first — that's the fastest way to tell whether the box is processing mail. (Support reference: check the workflow execution log and confirm all four workflows are active.)
+
+**The "you're live" confirmation email never arrived.** Check your spam folder. If it's not there, the appliance may not be able to send yet — see the **Gmail cooldown** section of the troubleshooting page. (Support reference: check Gmail Sent and run the send-path probe.)

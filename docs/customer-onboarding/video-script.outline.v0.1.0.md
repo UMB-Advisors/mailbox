@@ -1,5 +1,9 @@
 # Customer onboarding video — script outline (v0.1.0)
 
+> **Status: prose/outline complete; recording pending.** This outline is ready; the 3-5 minute help video itself is an operator/hardware task (record on M1 after the per-step screenshots are captured — MBOX-212 residual).
+
+<!-- VIDEO: 3-5 min customer onboarding walkthrough — embed point for the finished help video once recorded on M1. Single source video for the whole doc set. -->
+
 ```yaml
 target_length: ~6 minutes
 audience: small business operator, non-technical (originally scoped for CPG; v0.2 will rephrase for industry-agnostic positioning post 2026-05-08 CPG-scrub)
