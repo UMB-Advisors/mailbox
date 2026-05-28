@@ -161,6 +161,7 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 | 260518-v8j | STAQPRO-404: sandbox UI exploration — filter chips, sort, override popover, urgency badge, red-flag header, digest preview | 2026-05-19 | f0a185c | [260518-v8j-staqpro-404-sandbox-ui-exploration-filte](./quick/260518-v8j-staqpro-404-sandbox-ui-exploration-filte/) |
 | 260520-ulr | UMB-153 + UMB-154: pre-draft operator-domain filters (self-loop drop + operator-owns-thread drop) | 2026-05-21 | daf9664 | [260520-ulr-umb-153-umb-154-pre-draft-operator-domai](./quick/260520-ulr-umb-153-umb-154-pre-draft-operator-domai/) |
 | 260527-k3k | MBOX-345: n8n workflow expression lint — guards the MBOX-344 class (inserted node blanking downstream $json reads) in the CI gate | 2026-05-27 | 1e17133 | [260527-k3k-mbox-345-lint-n8n-workflow-expressions-t](./quick/260527-k3k-mbox-345-lint-n8n-workflow-expressions-t/) |
+| 260528-96q | MBOX-162 spike S1: multi-account T2 concurrency benchmark harness (build + unit-test only; hardware run is M1-gated) | 2026-05-28 | 82004dd | [260528-96q-mbox-162-s1-multi-account-concurrency-be](./quick/260528-96q-mbox-162-s1-multi-account-concurrency-be/) |
 
 ## Architectural Decision Record: Dashboard Stack Pivot
 
