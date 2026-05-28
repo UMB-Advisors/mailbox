@@ -22,13 +22,8 @@
 // hitting any network, /proc/meminfo, or real clock.
 
 import { readFileSync } from 'node:fs';
-
+import { type BakeOffPrompt, type ModelEndpoint, runBakeOffOnTrace } from './bake-off';
 import type { Trace } from './trace-set';
-import {
-  type BakeOffPrompt,
-  type ModelEndpoint,
-  runBakeOffOnTrace,
-} from './bake-off';
 
 // ── Constants ──────────────────────────────────────────────────────────
 

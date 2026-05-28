@@ -8,19 +8,18 @@
 //
 // Style mirrors bake-off.test.ts: vi-based stubs, @/ alias, makeTrace helper.
 
-import { describe, expect, it, afterEach, vi } from 'vitest';
-
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ModelEndpoint } from '@/lib/eval/bake-off';
 import {
   type AccountConfig,
-  type ConcurrencyBenchDeps,
   type ClassifyResult,
-  type IntervalHandle,
+  type ConcurrencyBenchDeps,
   evaluateS1Verdict,
+  type IntervalHandle,
   percentile,
   runConcurrencyBench,
 } from '@/lib/eval/concurrency-bench';
 import { TRACE_FORMAT_VERSION, type Trace } from '@/lib/eval/trace-set';
-import type { ModelEndpoint } from '@/lib/eval/bake-off';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -240,22 +239,19 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
       return classifyFn(account, trace, opts);
     };
 
-    await runConcurrencyBench(
-      ACCOUNTS,
-      [makeTrace()],
-      'serialized',
-      {
-        classifyFn: classifyFnTracked,
-        fetchFn,
-        readUsedMemGiB: () => 1.0,
-        setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle => {
-          // No-op sampler — no real timers in this test.
-          return 0 as unknown as IntervalHandle;
-        },
-        clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
-        memSampleIntervalMs: 99999,
+    await runConcurrencyBench(ACCOUNTS, [makeTrace()], 'serialized', {
+      classifyFn: classifyFnTracked,
+      fetchFn,
+      readUsedMemGiB: () => 1.0,
+      setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle => {
+        // No-op sampler — no real timers in this test.
+        return 0 as unknown as IntervalHandle;
       },
-    );
+      clearIntervalFn: (_h: IntervalHandle): void => {
+        /* no-op */
+      },
+      memSampleIntervalMs: 99999,
+    });
 
     // In serialized mode, account-1's classify must only fire after account-0's
     // classify has already been recorded.
@@ -305,20 +301,17 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
     // Run concurrently. Both classify calls fire synchronously (they resolve
     // immediately); the Promise.all means both are kicked off before either
     // draft resolves (drafts are blocked on their stalled fetchFn).
-    const benchPromise = runConcurrencyBench(
-      ACCOUNTS,
-      [makeTrace()],
-      'concurrent',
-      {
-        classifyFn,
-        fetchFn,
-        readUsedMemGiB: () => 1.0,
-        setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
-          0 as unknown as IntervalHandle,
-        clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
-        memSampleIntervalMs: 99999,
+    const benchPromise = runConcurrencyBench(ACCOUNTS, [makeTrace()], 'concurrent', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB: () => 1.0,
+      setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
+        0 as unknown as IntervalHandle,
+      clearIntervalFn: (_h: IntervalHandle): void => {
+        /* no-op */
       },
-    );
+      memSampleIntervalMs: 99999,
+    });
 
     // Flush microtasks so classify calls fire.
     await Promise.resolve();
@@ -382,7 +375,11 @@ describe('runConcurrencyBench — p95 computation (MBOX-162 S1)', () => {
       }),
     ) as unknown as typeof fetch;
 
-    const traces = [makeTrace({ inbox_message_id: 'msg-1' }), makeTrace({ inbox_message_id: 'msg-2' }), makeTrace({ inbox_message_id: 'msg-3' })];
+    const traces = [
+      makeTrace({ inbox_message_id: 'msg-1' }),
+      makeTrace({ inbox_message_id: 'msg-2' }),
+      makeTrace({ inbox_message_id: 'msg-3' }),
+    ];
 
     const result = await runConcurrencyBench(ACCOUNTS, traces, 'serialized', {
       classifyFn,
@@ -390,7 +387,9 @@ describe('runConcurrencyBench — p95 computation (MBOX-162 S1)', () => {
       readUsedMemGiB: () => 1.0,
       setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
         0 as unknown as IntervalHandle,
-      clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
+      clearIntervalFn: (_h: IntervalHandle): void => {
+        /* no-op */
+      },
       memSampleIntervalMs: 99999,
     });
 
@@ -448,19 +447,14 @@ describe('runConcurrencyBench — memory-sampler peak aggregation (MBOX-162 S1)'
       }),
     ) as unknown as typeof fetch;
 
-    const result = await runConcurrencyBench(
-      [ACCOUNTS[0]!],
-      [makeTrace()],
-      'serialized',
-      {
-        classifyFn,
-        fetchFn,
-        readUsedMemGiB,
-        setIntervalFn: setInterval, // real setInterval — fake timers intercept it
-        clearIntervalFn: clearInterval,
-        memSampleIntervalMs: 100,
-      },
-    );
+    const result = await runConcurrencyBench([ACCOUNTS[0]!], [makeTrace()], 'serialized', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB,
+      setIntervalFn: setInterval, // real setInterval — fake timers intercept it
+      clearIntervalFn: clearInterval,
+      memSampleIntervalMs: 100,
+    });
 
     // Sampled values: t0=1.0, interval@100ms=3.5, interval@200ms fired during advance=2.0,
     // plus the final post-bench sample. Peak must be 3.5 (or higher if more calls were made).
@@ -496,19 +490,14 @@ describe('runConcurrencyBench — memory-sampler peak aggregation (MBOX-162 S1)'
       }),
     ) as unknown as typeof fetch;
 
-    const result = await runConcurrencyBench(
-      [ACCOUNTS[0]!],
-      [makeTrace()],
-      'serialized',
-      {
-        classifyFn,
-        fetchFn,
-        readUsedMemGiB,
-        setIntervalFn: setInterval,
-        clearIntervalFn: clearInterval,
-        memSampleIntervalMs: 100,
-      },
-    );
+    const result = await runConcurrencyBench([ACCOUNTS[0]!], [makeTrace()], 'serialized', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB,
+      setIntervalFn: setInterval,
+      clearIntervalFn: clearInterval,
+      memSampleIntervalMs: 100,
+    });
 
     // Peak should equal Math.max of all sampled values.
     expect(result.peak_mem_gib).toBe(Math.max(...result.mem_samples_gib, 0));
