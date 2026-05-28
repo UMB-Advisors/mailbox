@@ -186,11 +186,15 @@ export async function saveToken(input: {
 }): Promise<void> {
   const enc = encryptToken(input.refreshToken);
   const pool = getPool();
+  // MBOX-348 — oauth_tokens PK reshaped to (provider, account_id). account_id is
+  // omitted from the column list so its DEFAULT (the single connected mailbox =
+  // default account) fills it; the conflict target matches the new composite PK.
+  // Per-account OAuth (V2) will resolve account_id explicitly here.
   await pool.query(
     `INSERT INTO mailbox.oauth_tokens
        (provider, refresh_token_enc, scope, account_email, connected_at, updated_at)
      VALUES ($1, $2, $3, $4, NOW(), NOW())
-     ON CONFLICT (provider) DO UPDATE
+     ON CONFLICT (provider, account_id) DO UPDATE
        SET refresh_token_enc = EXCLUDED.refresh_token_enc,
            scope = EXCLUDED.scope,
            account_email = EXCLUDED.account_email,

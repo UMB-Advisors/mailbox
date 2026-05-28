@@ -1113,12 +1113,14 @@ BEGIN
             RETURN NEW;
         END IF;
         INSERT INTO mailbox.sent_history (
+            account_id,
             draft_id, inbox_message_id, from_addr, to_addr, subject, body_text,
             thread_id, draft_original, draft_sent, draft_source,
             classification_category, classification_confidence, sent_at,
             rag_context_refs, rag_retrieval_reason, kb_context_refs, exemplar_refs,
             action_items
         ) VALUES (
+            NEW.account_id,
             NEW.id, NEW.inbox_message_id,
             COALESCE(NEW.from_addr, ''), COALESCE(NEW.to_addr, ''),
             NEW.subject, NEW.body_text, NEW.thread_id,

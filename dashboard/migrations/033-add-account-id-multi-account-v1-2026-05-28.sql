@@ -131,3 +131,44 @@ ALTER TABLE mailbox.oauth_tokens ADD CONSTRAINT oauth_tokens_pkey PRIMARY KEY (p
 --    unique constraints whose leading column is account_id.)
 CREATE INDEX drafts_account_id_idx ON mailbox.drafts (account_id);
 CREATE INDEX classification_log_account_id_idx ON mailbox.classification_log (account_id);
+
+-- 7. Carry account_id through the sent_history archival trigger so a sent draft
+--    archives under ITS account, not the column DEFAULT. Without this, a draft
+--    belonging to a second account would archive with the default account_id.
+--    Identical to migration 030's function except for the added account_id
+--    column (= NEW.account_id).
+CREATE OR REPLACE FUNCTION mailbox.archive_draft_to_sent_history()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent' THEN
+        IF EXISTS (SELECT 1 FROM mailbox.sent_history WHERE draft_id = NEW.id) THEN
+            RETURN NEW;
+        END IF;
+        INSERT INTO mailbox.sent_history (
+            account_id,
+            draft_id, inbox_message_id, from_addr, to_addr, subject, body_text,
+            thread_id, draft_original, draft_sent, draft_source,
+            classification_category, classification_confidence, sent_at,
+            rag_context_refs, rag_retrieval_reason, kb_context_refs, exemplar_refs,
+            action_items
+        ) VALUES (
+            NEW.account_id,
+            NEW.id, NEW.inbox_message_id,
+            COALESCE(NEW.from_addr, ''), COALESCE(NEW.to_addr, ''),
+            NEW.subject, NEW.body_text, NEW.thread_id,
+            COALESCE(NEW.original_draft_body, NEW.draft_body),
+            NEW.draft_body,
+            COALESCE(NEW.draft_source, 'local'),
+            COALESCE(NEW.classification_category, 'unknown'),
+            COALESCE(NEW.classification_confidence, 0.0),
+            COALESCE(NEW.sent_at, NOW()),
+            COALESCE(NEW.rag_context_refs, '[]'::jsonb),
+            COALESCE(NEW.rag_retrieval_reason, 'none'),
+            COALESCE(NEW.kb_context_refs, '[]'::jsonb),
+            COALESCE(NEW.exemplar_refs, '[]'::jsonb),
+            COALESCE(NEW.action_items, '[]'::jsonb)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;

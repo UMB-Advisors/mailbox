@@ -336,7 +336,11 @@ export async function upsertInbound(
       snippet: null,
       draft_id: null,
     })
-    .onConflict((oc) => oc.column('message_id').doNothing())
+    // MBOX-348 — dedup key reshaped to (account_id, message_id). account_id is
+    // omitted from values above so the column DEFAULT (the single connected
+    // mailbox = default account) fills it; the onboarding backfill is a
+    // single-account flow.
+    .onConflict((oc) => oc.columns(['account_id', 'message_id']).doNothing())
     .returning(['id'])
     .executeTakeFirst();
 
@@ -383,11 +387,13 @@ export async function upsertReply(
       sent_at: reply.sent_at,
       source: 'backfill',
     })
-    // Target the message_id column. Postgres will pick the partial unique
-    // index `sent_history_message_id_unique` that migration 011 created
-    // (WHERE message_id IS NOT NULL); since we always pass a non-null
-    // message_id here, that's the matching index.
-    .onConflict((oc) => oc.column('message_id').where('message_id', 'is not', null).doNothing())
+    // Target the partial unique index. MBOX-348 reshaped it to
+    // (account_id, message_id) WHERE message_id IS NOT NULL; account_id is
+    // omitted from values above so the column DEFAULT (default account) fills
+    // it — the onboarding backfill is single-account.
+    .onConflict((oc) =>
+      oc.columns(['account_id', 'message_id']).where('message_id', 'is not', null).doNothing(),
+    )
     .executeTakeFirst();
   const affected = r?.numInsertedOrUpdatedRows ?? BigInt(0);
   return affected === BigInt(0) ? 'existing' : 'inserted';
