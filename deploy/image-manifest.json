@@ -23,18 +23,18 @@
     "Do NOT hand-edit digests; let CI own them."
   ],
   "schema_version": 1,
-  "generated_at": null,
-  "git_sha": null,
+  "generated_at": "2026-05-28T02:10:57Z",
+  "git_sha": "d391f4f5ef0548fece1a52d25869173f305bae8a",
   "services": {
     "mailbox-dashboard": {
       "repo": "ghcr.io/umb-advisors/mailbox-dashboard",
-      "tag": "",
-      "digest": ""
+      "tag": "sha-d391f4f5ef0548fece1a52d25869173f305bae8a",
+      "digest": "sha256:afec43c16e8209ccad0c39fe3d161595621e15fa7739d8e22466e40c038c8475"
     },
     "mailbox-caddy": {
       "repo": "ghcr.io/umb-advisors/mailbox-caddy",
-      "tag": "",
-      "digest": ""
+      "tag": "sha-d391f4f5ef0548fece1a52d25869173f305bae8a",
+      "digest": "sha256:6cc2135db4a24f792650bba529286b55b63b9e9857c1873faf6ea0a063d501c5"
     }
   }
 }
