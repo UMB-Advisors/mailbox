@@ -3,10 +3,11 @@
 #
 # PURPOSE: Run ONCE on a freshly-flashed Jetson AFTER jetson-bootstrap-ssh.sh
 # and BEFORE `docker compose up -d`. Installs avahi-daemon, sets the hostname
-# to "mailbox" so the appliance advertises as mailbox.local on the LAN, and
+# (per-customer slug from /etc/mailbox-customer when stamped, else the static
+# "mailbox") so the appliance advertises as <hostname>.local on the LAN, and
 # drops the Avahi service record that tells browsers where the dashboard is.
 #
-# After this script the customer can open https://mailbox.local/ in any
+# After this script the customer can open https://<hostname>.local/ in any
 # browser on the same LAN, accept a one-time cert warning (Caddy local CA),
 # and land on the onboarding wizard — without knowing the appliance's IP.
 #
@@ -19,11 +20,12 @@
 # mailboxN device. If somehow that check passes and you're still unsure, stop
 # and verify `hostname` + `tailscale status` manually before continuing.
 #
-# v2 note (STAQPRO-409 slug-stamping): once factory-bootstrap.sh can read
-# /etc/mailbox-customer for a per-appliance slug, this script will set
-# the hostname to "<customer-slug>" instead of the static "mailbox". The
-# MAILBOX_LAN_HOSTNAME env var in .env is the Caddy-side seam for that same
-# slug. For now both are hardcoded to "mailbox" / "mailbox.local".
+# v2 (MBOX-158, implemented): this script reads /etc/mailbox-customer for a
+# per-appliance slug (stamped by factory-prep-nvme.sh) and sets the hostname to
+# "<customer-slug>" — avahi then advertises "<customer-slug>.local" via %h.
+# factory-prep-nvme.sh writes the matching MAILBOX_LAN_HOSTNAME=<slug>.local
+# into the appliance .env (the Caddy-side seam). Boxes without the stamp
+# (M1/M2) keep their existing hostname path: fall back to "mailbox".
 #
 # USAGE:
 #   sudo bash ./scripts/factory-bootstrap.sh
@@ -72,17 +74,35 @@ else
   echo "      installed"
 fi
 
-# ── Step 2: Set hostname to "mailbox" ───────────────────────────────────────
+# ── Step 2: Set hostname (per-customer slug if stamped, else "mailbox") ───────
 # %h in the avahi service file expands to the system hostname; the avahi-daemon
-# will then advertise this host as mailbox.local on the LAN multicast group.
-# v2 (STAQPRO-409): read /etc/mailbox-customer for the per-customer slug here.
-echo "[2/4] setting hostname to 'mailbox'"
-CURRENT_HOST="$(hostname)"
-if [[ "${CURRENT_HOST}" == "mailbox" ]]; then
-  echo "      already 'mailbox' — no change"
+# advertises this host as <hostname>.local on the LAN multicast group.
+# MBOX-158: factory-prep-nvme.sh stamps the customer slug into
+# /etc/mailbox-customer at packing time. When present, use it as the hostname so
+# avahi auto-advertises <slug>.local (matching MAILBOX_LAN_HOSTNAME in .env).
+# Absent (M1/M2, or a non-prepped box) → fall back to the static "mailbox".
+# Format of /etc/mailbox-customer: optional "# ..." comment lines, then the slug
+# on its own line. The same DNS-label regex as factory-prep-nvme.sh guards it.
+CUSTOMER_SLUG="mailbox"
+if [[ -f /etc/mailbox-customer ]]; then
+  STAMPED_SLUG="$(grep -vE '^[[:space:]]*(#|$)' /etc/mailbox-customer | head -1 | tr -d '[:space:]')"
+  if [[ "${STAMPED_SLUG}" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
+    CUSTOMER_SLUG="${STAMPED_SLUG}"
+    echo "[2/4] /etc/mailbox-customer present — using slug '${CUSTOMER_SLUG}'"
+  else
+    echo "[2/4] WARN: /etc/mailbox-customer present but slug '${STAMPED_SLUG}' is invalid" >&2
+    echo "      falling back to hostname 'mailbox'" >&2
+  fi
 else
-  hostnamectl set-hostname mailbox
-  echo "      hostname changed from '${CURRENT_HOST}' to 'mailbox'"
+  echo "[2/4] no /etc/mailbox-customer — using static hostname 'mailbox'"
+fi
+
+CURRENT_HOST="$(hostname)"
+if [[ "${CURRENT_HOST}" == "${CUSTOMER_SLUG}" ]]; then
+  echo "      hostname already '${CUSTOMER_SLUG}' — no change"
+else
+  hostnamectl set-hostname "${CUSTOMER_SLUG}"
+  echo "      hostname changed from '${CURRENT_HOST}' to '${CUSTOMER_SLUG}'"
 fi
 
 # ── Step 3: Install Avahi service record ─────────────────────────────────────
