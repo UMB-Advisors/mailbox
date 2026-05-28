@@ -37,15 +37,15 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
 
   if (stage === 'live' && !bypass) {
     return (
-      <main className="min-h-screen bg-neutral-950 px-4 py-12 text-neutral-100">
-        <div className="mx-auto max-w-md rounded-2xl border border-neutral-800 bg-neutral-900/40 p-6 text-center">
+      <main className="min-h-screen bg-bg-deep px-4 py-12 text-ink">
+        <div className="mx-auto max-w-md rounded-2xl border border-border bg-bg-surface p-6 text-center">
           <h1 className="text-lg font-semibold">Onboarding already complete</h1>
-          <p className="mt-2 text-sm text-neutral-400">
+          <p className="mt-2 text-sm text-ink-muted">
             This appliance is live. Open the queue to review pending drafts.
           </p>
           <Link
             href="/queue"
-            className="mt-4 inline-block rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-orange-400"
+            className="mt-4 inline-block rounded-lg bg-accent-orange px-4 py-2 text-sm font-semibold text-white hover:bg-accent-orange/90"
           >
             Go to queue
           </Link>
@@ -55,10 +55,10 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
   }
 
   return (
-    <main className="min-h-screen bg-neutral-950 px-4 py-8 text-neutral-100">
+    <main className="min-h-screen bg-bg-deep px-4 py-8 text-ink">
       <div className="mb-6 text-center">
-        <p className="text-xs uppercase tracking-widest text-neutral-500">MailBox One</p>
-        <p className="text-sm text-neutral-400">Appliance setup</p>
+        <p className="text-xs uppercase tracking-widest text-ink-dim">MailBox One</p>
+        <p className="text-sm text-ink-muted">Appliance setup</p>
       </div>
       {children}
     </main>

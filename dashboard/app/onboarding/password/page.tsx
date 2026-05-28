@@ -10,8 +10,8 @@ import { StepShell } from '../_components/StepShell';
 export default function PasswordPage() {
   return (
     <StepShell slug="password">
-      <h2 className="mb-2 text-sm font-semibold text-neutral-200">What this step will do</h2>
-      <ul className="list-disc space-y-1 pl-5 text-neutral-400">
+      <h2 className="mb-2 text-sm font-semibold text-ink">What this step will do</h2>
+      <ul className="list-disc space-y-1 pl-5 text-ink-muted">
         <li>
           Pick the username + password the appliance uses to gate the dashboard and n8n editor.
         </li>

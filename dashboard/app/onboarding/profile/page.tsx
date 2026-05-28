@@ -9,8 +9,8 @@ import { StepShell } from '../_components/StepShell';
 export default function ProfilePage() {
   return (
     <StepShell slug="profile">
-      <h2 className="mb-2 text-sm font-semibold text-neutral-200">What this step will do</h2>
-      <ul className="list-disc space-y-1 pl-5 text-neutral-400">
+      <h2 className="mb-2 text-sm font-semibold text-ink">What this step will do</h2>
+      <ul className="list-disc space-y-1 pl-5 text-ink-muted">
         <li>Collect operator first name and brand (used in draft greetings).</li>
         <li>Capture a default signoff string (e.g., "Thanks, Eric").</li>
         <li>Pre-populate the persona row so the very first draft already sounds like you.</li>
