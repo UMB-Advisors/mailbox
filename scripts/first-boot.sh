@@ -19,6 +19,17 @@
 #   5. LUKS Encrypt Data Partition
 #   6. Pre-pull Ollama Models
 #   7. Start Docker Compose Stack
+#   8. Run Database Migrations           (--profile migrate)
+#   9. Bootstrap Qdrant Collection       (--profile qdrant-bootstrap)
+#  10. Build qwen3:4b-ctx4k + pull nomic-embed-text (DR-18)
+#  11. Import n8n Workflows              (no credentials baked in)
+#  12. Import n8n Postgres Credential    (fresh-install gotcha — else classify fails silently)
+#  13. Verify All Six Services Healthy
+#
+# IDEMPOTENT: a 2nd run on a working box is a no-op. Each stage guards on
+# "already done" — never overwrites an existing .env, never re-pulls a present
+# model, never reimports a present workflow, and always passes --remove-orphans
+# on compose up. Full field validation (reset -> re-bootstrap on a box): MBOX-180.
 
 set -euo pipefail
 
@@ -30,6 +41,35 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly MAX_RETRIES=1
 readonly OLLAMA_IMAGE_DEFAULT="dustynv/ollama:0.18.4-r36.4-cu126-22.04"
+
+# Live container names (docker-compose default project = repo dir basename, but
+# the compose file pins these via container_name / the -1 suffix convention).
+readonly OLLAMA_CONTAINER="mailbox-ollama-1"
+readonly N8N_CONTAINER="mailbox-n8n-1"
+
+# DR-18 custom-ctx model. Base MUST be qwen3:4b-instruct, never the bare
+# qwen3:4b alias — that shifted to a thinking-trained variant 2026-05-05 and
+# breaks LOCAL drafts (STAQPRO-330). SoT: root CLAUDE.md Models table.
+readonly CTX_MODEL="qwen3:4b-ctx4k"
+readonly CTX_BASE_MODEL="qwen3:4b-instruct"
+readonly EMBED_MODEL="nomic-embed-text:v1.5"
+
+# Canonical n8n workflows imported from n8n/workflows/ (NO credentials baked in —
+# credential records are appliance-local and re-linked per Step 4 of the
+# onboarding runbook). Must match scripts/n8n-import-workflows.sh.
+readonly N8N_WORKFLOWS=(
+  "MailBOX.json"
+  "MailBOX-Classify.json"
+  "MailBOX-Draft.json"
+  "MailBOX-Send.json"
+  "MailBOX-Digest.json"
+)
+
+# Postgres credential ID hardcoded in MailBOX-Classify / MailBOX-Send. A fresh
+# appliance has no credential with this ID, so classify fails silently until
+# it's imported. We synthesize it from .env (see stage_import_n8n_pg_credential).
+# project memory: project_n8n_postgres_credential_gotcha.
+readonly N8N_PG_CRED_ID="JFX4tvrffvKnTouV"
 
 # Stage tracking for summary table
 declare -A STAGE_STATUS
@@ -748,6 +788,392 @@ diag_stage_start_compose() {
 }
 
 # ---------------------------------------------------------------------------
+# STAGE 8: Run Database Migrations
+# ---------------------------------------------------------------------------
+# Idempotent: the migration runner (dashboard/migrations/runner.ts) tracks
+# applied migrations and skips ones already run, so a 2nd invocation is a no-op
+# at the SQL level. We additionally skip the whole stage when the schema is
+# already present, to avoid the npm-install cost on a working box.
+
+stage_run_migrations() {
+  cd "${REPO_ROOT}"
+
+  # Already-done guard: if mailbox.drafts exists, migrations have run.
+  echo "Checking whether the mailbox schema already exists..."
+  local table_check
+  table_check=$(docker compose exec -T postgres \
+    psql -U "${POSTGRES_USER:-mailbox}" -d "${POSTGRES_DB:-mailbox}" -tAc \
+    "SELECT to_regclass('mailbox.drafts') IS NOT NULL;" 2>/dev/null | tr -d '[:space:]' || true)
+
+  if [[ "${table_check}" == "t" ]]; then
+    echo "mailbox.drafts already present — migrations already applied. Skipping."
+    return 0
+  fi
+
+  echo "Schema not present (or postgres not yet queryable). Running migrations..."
+  echo "Command: docker compose --profile migrate run --rm mailbox-migrate"
+  docker compose --profile migrate run --rm mailbox-migrate
+
+  echo ""
+  echo "Verifying mailbox.drafts now exists..."
+  table_check=$(docker compose exec -T postgres \
+    psql -U "${POSTGRES_USER:-mailbox}" -d "${POSTGRES_DB:-mailbox}" -tAc \
+    "SELECT to_regclass('mailbox.drafts') IS NOT NULL;" 2>/dev/null | tr -d '[:space:]' || true)
+  if [[ "${table_check}" != "t" ]]; then
+    echo "ERROR: migrations ran but mailbox.drafts not found."
+    return 1
+  fi
+  echo "Migrations applied."
+  return 0
+}
+
+diag_stage_run_migrations() {
+  cd "${REPO_ROOT}" 2>/dev/null || true
+  echo "  Postgres service status:"
+  docker compose ps postgres 2>/dev/null || true
+  echo ""
+  echo "  Last migrate run logs:"
+  docker compose --profile migrate logs mailbox-migrate --tail=30 2>/dev/null || true
+  echo ""
+  echo "  Common cause: POSTGRES_PASSWORD in .env does not match the value"
+  echo "  postgres was first initialized with (the volume keeps the original)."
+}
+
+# ---------------------------------------------------------------------------
+# STAGE 9: Bootstrap Qdrant Collection
+# ---------------------------------------------------------------------------
+# The bootstrap (npm run qdrant:bootstrap) is itself idempotent — PUT collection
+# + payload indexes are no-ops in Qdrant 1.13+ when already present (STAQPRO-188).
+# We still short-circuit on an existing email_messages collection to skip the
+# npm-install cost on a working box.
+
+stage_bootstrap_qdrant() {
+  cd "${REPO_ROOT}"
+
+  echo "Checking whether the email_messages Qdrant collection already exists..."
+  # Query Qdrant through a throwaway curl inside the qdrant container's network.
+  # The qdrant image lacks curl, so probe from the host via the compose-exposed
+  # service using a lightweight node:20-alpine sidecar on the default network.
+  local exists
+  exists=$(docker compose exec -T qdrant \
+    sh -c 'wget -qO- http://localhost:6333/collections/email_messages 2>/dev/null' 2>/dev/null || true)
+
+  if echo "${exists}" | grep -q '"status":"ok"'; then
+    echo "email_messages collection already present. Skipping bootstrap."
+    return 0
+  fi
+
+  echo "Collection not found. Running Qdrant bootstrap..."
+  echo "Command: docker compose --profile qdrant-bootstrap run --rm mailbox-qdrant-bootstrap"
+  docker compose --profile qdrant-bootstrap run --rm mailbox-qdrant-bootstrap
+
+  echo ""
+  echo "Verifying email_messages collection now exists..."
+  exists=$(docker compose exec -T qdrant \
+    sh -c 'wget -qO- http://localhost:6333/collections/email_messages 2>/dev/null' 2>/dev/null || true)
+  if ! echo "${exists}" | grep -q '"status":"ok"'; then
+    echo "ERROR: bootstrap ran but email_messages collection not found."
+    return 1
+  fi
+  echo "Qdrant collection bootstrapped."
+  return 0
+}
+
+diag_stage_bootstrap_qdrant() {
+  cd "${REPO_ROOT}" 2>/dev/null || true
+  echo "  Qdrant service status:"
+  docker compose ps qdrant 2>/dev/null || true
+  echo ""
+  echo "  Bootstrap run logs:"
+  docker compose --profile qdrant-bootstrap logs mailbox-qdrant-bootstrap --tail=30 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# STAGE 10: Build qwen3:4b-ctx4k + pull nomic-embed-text  (DR-18)
+# ---------------------------------------------------------------------------
+# Stage 6 pre-seeds the ollama_models volume against a temp container; here we
+# operate against the LIVE ollama service (same volume) once compose is up. Two
+# idempotency guards: skip the embed pull if present, skip the ctx4k create if
+# the tag already exists. The Modelfile is written via docker cp (ollama in this
+# version does not read `-f -` from stdin — see jetson-02 install plan v0.2).
+
+stage_build_ctx_model() {
+  cd "${REPO_ROOT}"
+
+  echo "Listing models currently in the live ollama service..."
+  local model_list
+  model_list=$(docker exec "${OLLAMA_CONTAINER}" ollama list 2>&1 || true)
+  echo "${model_list}"
+  echo ""
+
+  # --- nomic-embed-text:v1.5 (RAG embeddings) ---
+  if echo "${model_list}" | grep -q "nomic-embed-text"; then
+    echo "${EMBED_MODEL} already present — skipping pull."
+  else
+    echo "Pulling ${EMBED_MODEL}..."
+    docker exec "${OLLAMA_CONTAINER}" ollama pull "${EMBED_MODEL}"
+  fi
+
+  # --- qwen3:4b-ctx4k (DR-18 custom 4096-ctx classifier + local drafter) ---
+  if echo "${model_list}" | grep -q "${CTX_MODEL}"; then
+    echo "${CTX_MODEL} already present — skipping custom Modelfile build."
+  else
+    echo "Building ${CTX_MODEL} from ${CTX_BASE_MODEL} (num_ctx 4096)..."
+    # Ensure the base is present (creating from a missing base pulls it, but be
+    # explicit so a slow pull is visible rather than buried in `ollama create`).
+    if ! echo "${model_list}" | grep -q "${CTX_BASE_MODEL}"; then
+      echo "Base ${CTX_BASE_MODEL} missing — pulling first..."
+      docker exec "${OLLAMA_CONTAINER}" ollama pull "${CTX_BASE_MODEL}"
+    fi
+
+    local modelfile="/tmp/Modelfile.qwen3-4b-ctx4k"
+    cat > "${modelfile}" << EOF
+FROM ${CTX_BASE_MODEL}
+PARAMETER temperature 0.7
+PARAMETER top_k 20
+PARAMETER top_p 0.8
+PARAMETER num_ctx 4096
+PARAMETER stop <|im_start|>
+PARAMETER stop <|im_end|>
+EOF
+    docker cp "${modelfile}" "${OLLAMA_CONTAINER}:/tmp/Modelfile"
+    rm -f "${modelfile}"
+    docker exec "${OLLAMA_CONTAINER}" ollama create "${CTX_MODEL}" -f /tmp/Modelfile
+    docker exec "${OLLAMA_CONTAINER}" rm -f /tmp/Modelfile 2>/dev/null || true
+  fi
+
+  echo ""
+  echo "Verifying both models are now present in the live ollama service..."
+  model_list=$(docker exec "${OLLAMA_CONTAINER}" ollama list 2>&1 || true)
+  if ! echo "${model_list}" | grep -q "${CTX_MODEL}"; then
+    echo "ERROR: ${CTX_MODEL} not found after build."
+    return 1
+  fi
+  if ! echo "${model_list}" | grep -q "nomic-embed-text"; then
+    echo "ERROR: nomic-embed-text not found after pull."
+    return 1
+  fi
+  echo "${CTX_MODEL} + ${EMBED_MODEL} ready."
+  return 0
+}
+
+diag_stage_build_ctx_model() {
+  echo "  Live ollama models:"
+  docker exec "${OLLAMA_CONTAINER}" ollama list 2>&1 || echo "  (ollama container not reachable: ${OLLAMA_CONTAINER})"
+  echo ""
+  echo "  Disk space:"
+  df -h 2>/dev/null || true
+  echo ""
+  echo "  NOTE: base model MUST be ${CTX_BASE_MODEL}, never the bare qwen3:4b"
+  echo "  alias (thinking-trained variant — STAQPRO-330)."
+}
+
+# ---------------------------------------------------------------------------
+# STAGE 11: Import n8n Workflows
+# ---------------------------------------------------------------------------
+# Imports the canonical workflow JSON from n8n/workflows/ WITHOUT credentials
+# baked in (credential records are appliance-local, re-linked per onboarding
+# Step 4). Idempotency: n8n import:workflow upserts by the workflow's stable id,
+# so re-import is safe; we additionally skip a workflow whose name is already
+# present in n8n's DB to avoid churn on a working box.
+
+stage_import_n8n_workflows() {
+  cd "${REPO_ROOT}"
+
+  echo "Reading existing workflow names from n8n..."
+  local existing
+  existing=$(docker exec "${N8N_CONTAINER}" n8n list:workflow 2>/dev/null || true)
+  echo "${existing:-<none>}"
+  echo ""
+
+  local in_dir="${REPO_ROOT}/n8n/workflows"
+  local imported=0
+  local skipped=0
+  local filename name
+
+  for filename in "${N8N_WORKFLOWS[@]}"; do
+    local in_path="${in_dir}/${filename}"
+    if [[ ! -f "${in_path}" ]]; then
+      echo "  [skip] ${filename} (not found at ${in_path})"
+      continue
+    fi
+
+    # Workflow display name is the JSON basename minus .json (matches repo
+    # naming: MailBOX, MailBOX-Classify, ...).
+    name="${filename%.json}"
+
+    if echo "${existing}" | grep -qw "${name}"; then
+      echo "  [have] ${name} already imported — skipping."
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    echo "  [import] ${filename}"
+    docker cp "${in_path}" "${N8N_CONTAINER}:/tmp/${filename}"
+    docker exec "${N8N_CONTAINER}" n8n import:workflow --input="/tmp/${filename}"
+    docker exec "${N8N_CONTAINER}" rm -f "/tmp/${filename}" 2>/dev/null || true
+    imported=$((imported + 1))
+  done
+
+  echo ""
+  echo "Workflows imported: ${imported}, already present: ${skipped}."
+  echo "NOTE: imported workflows start INACTIVE. Activation + credential"
+  echo "re-link is operator work (onboarding Step 4); the n8n-verify gate"
+  echo "(Stage 13 below / 'mailbox-n8n-verify' profile) confirms active state."
+  return 0
+}
+
+diag_stage_import_n8n_workflows() {
+  echo "  n8n service status:"
+  docker exec "${N8N_CONTAINER}" n8n list:workflow 2>&1 || echo "  (n8n container not reachable: ${N8N_CONTAINER})"
+  echo ""
+  echo "  Workflow source dir:"
+  ls -la "${REPO_ROOT}/n8n/workflows/" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# STAGE 12: Import n8n Postgres Credential  (fresh-install gotcha)
+# ---------------------------------------------------------------------------
+# MailBOX-Classify / MailBOX-Send reference Postgres credential id
+# JFX4tvrffvKnTouV. A fresh appliance has no credential with that id, so classify
+# fails SILENTLY. We synthesize the credential from .env and import it by that
+# stable id (n8n import:credentials upserts by id → idempotent).
+#
+# Gmail OAuth (id vEz5mz0uaAtlK8yz) is intentionally NOT handled here — it needs
+# the interactive Google consent flow and must be created in the n8n UI
+# (onboarding Step 4). This stage covers ONLY the non-interactive Postgres cred.
+
+stage_import_n8n_pg_credential() {
+  cd "${REPO_ROOT}"
+
+  # Pull Postgres connection values from .env (already created by Stage 7).
+  local pg_user pg_pass pg_db
+  pg_user="${POSTGRES_USER:-mailbox}"
+  pg_pass="${POSTGRES_PASSWORD:-}"
+  pg_db="${POSTGRES_DB:-mailbox}"
+
+  if [[ -z "${pg_pass}" ]]; then
+    echo "WARNING: POSTGRES_PASSWORD not set in environment — cannot synthesize"
+    echo "the n8n Postgres credential. Import it manually per onboarding Step 4,"
+    echo "or set POSTGRES_PASSWORD in .env and re-run. Continuing."
+    return 0
+  fi
+
+  # Already-done guard: skip if a credential with this id already exists.
+  echo "Checking whether n8n Postgres credential ${N8N_PG_CRED_ID} already exists..."
+  local existing_creds
+  existing_creds=$(docker exec "${N8N_CONTAINER}" n8n list:credentials 2>/dev/null || true)
+  if echo "${existing_creds}" | grep -q "${N8N_PG_CRED_ID}"; then
+    echo "Credential ${N8N_PG_CRED_ID} already present — skipping import."
+    return 0
+  fi
+
+  echo "Credential not found. Synthesizing from .env and importing..."
+
+  # Build the credential JSON. n8n import:credentials accepts an array of
+  # credential objects; data is encrypted on import with N8N_ENCRYPTION_KEY.
+  # Service name 'postgres' = compose DNS for the DB container.
+  local creds_file="/tmp/n8n-pg-credential.json"
+  cat > "${creds_file}" << EOF
+[
+  {
+    "id": "${N8N_PG_CRED_ID}",
+    "name": "MailBOX Postgres",
+    "type": "postgres",
+    "data": {
+      "host": "postgres",
+      "port": 5432,
+      "database": "${pg_db}",
+      "user": "${pg_user}",
+      "password": "${pg_pass}",
+      "ssl": "disable"
+    }
+  }
+]
+EOF
+
+  docker cp "${creds_file}" "${N8N_CONTAINER}:/tmp/n8n-pg-credential.json"
+  # Remove the host-side plaintext copy immediately.
+  rm -f "${creds_file}"
+  docker exec "${N8N_CONTAINER}" n8n import:credentials --input="/tmp/n8n-pg-credential.json"
+  # Remove the in-container plaintext copy (n8n has already encrypted it to its DB).
+  docker exec "${N8N_CONTAINER}" rm -f /tmp/n8n-pg-credential.json 2>/dev/null || true
+
+  echo ""
+  echo "Verifying credential ${N8N_PG_CRED_ID} is now present..."
+  existing_creds=$(docker exec "${N8N_CONTAINER}" n8n list:credentials 2>/dev/null || true)
+  if ! echo "${existing_creds}" | grep -q "${N8N_PG_CRED_ID}"; then
+    echo "ERROR: Postgres credential import did not register id ${N8N_PG_CRED_ID}."
+    return 1
+  fi
+  echo "Postgres credential imported. (Gmail OAuth remains manual — Step 4.)"
+  return 0
+}
+
+diag_stage_import_n8n_pg_credential() {
+  echo "  n8n credentials list:"
+  docker exec "${N8N_CONTAINER}" n8n list:credentials 2>&1 || echo "  (n8n container not reachable: ${N8N_CONTAINER})"
+  echo ""
+  echo "  Expected Postgres credential id: ${N8N_PG_CRED_ID}"
+  echo "  If import failed, confirm POSTGRES_PASSWORD is set in .env and that"
+  echo "  N8N_ENCRYPTION_KEY is stable (changing it orphans existing credentials)."
+}
+
+# ---------------------------------------------------------------------------
+# STAGE 13: Verify All Six Services Healthy
+# ---------------------------------------------------------------------------
+# Final gate: confirm the 6 core services (postgres, qdrant, ollama, n8n, caddy,
+# mailbox-dashboard) are running/healthy. Profile-only services (migrate,
+# qdrant-bootstrap, n8n-verify, llama-cpp) are NOT expected to be running here.
+# Read-only — safe to re-run.
+
+stage_verify_services() {
+  cd "${REPO_ROOT}"
+
+  local core_services=(postgres qdrant ollama n8n caddy mailbox-dashboard)
+  local svc state missing=0
+
+  echo "Checking the six core services..."
+  echo ""
+  printf "%-22s %s\n" "Service" "State"
+  printf "%-22s %s\n" "-------" "-----"
+
+  for svc in "${core_services[@]}"; do
+    # docker compose ps emits the running/health state; empty = not running.
+    state=$(docker compose ps --format '{{.State}}' "${svc}" 2>/dev/null | head -1 || true)
+    if [[ -z "${state}" ]]; then
+      state="NOT RUNNING"
+      missing=$((missing + 1))
+    elif [[ "${state}" != "running" ]]; then
+      missing=$((missing + 1))
+    fi
+    printf "%-22s %s\n" "${svc}" "${state}"
+  done
+
+  echo ""
+  if [[ "${missing}" -ne 0 ]]; then
+    echo "ERROR: ${missing} core service(s) not running. See 'docker compose ps' above."
+    return 1
+  fi
+
+  echo "All six core services are running."
+  echo ""
+  echo "n8n activation gate (workflows must be active=true or the pipeline"
+  echo "dark-classifies). Run the canonical gate after credential re-link:"
+  echo "  docker compose --profile n8n-verify run --rm mailbox-n8n-verify"
+  return 0
+}
+
+diag_stage_verify_services() {
+  cd "${REPO_ROOT}" 2>/dev/null || true
+  echo "  Full compose status:"
+  docker compose ps 2>/dev/null || true
+  echo ""
+  echo "  Recent logs:"
+  docker compose logs --tail=20 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # Main execution
 # ---------------------------------------------------------------------------
 
@@ -772,6 +1198,12 @@ main() {
   echo "  5. LUKS Encrypt Data Partition"
   echo "  6. Pre-pull Ollama Models"
   echo "  7. Start Docker Compose Stack"
+  echo "  8. Run Database Migrations"
+  echo "  9. Bootstrap Qdrant Collection"
+  echo " 10. Build qwen3:4b-ctx4k + pull nomic-embed-text"
+  echo " 11. Import n8n Workflows"
+  echo " 12. Import n8n Postgres Credential"
+  echo " 13. Verify All Six Services Healthy"
   echo ""
   echo "Press Enter to begin, or Ctrl+C to abort..."
   read -r _
@@ -802,6 +1234,41 @@ main() {
 
   # Stage 7: Start Compose
   run_stage "Stage 7: Start Docker Compose Stack" stage_start_compose
+  pause_for_verification
+
+  # Stages 8-13 operate against the LIVE compose stack. They need the .env
+  # Postgres values in the script environment (Stage 7 created/copied .env but
+  # did not export it). Source it now; set -a so the simple KEY=VALUE lines
+  # become exported vars. Bcrypt $$ escaping is Compose-only — harmless here.
+  if [[ -f "${REPO_ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${REPO_ROOT}/.env"
+    set +a
+  fi
+
+  # Stage 8: Migrations
+  run_stage "Stage 8: Run Database Migrations" stage_run_migrations
+  pause_for_verification
+
+  # Stage 9: Qdrant bootstrap
+  run_stage "Stage 9: Bootstrap Qdrant Collection" stage_bootstrap_qdrant
+  pause_for_verification
+
+  # Stage 10: Build custom ctx model + pull embed model
+  run_stage "Stage 10: Build qwen3:4b-ctx4k + nomic-embed-text" stage_build_ctx_model
+  pause_for_verification
+
+  # Stage 11: Import n8n workflows (no credentials baked in)
+  run_stage "Stage 11: Import n8n Workflows" stage_import_n8n_workflows
+  pause_for_verification
+
+  # Stage 12: Import n8n Postgres credential (fresh-install gotcha)
+  run_stage "Stage 12: Import n8n Postgres Credential" stage_import_n8n_pg_credential
+  pause_for_verification
+
+  # Stage 13: Verify all six services healthy
+  run_stage "Stage 13: Verify All Six Services Healthy" stage_verify_services
 
   # ---------------------------------------------------------------------------
   # Summary
@@ -817,9 +1284,22 @@ main() {
   printf "%-40s %s\n" "Stage 5: LUKS Encrypt Data Partition"  "${STAGE_STATUS["Stage 5: LUKS Encrypt Data Partition"]:-UNKNOWN}"
   printf "%-40s %s\n" "Stage 6: Pre-pull Ollama Models"       "${STAGE_STATUS["Stage 6: Pre-pull Ollama Models"]:-UNKNOWN}"
   printf "%-40s %s\n" "Stage 7: Start Docker Compose Stack"   "${STAGE_STATUS["Stage 7: Start Docker Compose Stack"]:-UNKNOWN}"
+  printf "%-40s %s\n" "Stage 8: Run Database Migrations"      "${STAGE_STATUS["Stage 8: Run Database Migrations"]:-UNKNOWN}"
+  printf "%-40s %s\n" "Stage 9: Bootstrap Qdrant Collection"  "${STAGE_STATUS["Stage 9: Bootstrap Qdrant Collection"]:-UNKNOWN}"
+  printf "%-40s %s\n" "Stage 10: Build qwen3:4b-ctx4k + nomic-embed-text" "${STAGE_STATUS["Stage 10: Build qwen3:4b-ctx4k + nomic-embed-text"]:-UNKNOWN}"
+  printf "%-40s %s\n" "Stage 11: Import n8n Workflows"        "${STAGE_STATUS["Stage 11: Import n8n Workflows"]:-UNKNOWN}"
+  printf "%-40s %s\n" "Stage 12: Import n8n Postgres Credential" "${STAGE_STATUS["Stage 12: Import n8n Postgres Credential"]:-UNKNOWN}"
+  printf "%-40s %s\n" "Stage 13: Verify All Six Services Healthy" "${STAGE_STATUS["Stage 13: Verify All Six Services Healthy"]:-UNKNOWN}"
 
   echo ""
-  echo "First-boot complete. Run scripts/smoke-test.sh to verify all services."
+  echo "First-boot complete. Run scripts/smoke-test.sh to verify infra (GPU/Qdrant/Postgres)."
+  echo ""
+  echo "REMAINING operator work (interactive — cannot be automated):"
+  echo "  - Gmail OAuth2 credential (n8n UI, Google consent) — onboarding Step 4."
+  echo "  - Re-link each workflow's credential nodes, then ACTIVATE all four"
+  echo "    MailBOX* workflows + restart n8n. Confirm with the n8n-verify gate:"
+  echo "      docker compose --profile n8n-verify run --rm mailbox-n8n-verify"
+  echo "  - Caddy basic_auth, persona overrides, cloud key — see customer-onboarding runbook."
   echo ""
 }
 
