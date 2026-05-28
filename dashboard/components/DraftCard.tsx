@@ -36,6 +36,9 @@ export function DraftCard({
   const m = draft.message;
   const fromName =
     m.from_addr?.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim() || m.from_addr?.split('@')[0] || 'unknown';
+  // P1b (MBOX-162) — sandbox sender avatar. Deterministic color from the
+  // address so the same counterparty always reads the same bubble.
+  const avatarSeed = m.from_addr || fromName;
 
   const accountLabel = draft.account?.display_label || draft.account?.email_address || null;
   const signals = draft.urgency?.signals ?? [];
@@ -59,10 +62,21 @@ export function DraftCard({
           : 'border-l-transparent hover:bg-bg-panel/60'
       }`}
     >
-      <span
-        className={`shrink-0 h-2 w-2 rounded-full ${indicator.dotColor}`}
-        title={indicator.title}
-      />
+      {/* P1b — sandbox avatar bubble. The classification/status color signal
+          (formerly the standalone 2px dot) is preserved as a corner overlay so
+          confidence/disposition color is not lost in the reskin. */}
+      <span className="relative shrink-0" title={indicator.title}>
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold text-white ${senderColor(
+            avatarSeed,
+          )}`}
+        >
+          {senderInitial(fromName)}
+        </span>
+        <span
+          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg-deep ${indicator.dotColor}`}
+        />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="min-w-0 truncate text-sm font-medium text-ink">{fromName}</span>
@@ -115,6 +129,29 @@ export function DraftCard({
       </div>
     </button>
   );
+}
+
+// P1b — ported verbatim from the sandbox (`src/App.tsx`). Deterministic
+// per-sender avatar so the same counterparty reads the same bubble color.
+function senderInitial(name: string): string {
+  if (!name) return '?';
+  return name[0].toUpperCase();
+}
+
+function senderColor(addr: string): string {
+  const palette = [
+    'bg-rose-500',
+    'bg-amber-500',
+    'bg-emerald-500',
+    'bg-blue-500',
+    'bg-violet-500',
+    'bg-pink-500',
+    'bg-teal-500',
+    'bg-orange-500',
+  ];
+  let h = 0;
+  for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
 }
 
 function classificationIndicator(classification: string | null, confidence: string | null) {
