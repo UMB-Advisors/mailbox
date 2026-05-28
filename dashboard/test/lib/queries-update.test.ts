@@ -1,34 +1,37 @@
-// MBOX-184 — unit tests for the read-only "Update available" detector.
+// MBOX-184 / MBOX-347 — unit tests for the read-only "Update available"
+// detector.
 //
-// Same convention as queries-orphans.test.ts / queries-docker.test.ts: inject
-// the manifest JSON + a pre-resolved running-container list so the suite runs
-// identically on macOS dev and the Jetson with no docker daemon and no repo
-// bind mount.
+// MBOX-347 reworked the source of the "latest published" digest from a
+// committed manifest file to a runtime GHCR registry read. These tests inject
+// the resolved registry digests (opts.registryDigests) + a pre-resolved
+// running-container list (opts.runningContainers), so the suite runs
+// identically on macOS dev and the Jetson with no docker daemon and no network
+// to ghcr.io — same injection convention as queries-orphans/queries-docker.
 
-import { describe, expect, it } from 'vitest';
-import { checkUpdateAvailability, expectedContainerName, shortDigest } from '@/lib/queries-update';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  __clearRegistryCache,
+  checkUpdateAvailability,
+  expectedContainerName,
+  type RegistryDigestClient,
+  shortDigest,
+} from '@/lib/queries-update';
 
 const DASH_DIGEST_A = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const DASH_DIGEST_B = 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const CADDY_DIGEST = 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
 
-function manifest(dashDigest: string, caddyDigest: string): string {
-  return JSON.stringify({
-    schema_version: 1,
-    services: {
-      'mailbox-dashboard': {
-        repo: 'ghcr.io/umb-advisors/mailbox-dashboard',
-        tag: 'abc1234',
-        digest: dashDigest,
-      },
-      'mailbox-caddy': {
-        repo: 'ghcr.io/umb-advisors/mailbox-caddy',
-        tag: 'abc1234',
-        digest: caddyDigest,
-      },
-    },
-  });
+/** Build an injected registry-digest map keyed by service. */
+function registry(dashDigest: string, caddyDigest: string) {
+  return {
+    'mailbox-dashboard': { digest: dashDigest },
+    'mailbox-caddy': { digest: caddyDigest },
+  };
 }
+
+afterEach(() => {
+  __clearRegistryCache();
+});
 
 describe('expectedContainerName — MBOX-184', () => {
   it('uses the explicit container_name override for mailbox-dashboard', () => {
@@ -39,7 +42,7 @@ describe('expectedContainerName — MBOX-184', () => {
     expect(expectedContainerName('mailbox-caddy', 'mailbox')).toBe('mailbox-caddy-1');
   });
 
-  it('returns null for an unmapped manifest key', () => {
+  it('returns null for an unmapped service key', () => {
     expect(expectedContainerName('nope', 'mailbox')).toBeNull();
   });
 });
@@ -57,9 +60,9 @@ describe('shortDigest', () => {
 });
 
 describe('checkUpdateAvailability — comparison cases', () => {
-  it('reports up_to_date when running digest matches the manifest', async () => {
+  it('reports up_to_date when running digest matches the registry digest', async () => {
     const r = await checkUpdateAvailability({
-      manifestJson: manifest(DASH_DIGEST_A, CADDY_DIGEST),
+      registryDigests: registry(DASH_DIGEST_A, CADDY_DIGEST),
       runningContainers: [
         {
           name: 'mailbox-dashboard',
@@ -75,11 +78,12 @@ describe('checkUpdateAvailability — comparison cases', () => {
     expect(r.update_available).toBe(false);
     const dash = r.services.find((s) => s.service === 'mailbox-dashboard');
     expect(dash?.state).toBe('up_to_date');
+    expect(dash?.manifest_tag).toBe('latest');
   });
 
-  it('reports update_available when the manifest digest differs from running', async () => {
+  it('reports update_available when the registry digest differs from running', async () => {
     const r = await checkUpdateAvailability({
-      manifestJson: manifest(DASH_DIGEST_B, CADDY_DIGEST),
+      registryDigests: registry(DASH_DIGEST_B, CADDY_DIGEST),
       runningContainers: [
         {
           name: 'mailbox-dashboard',
@@ -102,7 +106,7 @@ describe('checkUpdateAvailability — comparison cases', () => {
 
   it('reports local_build for a tag-only running image (M1 up -d --build path)', async () => {
     const r = await checkUpdateAvailability({
-      manifestJson: manifest(DASH_DIGEST_A, CADDY_DIGEST),
+      registryDigests: registry(DASH_DIGEST_A, CADDY_DIGEST),
       runningContainers: [
         {
           name: 'mailbox-dashboard',
@@ -120,9 +124,12 @@ describe('checkUpdateAvailability — comparison cases', () => {
     expect(dash?.state).toBe('local_build');
   });
 
-  it('reports no_manifest when the published digest is the empty sentinel', async () => {
+  it('reports no_manifest when the registry has nothing published for the tag', async () => {
     const r = await checkUpdateAvailability({
-      manifestJson: manifest('', ''),
+      registryDigests: {
+        'mailbox-dashboard': { error: 'not_published' },
+        'mailbox-caddy': { error: 'not_published' },
+      },
       runningContainers: [
         {
           name: 'mailbox-dashboard',
@@ -133,11 +140,32 @@ describe('checkUpdateAvailability — comparison cases', () => {
     expect(r.update_available).toBe(false);
     const dash = r.services.find((s) => s.service === 'mailbox-dashboard');
     expect(dash?.state).toBe('no_manifest');
+    expect(dash?.detail).toContain('no published image');
+  });
+
+  it('reports no_manifest with the failure reason on a registry read error', async () => {
+    const r = await checkUpdateAvailability({
+      registryDigests: {
+        'mailbox-dashboard': { error: 'ghcr manifest read returned HTTP 503' },
+        'mailbox-caddy': { digest: CADDY_DIGEST },
+      },
+      runningContainers: [
+        {
+          name: 'mailbox-dashboard',
+          image: `ghcr.io/umb-advisors/mailbox-dashboard@${DASH_DIGEST_A}`,
+        },
+      ],
+    });
+    // A transient registry failure must NOT assert an update.
+    expect(r.update_available).toBe(false);
+    const dash = r.services.find((s) => s.service === 'mailbox-dashboard');
+    expect(dash?.state).toBe('no_manifest');
+    expect(dash?.detail).toContain('HTTP 503');
   });
 
   it('reports not_running when the expected container is absent', async () => {
     const r = await checkUpdateAvailability({
-      manifestJson: manifest(DASH_DIGEST_A, CADDY_DIGEST),
+      registryDigests: registry(DASH_DIGEST_A, CADDY_DIGEST),
       runningContainers: [],
     });
     expect(r.update_available).toBe(false);
@@ -147,22 +175,67 @@ describe('checkUpdateAvailability — comparison cases', () => {
 });
 
 describe('checkUpdateAvailability — degraded paths', () => {
-  it('degrades with a reason on unparseable manifest JSON', async () => {
-    const r = await checkUpdateAvailability({
-      manifestJson: 'not-json{',
-      runningContainers: [],
-    });
-    expect(r.update_available).toBe(false);
-    expect(r.reason).toMatch(/not valid JSON/);
-    expect(r.services).toEqual([]);
-  });
-
   it('degrades with the docker reason when the socket is unavailable', async () => {
     const r = await checkUpdateAvailability({
-      manifestJson: manifest(DASH_DIGEST_A, CADDY_DIGEST),
+      registryDigests: registry(DASH_DIGEST_A, CADDY_DIGEST),
       runningContainers: { unavailable: 'docker socket /var/run/docker.sock not present' },
     });
     expect(r.update_available).toBe(false);
     expect(r.reason).toMatch(/docker socket/);
+    expect(r.services).toEqual([]);
+  });
+});
+
+describe('checkUpdateAvailability — registry client + cache', () => {
+  it('resolves digests through an injected registry client (per-service repo + tag)', async () => {
+    const calls: Array<{ image: string; tag: string }> = [];
+    const client: RegistryDigestClient = async (image, tag) => {
+      calls.push({ image, tag });
+      return image.endsWith('mailbox-dashboard')
+        ? { digest: DASH_DIGEST_A }
+        : { digest: CADDY_DIGEST };
+    };
+    const r = await checkUpdateAvailability({
+      registryClient: client,
+      noCache: true,
+      runningContainers: [
+        {
+          name: 'mailbox-dashboard',
+          image: `ghcr.io/umb-advisors/mailbox-dashboard@${DASH_DIGEST_A}`,
+        },
+      ],
+    });
+    expect(calls).toContainEqual({ image: 'umb-advisors/mailbox-dashboard', tag: 'latest' });
+    expect(calls).toContainEqual({ image: 'umb-advisors/mailbox-caddy', tag: 'latest' });
+    const dash = r.services.find((s) => s.service === 'mailbox-dashboard');
+    expect(dash?.state).toBe('up_to_date');
+  });
+
+  it('honors a custom namespace + channel tag', async () => {
+    const calls: Array<{ image: string; tag: string }> = [];
+    const client: RegistryDigestClient = async (image, tag) => {
+      calls.push({ image, tag });
+      return { digest: DASH_DIGEST_A };
+    };
+    await checkUpdateAvailability({
+      registryClient: client,
+      registryNamespace: 'acme',
+      channelTag: 'stable',
+      noCache: true,
+      runningContainers: [],
+    });
+    expect(calls).toContainEqual({ image: 'acme/mailbox-dashboard', tag: 'stable' });
+  });
+
+  it('caches registry reads within the TTL (one call per service across two checks)', async () => {
+    const client = vi.fn<RegistryDigestClient>(async () => ({ digest: DASH_DIGEST_A }));
+    const opts = {
+      registryClient: client as RegistryDigestClient,
+      runningContainers: [] as Array<{ name: string; image: string }>,
+    };
+    await checkUpdateAvailability(opts);
+    await checkUpdateAvailability(opts);
+    // 2 services × 1 (cached on the 2nd check) = 2 calls, not 4.
+    expect(client).toHaveBeenCalledTimes(2);
   });
 });

@@ -153,12 +153,12 @@ export default async function StatusPage() {
     ),
   ]);
 
-  // MBOX-184 — read-only "Update available" detection. Compares the committed
-  // deploy/image-manifest.json (latest GHCR-published digests) against the
-  // digests of the running mailbox-dashboard + caddy containers (via the same
-  // MBOX-168 read-only docker.sock reader). Read-only — NO action button here.
-  // Bounded at 800ms total, same pattern as the orphan check (manifest read +
-  // one docker call). The helper itself is total-failure-safe.
+  // MBOX-184 / MBOX-347 — read-only "Update available" detection. Compares the
+  // latest GHCR-published digest read live from the registry (cached ~60s)
+  // against the digests of the running mailbox-dashboard + caddy containers (via
+  // the same MBOX-168 read-only docker.sock reader). Read-only — NO action
+  // button here. Bounded at 800ms total, same pattern as the orphan check. The
+  // helper itself is total-failure-safe.
   const updates: UpdateAvailability = await Promise.race<UpdateAvailability>([
     checkUpdateAvailability(),
     new Promise<UpdateAvailability>((resolve) =>
@@ -474,11 +474,12 @@ export default async function StatusPage() {
             </Card>
           </section>
 
-          {/* MBOX-184 — read-only OTA "Update available" panel. Compares the
-              committed deploy/image-manifest.json (latest GHCR-published
-              digests) against the digests of the running mailbox-dashboard +
-              caddy containers. NO action button — the "Update now" orchestration
-              is a deferred follow-up (see UpdateAvailabilityCard). */}
+          {/* MBOX-184 / MBOX-347 — read-only OTA "Update available" panel.
+              Compares the latest GHCR-published digest (read live from the
+              registry, cached) against the digests of the running
+              mailbox-dashboard + caddy containers. NO action button — the
+              "Update now" orchestration is a deferred follow-up (see
+              UpdateAvailabilityCard). */}
           <section className="mb-6">
             <h2 className="mb-3 font-sans text-sm font-semibold uppercase tracking-wider text-ink-muted">
               OTA updates
@@ -751,11 +752,11 @@ function Card({ title, children }: { title?: string; children: React.ReactNode }
   );
 }
 
-// MBOX-184 — read-only "Update available" card. Renders, per locally-built
-// service (mailbox-dashboard + caddy), whether the running container's image
-// digest matches the latest GHCR-published digest recorded in
-// deploy/image-manifest.json. Read-only by design: this is the safe,
-// non-destructive half of the OTA story.
+// MBOX-184 / MBOX-347 — read-only "Update available" card. Renders, per
+// locally-built service (mailbox-dashboard + caddy), whether the running
+// container's image digest matches the latest GHCR-published digest read live
+// from the registry. Read-only by design: this is the safe, non-destructive
+// half of the OTA story.
 //
 // MBOX-184 follow-up: the "Update now" button hooks in HERE — a deferred
 // planned slice owns the pull→recreate→migrate→smoke→commit/rollback
@@ -772,7 +773,7 @@ function UpdateAvailabilityCard({ updates }: { updates: UpdateAvailability }) {
   if (updates.services.length === 0) {
     return (
       <Card>
-        <p className="text-sm text-ink-dim">no services in image manifest</p>
+        <p className="text-sm text-ink-dim">no services to check</p>
       </Card>
     );
   }
@@ -812,9 +813,10 @@ function UpdateAvailabilityCard({ updates }: { updates: UpdateAvailability }) {
         })}
       </ul>
       <p className="mt-3 text-xs text-ink-dim">
-        Source-of-truth: <code className="font-mono">deploy/image-manifest.json</code> (latest
-        GHCR-published digests, written by CI) vs running container digests via the MBOX-168
-        read-only docker.sock reader. Read-only — apply updates from the shell. MBOX-184.
+        Source-of-truth: latest GHCR-published digests read live from{' '}
+        <code className="font-mono">ghcr.io</code> (cached ~60s) vs running container digests via
+        the MBOX-168 read-only docker.sock reader. Read-only — apply updates from the shell.
+        MBOX-184 / MBOX-347.
       </p>
     </Card>
   );

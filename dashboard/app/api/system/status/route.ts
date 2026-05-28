@@ -128,10 +128,14 @@ export async function GET() {
     ),
   ]);
 
-  // MBOX-184 — read-only OTA "Update available" detection. Same bounded,
-  // total-failure-safe pattern as the orphan check (manifest read off the
-  // MBOX-163 repo bind + one MBOX-168 docker.sock call). Read-only; the
-  // "Update now" action is a deferred follow-up.
+  // MBOX-184 / MBOX-347 — read-only OTA "Update available" detection. Bounded,
+  // total-failure-safe (one MBOX-168 docker.sock call + a cached live GHCR
+  // registry read). Read-only; the "Update now" action is a deferred follow-up.
+  // The ceiling is wider than the orphan check's 800ms because a cold-cache
+  // registry read (anonymous token + manifest fetch, ~60s TTL) can take a few
+  // seconds on first hit; the helper caps each registry call internally and a
+  // breach here just degrades to a benign reason.
+  const OTA_CHECK_CEILING_MS = 6000;
   const updates: UpdateAvailability = await Promise.race<UpdateAvailability>([
     checkUpdateAvailability(),
     new Promise<UpdateAvailability>((resolve) =>
@@ -140,9 +144,9 @@ export async function GET() {
           resolve({
             update_available: false,
             services: [],
-            reason: 'update_available check timed out (>800ms)',
+            reason: `update_available check timed out (>${OTA_CHECK_CEILING_MS}ms)`,
           }),
-        800,
+        OTA_CHECK_CEILING_MS,
       ),
     ),
   ]);
