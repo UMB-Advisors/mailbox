@@ -23,18 +23,18 @@
     "Do NOT hand-edit digests; let CI own them."
   ],
   "schema_version": 1,
-  "generated_at": "2026-05-28T22:00:46Z",
-  "git_sha": "3d8f5003365d3f386416ac35521da7eccb0b3a39",
+  "generated_at": "2026-05-28T22:18:33Z",
+  "git_sha": "84622dda22fb49b880c413c4de87547eda5116af",
   "services": {
     "mailbox-dashboard": {
       "repo": "ghcr.io/umb-advisors/mailbox-dashboard",
-      "tag": "sha-3d8f5003365d3f386416ac35521da7eccb0b3a39",
-      "digest": "sha256:d7eeb9fd9b2762e95149d59650cde9221267a6649f0e620f1a346e8e18b48346"
+      "tag": "sha-84622dda22fb49b880c413c4de87547eda5116af",
+      "digest": "sha256:04b26301610b90cf5165e4269fdb0012f2122d1b078b21646137ee1182584020"
     },
     "mailbox-caddy": {
       "repo": "ghcr.io/umb-advisors/mailbox-caddy",
-      "tag": "sha-3d8f5003365d3f386416ac35521da7eccb0b3a39",
-      "digest": "sha256:32721b6216ae7494d571671849c436ee320af7523e78b5f396d1d6dfb956ad5d"
+      "tag": "sha-84622dda22fb49b880c413c4de87547eda5116af",
+      "digest": "sha256:f089a1dd6e39076ffea77e4679036141aca66becc41894e0a33a302c7a1415bc"
     }
   }
 }
