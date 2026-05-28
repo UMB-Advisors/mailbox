@@ -35,11 +35,11 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-
+import type { ModelEndpoint } from '../lib/eval/bake-off';
 import {
   type AccountConfig,
-  type ConcurrencyBenchResult,
   type BenchMode,
+  type ConcurrencyBenchResult,
   evaluateS1Verdict,
   runConcurrencyBench,
 } from '../lib/eval/concurrency-bench';
@@ -49,7 +49,6 @@ import {
   traceSchema,
   verifyManifest,
 } from '../lib/eval/trace-set';
-import type { ModelEndpoint } from '../lib/eval/bake-off';
 
 // ── Arg types ──────────────────────────────────────────────────────────
 
@@ -120,12 +119,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   const today = new Date().toISOString().slice(0, 10);
 
   // Defaults (env as fallback; flags win).
-  let accounts = parseIntStrict(
-    process.env.MBOX_BENCH_ACCOUNTS ?? '3',
-    'MBOX_BENCH_ACCOUNTS',
-  );
-  let classify_base_url =
-    process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+  let accounts = parseIntStrict(process.env.MBOX_BENCH_ACCOUNTS ?? '3', 'MBOX_BENCH_ACCOUNTS');
+  let classify_base_url = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
   let classify_model = 'qwen3:4b-ctx4k';
   let draft_base_url = 'http://localhost:8080';
   let draft_model = 'qwen3-4b-ctx4k';
@@ -151,27 +146,33 @@ export function parseArgs(argv: readonly string[]): CliArgs {
 
     if (a === '--accounts') {
       accounts = parseIntStrict(need('--accounts', argv[i + 1]), '--accounts');
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--classify-base-url') {
       classify_base_url = need('--classify-base-url', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--classify-model') {
       classify_model = need('--classify-model', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--draft-base-url') {
       draft_base_url = need('--draft-base-url', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--draft-model') {
       draft_model = need('--draft-model', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--trace-set') {
       trace_set = need('--trace-set', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--mode') {
       const raw = need('--mode', argv[i + 1]);
@@ -179,39 +180,48 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         throw new Error(`--mode must be serialized, concurrent, or both; got: ${raw}`);
       }
       mode = raw;
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--out') {
       out = need('--out', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--run-tag') {
       run_tag = need('--run-tag', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--context-length') {
       context_length = parseIntStrict(need('--context-length', argv[i + 1]), '--context-length');
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--runtime-sha') {
       runtime_sha = need('--runtime-sha', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--quantization') {
       quantization = need('--quantization', argv[i + 1]);
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--temperature') {
       temperature = parseFloatStrict(need('--temperature', argv[i + 1]), '--temperature');
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--seed') {
       seed = parseIntStrict(need('--seed', argv[i + 1]), '--seed');
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--num-predict') {
       num_predict = parseIntStrict(need('--num-predict', argv[i + 1]), '--num-predict');
-      i++; continue;
+      i++;
+      continue;
     }
     if (a === '--help' || a === '-h') {
       console.log(USAGE);
@@ -305,7 +315,12 @@ async function loadTraceSetForBench(dir: string): Promise<LoadedTraceSet> {
   }
 
   const manifest_sha256 = createHash('sha256').update(manifestRaw, 'utf-8').digest('hex');
-  return { traces, manifest_sha256, source_appliance: manifest.source_appliance, set_version: manifest.set_version };
+  return {
+    traces,
+    manifest_sha256,
+    source_appliance: manifest.source_appliance,
+    set_version: manifest.set_version,
+  };
 }
 
 // ── Verdict markdown formatter ─────────────────────────────────────────
@@ -320,26 +335,28 @@ function formatVerdictMd(
   lines.push(`# S1 Verdict — ${runTag}`);
   lines.push('');
   lines.push(
-    '**S1 gate (addendum §6 / DR-45):** classify p95 < 5000ms AND peak memory ≤ 4.0 GiB',
+    '**S1 gate (addendum §6 / DR-45):** classify p95 < 5000ms AND peak workload memory (Δ over baseline) ≤ 4.0 GiB',
   );
   lines.push(`**Trace set:** ${traceSetDir}`);
   lines.push('');
   lines.push(
-    '| Mode | Classify p95 (ms) | Draft p95 (ms) | Peak mem (GiB) | Verdict | Breaches |',
+    '| Mode | Classify p95 (ms) | Draft p95 (ms) | Baseline mem (GiB) | Peak mem (GiB) | Δ workload (GiB) | Verdict | Breaches |',
   );
   lines.push(
-    '|------|-------------------|----------------|----------------|---------|----------|',
+    '|------|-------------------|----------------|--------------------|----------------|------------------|---------|----------|',
   );
 
   for (const r of results) {
-    const classifyP95 = r.overall_classify_p95_ms !== null ? r.overall_classify_p95_ms.toFixed(0) : 'n/a';
+    const classifyP95 =
+      r.overall_classify_p95_ms !== null ? r.overall_classify_p95_ms.toFixed(0) : 'n/a';
     const draftP95 = r.overall_draft_p95_ms !== null ? r.overall_draft_p95_ms.toFixed(0) : 'n/a';
+    const baselineMem = r.baseline_mem_gib.toFixed(3);
     const peakMem = r.peak_mem_gib.toFixed(3);
+    const workloadMem = r.peak_workload_mem_gib.toFixed(3);
     const verdictStr = r.verdict.verdict === 'pass' ? 'PASS' : 'FAIL';
-    const breaches =
-      r.verdict.verdict === 'fail' ? r.verdict.breaches.join(', ') : '';
+    const breaches = r.verdict.verdict === 'fail' ? r.verdict.breaches.join(', ') : '';
     lines.push(
-      `| ${r.mode} | ${classifyP95} | ${draftP95} | ${peakMem} | ${verdictStr} | ${breaches} |`,
+      `| ${r.mode} | ${classifyP95} | ${draftP95} | ${baselineMem} | ${peakMem} | ${workloadMem} | ${verdictStr} | ${breaches} |`,
     );
   }
 
@@ -374,9 +391,7 @@ function formatVerdictMd(
   const anyFail = overallVerdicts.some((v) => v === 'fail');
   lines.push(anyFail ? '**Overall: S1 FAIL**' : '**Overall: S1 PASS**');
   lines.push('');
-  lines.push(
-    '_Note: eval/results/ is gitignored. Do NOT commit this file._',
-  );
+  lines.push('_Note: eval/results/ is gitignored. Do NOT commit this file._');
 
   return lines.join('\n');
 }
@@ -430,9 +445,7 @@ async function main(): Promise<void> {
   }));
 
   // Determine which modes to run.
-  const modesToRun: BenchMode[] = args.mode === 'both'
-    ? ['serialized', 'concurrent']
-    : [args.mode];
+  const modesToRun: BenchMode[] = args.mode === 'both' ? ['serialized', 'concurrent'] : [args.mode];
 
   // Run each mode sequentially. The measurement itself may be concurrent
   // internally; we don't interleave modes to keep wall-clock readable.
@@ -445,15 +458,16 @@ async function main(): Promise<void> {
     results.push(result);
 
     const v = result.verdict;
-    const p95Str = result.overall_classify_p95_ms !== null
-      ? `${result.overall_classify_p95_ms.toFixed(0)}ms`
-      : 'n/a';
-    const memStr = `${result.peak_mem_gib.toFixed(3)} GiB`;
-    const verdictStr = v.verdict === 'pass'
-      ? 'PASS'
-      : `FAIL(${v.breaches.join(',')})`;
+    const p95Str =
+      result.overall_classify_p95_ms !== null
+        ? `${result.overall_classify_p95_ms.toFixed(0)}ms`
+        : 'n/a';
+    const memStr =
+      `peak=${result.peak_mem_gib.toFixed(3)} baseline=${result.baseline_mem_gib.toFixed(3)} ` +
+      `Δworkload=${result.peak_workload_mem_gib.toFixed(3)} GiB`;
+    const verdictStr = v.verdict === 'pass' ? 'PASS' : `FAIL(${v.breaches.join(',')})`;
     console.log(
-      `[concurrency-bench] mode=${mode} classify_p95=${p95Str} peak_mem=${memStr} verdict=${verdictStr}`,
+      `[concurrency-bench] mode=${mode} classify_p95=${p95Str} ${memStr} verdict=${verdictStr}`,
     );
   }
 
@@ -488,9 +502,7 @@ async function main(): Promise<void> {
   await writeFile(verdictPath, formatVerdictMd(results, args.run_tag, args.trace_set));
 
   console.log(`[concurrency-bench] done. summary=${summaryPath} verdict=${verdictPath}`);
-  console.log(
-    `[concurrency-bench] NOTE: eval/results/ is gitignored — do NOT commit these files.`,
-  );
+  console.log(`[concurrency-bench] NOTE: eval/results/ is gitignored — do NOT commit these files.`);
 }
 
 // Direct execution check (vs `import`).

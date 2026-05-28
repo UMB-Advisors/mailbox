@@ -8,19 +8,18 @@
 //
 // Style mirrors bake-off.test.ts: vi-based stubs, @/ alias, makeTrace helper.
 
-import { describe, expect, it, afterEach, vi } from 'vitest';
-
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ModelEndpoint } from '@/lib/eval/bake-off';
 import {
   type AccountConfig,
-  type ConcurrencyBenchDeps,
   type ClassifyResult,
-  type IntervalHandle,
+  type ConcurrencyBenchDeps,
   evaluateS1Verdict,
+  type IntervalHandle,
   percentile,
   runConcurrencyBench,
 } from '@/lib/eval/concurrency-bench';
 import { TRACE_FORMAT_VERSION, type Trace } from '@/lib/eval/trace-set';
-import type { ModelEndpoint } from '@/lib/eval/bake-off';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -110,12 +109,12 @@ function makeClassifyStub(
 
 describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   it('passes when classify p95 = 4999ms AND peak = 4.0 GiB (both at ceiling, both ok)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakMemGiB: 4.0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakWorkloadMemGiB: 4.0 });
     expect(v.verdict).toBe('pass');
   });
 
   it('fails when classify p95 = 5000ms exactly (strict < 5000 required)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakMemGiB: 4.0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakWorkloadMemGiB: 4.0 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toEqual(['classify_p95']);
@@ -123,7 +122,7 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('fails when peak = 4.0001 GiB (> 4.0 is a breach; <= 4.0 is ok)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakMemGiB: 4.0001 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakWorkloadMemGiB: 4.0001 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toEqual(['peak_memory']);
@@ -131,7 +130,7 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('fails and names both breaches when classify p95 = 5000ms AND peak = 4.0001 GiB', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakMemGiB: 4.0001 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakWorkloadMemGiB: 4.0001 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toContain('classify_p95');
@@ -141,7 +140,7 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('fails when classify p95 is null (no data → cannot prove < 5000)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: null, peakMemGiB: 4.0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: null, peakWorkloadMemGiB: 4.0 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toEqual(['classify_p95']);
@@ -149,12 +148,12 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('passes when classify p95 = 0ms (well below ceiling)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 0, peakMemGiB: 0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 0, peakWorkloadMemGiB: 0 });
     expect(v.verdict).toBe('pass');
   });
 
   it('fails when classify p95 = 5001ms (above ceiling)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 5001, peakMemGiB: 0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 5001, peakWorkloadMemGiB: 0 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toContain('classify_p95');
@@ -240,22 +239,19 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
       return classifyFn(account, trace, opts);
     };
 
-    await runConcurrencyBench(
-      ACCOUNTS,
-      [makeTrace()],
-      'serialized',
-      {
-        classifyFn: classifyFnTracked,
-        fetchFn,
-        readUsedMemGiB: () => 1.0,
-        setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle => {
-          // No-op sampler — no real timers in this test.
-          return 0 as unknown as IntervalHandle;
-        },
-        clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
-        memSampleIntervalMs: 99999,
+    await runConcurrencyBench(ACCOUNTS, [makeTrace()], 'serialized', {
+      classifyFn: classifyFnTracked,
+      fetchFn,
+      readUsedMemGiB: () => 1.0,
+      setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle => {
+        // No-op sampler — no real timers in this test.
+        return 0 as unknown as IntervalHandle;
       },
-    );
+      clearIntervalFn: (_h: IntervalHandle): void => {
+        /* no-op */
+      },
+      memSampleIntervalMs: 99999,
+    });
 
     // In serialized mode, account-1's classify must only fire after account-0's
     // classify has already been recorded.
@@ -305,20 +301,17 @@ describe('runConcurrencyBench — scheduling (MBOX-162 S1)', () => {
     // Run concurrently. Both classify calls fire synchronously (they resolve
     // immediately); the Promise.all means both are kicked off before either
     // draft resolves (drafts are blocked on their stalled fetchFn).
-    const benchPromise = runConcurrencyBench(
-      ACCOUNTS,
-      [makeTrace()],
-      'concurrent',
-      {
-        classifyFn,
-        fetchFn,
-        readUsedMemGiB: () => 1.0,
-        setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
-          0 as unknown as IntervalHandle,
-        clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
-        memSampleIntervalMs: 99999,
+    const benchPromise = runConcurrencyBench(ACCOUNTS, [makeTrace()], 'concurrent', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB: () => 1.0,
+      setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
+        0 as unknown as IntervalHandle,
+      clearIntervalFn: (_h: IntervalHandle): void => {
+        /* no-op */
       },
-    );
+      memSampleIntervalMs: 99999,
+    });
 
     // Flush microtasks so classify calls fire.
     await Promise.resolve();
@@ -382,7 +375,11 @@ describe('runConcurrencyBench — p95 computation (MBOX-162 S1)', () => {
       }),
     ) as unknown as typeof fetch;
 
-    const traces = [makeTrace({ inbox_message_id: 'msg-1' }), makeTrace({ inbox_message_id: 'msg-2' }), makeTrace({ inbox_message_id: 'msg-3' })];
+    const traces = [
+      makeTrace({ inbox_message_id: 'msg-1' }),
+      makeTrace({ inbox_message_id: 'msg-2' }),
+      makeTrace({ inbox_message_id: 'msg-3' }),
+    ];
 
     const result = await runConcurrencyBench(ACCOUNTS, traces, 'serialized', {
       classifyFn,
@@ -390,7 +387,9 @@ describe('runConcurrencyBench — p95 computation (MBOX-162 S1)', () => {
       readUsedMemGiB: () => 1.0,
       setIntervalFn: (_fn: () => void, _ms: number): IntervalHandle =>
         0 as unknown as IntervalHandle,
-      clearIntervalFn: (_h: IntervalHandle): void => { /* no-op */ },
+      clearIntervalFn: (_h: IntervalHandle): void => {
+        /* no-op */
+      },
       memSampleIntervalMs: 99999,
     });
 
@@ -448,19 +447,14 @@ describe('runConcurrencyBench — memory-sampler peak aggregation (MBOX-162 S1)'
       }),
     ) as unknown as typeof fetch;
 
-    const result = await runConcurrencyBench(
-      [ACCOUNTS[0]!],
-      [makeTrace()],
-      'serialized',
-      {
-        classifyFn,
-        fetchFn,
-        readUsedMemGiB,
-        setIntervalFn: setInterval, // real setInterval — fake timers intercept it
-        clearIntervalFn: clearInterval,
-        memSampleIntervalMs: 100,
-      },
-    );
+    const result = await runConcurrencyBench([ACCOUNTS[0]!], [makeTrace()], 'serialized', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB,
+      setIntervalFn: setInterval, // real setInterval — fake timers intercept it
+      clearIntervalFn: clearInterval,
+      memSampleIntervalMs: 100,
+    });
 
     // Sampled values: t0=1.0, interval@100ms=3.5, interval@200ms fired during advance=2.0,
     // plus the final post-bench sample. Peak must be 3.5 (or higher if more calls were made).
@@ -496,24 +490,66 @@ describe('runConcurrencyBench — memory-sampler peak aggregation (MBOX-162 S1)'
       }),
     ) as unknown as typeof fetch;
 
-    const result = await runConcurrencyBench(
-      [ACCOUNTS[0]!],
-      [makeTrace()],
-      'serialized',
-      {
-        classifyFn,
-        fetchFn,
-        readUsedMemGiB,
-        setIntervalFn: setInterval,
-        clearIntervalFn: clearInterval,
-        memSampleIntervalMs: 100,
-      },
-    );
+    const result = await runConcurrencyBench([ACCOUNTS[0]!], [makeTrace()], 'serialized', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB,
+      setIntervalFn: setInterval,
+      clearIntervalFn: clearInterval,
+      memSampleIntervalMs: 100,
+    });
 
     // Peak should equal Math.max of all sampled values.
     expect(result.peak_mem_gib).toBe(Math.max(...result.mem_samples_gib, 0));
     // The scripted peak 3.5 must appear somewhere in the sequence.
     expect(result.mem_samples_gib).toContain(3.5);
     expect(result.peak_mem_gib).toBe(3.5);
+
+    // Baseline is the t0 sample (1.0); workload delta = peak − baseline = 2.5.
+    expect(result.baseline_mem_gib).toBe(1.0);
+    expect(result.peak_workload_mem_gib).toBeCloseTo(2.5, 5);
+  });
+
+  it('verdict uses workload delta, not absolute peak: high host-used baseline still PASSES when the run adds little (live-box scenario)', async () => {
+    vi.useFakeTimers();
+
+    // Simulate a live appliance: ~5.8 GiB already resident at baseline, the run
+    // adds only ~0.2 GiB (serialized → one active request's KV). Absolute peak
+    // (6.0) exceeds the 4.0 ceiling, but the WORKLOAD delta (0.2) does not.
+    const scripted = [5.8, 6.0, 5.9];
+    let idx = 0;
+    const readUsedMemGiB = (): number => {
+      const v = scripted[idx % scripted.length] ?? 0;
+      idx++;
+      return v;
+    };
+
+    const classifyFn: ConcurrencyBenchDeps['classifyFn'] = async (): Promise<ClassifyResult> => {
+      await vi.advanceTimersByTimeAsync(100);
+      return { response: 'inquiry', eval_count: 5, latency_ms: 50, status: 'ok', error: null };
+    };
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(makeDraftResponse(), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ) as unknown as typeof fetch;
+
+    const result = await runConcurrencyBench([ACCOUNTS[0]!], [makeTrace()], 'serialized', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB,
+      setIntervalFn: setInterval,
+      clearIntervalFn: clearInterval,
+      memSampleIntervalMs: 100,
+    });
+
+    expect(result.baseline_mem_gib).toBe(5.8);
+    expect(result.peak_mem_gib).toBeGreaterThan(4.0); // absolute exceeds ceiling
+    // Pin the exact delta (peak 6.0 − baseline 5.8 = 0.2), not just "<= 4.0":
+    // a loose bound would still pass even if the delta computation were broken.
+    expect(result.peak_workload_mem_gib).toBeCloseTo(0.2, 5);
+    // classify p95 = 50ms < 5000 AND workload delta ≤ 4.0 → PASS despite high absolute peak.
+    expect(result.verdict.verdict).toBe('pass');
   });
 });
