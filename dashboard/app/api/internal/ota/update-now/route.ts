@@ -25,6 +25,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { parseJson } from '@/lib/middleware/validate';
 import { makeDefaultShell, runOtaUpdate } from '@/lib/ota/update';
 import { getDraftingFlag } from '@/lib/queries-drafting-flag';
+import { getGitStateWithTimeout } from '@/lib/queries-git';
 import { getGmailCooldown } from '@/lib/queries-system-state';
 import { otaUpdateNowBodySchema } from '@/lib/schemas/internal';
 
@@ -42,7 +43,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         error: 'gmail_rate_limit_active',
-        message: 'Gmail is rate-limited. Update paused — recreating the stack now could lose send state.',
+        message:
+          'Gmail is rate-limited. Update paused — recreating the stack now could lose send state.',
         next_safe_at: cooldown.recommended_safe_at?.toISOString() ?? cooldown.until.toISOString(),
       },
       { status: 409 },
@@ -60,6 +62,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         draft_id: flag.draft_id,
       },
       { status: 409 },
+    );
+  }
+
+  // Guard 3 — update-available precheck. Reuse the MBOX-163 git-state read
+  // (same source /api/system/status surfaces). Only proceed when the box is
+  // positively behind origin/master; if it's already current, short-circuit
+  // with a 200 "already up to date" and write NO audit row — running git pull +
+  // a full recreate when current is a no-op that just adds a noisy 'started'
+  // attempt. When git-state is unavailable or the behind-count is unknown
+  // (null upstream / detached / dirty), we can't claim "current", so we fall
+  // through and let the orchestration run.
+  const git = await getGitStateWithTimeout(500);
+  if (git.available && git.commits_behind_master === 0 && !git.dirty) {
+    return NextResponse.json(
+      {
+        result: 'noop',
+        message: 'Already up to date — appliance is even with origin/master. No update run.',
+        git_branch: git.git_branch,
+        git_short_sha: git.git_short_sha,
+      },
+      { status: 200 },
     );
   }
 

@@ -9,12 +9,7 @@
 // recorded started/terminal transitions against an in-memory log.
 
 import { describe, expect, it, vi } from 'vitest';
-import {
-  type OtaShell,
-  type OtaUpdateHooks,
-  type OtaResult,
-  runOtaUpdate,
-} from '@/lib/ota/update';
+import { type OtaResult, type OtaShell, type OtaUpdateHooks, runOtaUpdate } from '@/lib/ota/update';
 
 // A shell whose four forward steps + rollback each resolve, unless overridden
 // to reject. `calls` records the step order so we can assert the orchestrator
@@ -24,13 +19,11 @@ function buildShell(overrides: Partial<Record<keyof OtaShell, Error>> = {}): {
   calls: string[];
 } {
   const calls: string[] = [];
-  const step =
-    (name: keyof OtaShell) =>
-    async (): Promise<void> => {
-      calls.push(name);
-      const err = overrides[name];
-      if (err) throw err;
-    };
+  const step = (name: keyof OtaShell) => async (): Promise<void> => {
+    calls.push(name);
+    const err = overrides[name];
+    if (err) throw err;
+  };
   return {
     calls,
     shell: {
@@ -96,28 +89,28 @@ describe('runOtaUpdate — happy path', () => {
 });
 
 describe('runOtaUpdate — forward step failures roll back', () => {
-  it.each<keyof OtaShell>(['pull', 'recreate', 'migrate', 'smoke'])(
-    'rolls back when %s fails and records rolled_back',
-    async (failing) => {
-      const { shell, calls } = buildShell({ [failing]: new Error(`${failing} boom`) });
-      const { hooks, finished } = buildHooks();
+  it.each<keyof OtaShell>([
+    'pull',
+    'recreate',
+    'migrate',
+    'smoke',
+  ])('rolls back when %s fails and records rolled_back', async (failing) => {
+    const { shell, calls } = buildShell({ [failing]: new Error(`${failing} boom`) });
+    const { hooks, finished } = buildHooks();
 
-      const outcome = await runOtaUpdate(shell, INPUT, hooks);
+    const outcome = await runOtaUpdate(shell, INPUT, hooks);
 
-      expect(outcome.result).toBe('rolled_back');
-      expect(outcome.failed_step).toBe(failing);
-      // Rollback was attempted, and it's the LAST call.
-      expect(calls[calls.length - 1]).toBe('rollback');
-      // No forward step runs after the failing one.
-      const idxFail = calls.indexOf(failing);
-      const forwardAfter = calls
-        .slice(idxFail + 1)
-        .filter((c) => c !== 'rollback');
-      expect(forwardAfter).toEqual([]);
-      expect(finished[0]).toMatchObject({ id: 42, result: 'rolled_back' });
-      expect(finished[0].detail).toContain(`${failing} failed`);
-    },
-  );
+    expect(outcome.result).toBe('rolled_back');
+    expect(outcome.failed_step).toBe(failing);
+    // Rollback was attempted, and it's the LAST call.
+    expect(calls[calls.length - 1]).toBe('rollback');
+    // No forward step runs after the failing one.
+    const idxFail = calls.indexOf(failing);
+    const forwardAfter = calls.slice(idxFail + 1).filter((c) => c !== 'rollback');
+    expect(forwardAfter).toEqual([]);
+    expect(finished[0]).toMatchObject({ id: 42, result: 'rolled_back' });
+    expect(finished[0].detail).toContain(`${failing} failed`);
+  });
 
   it('smoke failure is the post-update health gate that triggers rollback', async () => {
     const { shell, calls } = buildShell({ smoke: new Error('smoke: draft never landed') });

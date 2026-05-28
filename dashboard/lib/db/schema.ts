@@ -242,6 +242,16 @@ export interface Onboarding {
   tuning_sample_count: Generated<number>;
 }
 
+export interface OtaUpdateAttempts {
+  detail: string | null;
+  finished_at: string | null;
+  from_digest: string | null;
+  id: Generated<number>;
+  result: Generated<string>;
+  started_at: Generated<string>;
+  to_digest: string | null;
+}
+
 export interface Persona {
   category_exemplars: Generated<Json>;
   created_at: Generated<string>;
@@ -365,6 +375,7 @@ export interface DB {
   migrations: Migrations;
   oauth_tokens: OauthTokens;
   onboarding: Onboarding;
+  ota_update_attempts: OtaUpdateAttempts;
   persona: Persona;
   rejected_history: RejectedHistory;
   sent_history: SentHistory;

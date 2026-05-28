@@ -40,21 +40,22 @@ export type OtaStep = 'pull' | 'recreate' | 'migrate' | 'smoke' | 'rollback';
 // Injectable shell surface. The default (makeDefaultShell) runs real docker /
 // git / smoke commands on the appliance host; tests inject a mock. Each method
 // rejects on a non-zero exit (execFile semantics) so the state machine can
-// catch + branch to rollback. `recreate` carries the target digest so the
-// default impl can pull-and-recreate against a pinned image rather than
-// :latest (CLAUDE.md: never :latest).
+// catch + branch to rollback. The image digest pin comes from the appliance
+// `.env` (Ollama-style digest, per CLAUDE.md) — `docker compose` reads it from
+// there, so the steps take no digest argument.
 export interface OtaShell {
   // `git pull` + `git submodule update --init` in the appliance repo.
   pull(): Promise<void>;
   // `docker compose up -d --build --remove-orphans` (recreate services).
-  recreate(toDigest: string | null): Promise<void>;
+  recreate(): Promise<void>;
   // `docker compose --profile migrate run --rm mailbox-migrate`.
   migrate(): Promise<void>;
-  // scripts/smoke-pipeline.sh — the MBOX-181 pipeline smoke. Rejects on
-  // non-zero exit, which the orchestrator treats as "update is unhealthy".
+  // scripts/smoke-pipeline.sh --host local — the MBOX-181 pipeline smoke run
+  // against this box. Rejects on non-zero exit, which the orchestrator treats
+  // as "update is unhealthy".
   smoke(): Promise<void>;
-  // Roll back to the prior digest: re-pin + recreate against `fromDigest`.
-  rollback(fromDigest: string | null): Promise<void>;
+  // Bring the stack back up so the box keeps serving after a failed step.
+  rollback(): Promise<void>;
 }
 
 // Repo root on the appliance host. The dashboard container mounts the host repo
@@ -89,12 +90,17 @@ export function makeDefaultShell(repo: string = applianceRepo()): OtaShell {
       await run('docker', ['compose', '--profile', 'migrate', 'run', '--rm', 'mailbox-migrate']);
     },
     smoke: async () => {
-      await run('bash', ['scripts/smoke-pipeline.sh']);
+      // --host local: run the pipeline smoke against THIS box, not over SSH.
+      // The script defaults to `--host mailbox1` (an SSH hop); on the appliance
+      // that makes the box SSH to itself and the smoke gate fails → every
+      // update rolls back. (MBOX-349 review fix.)
+      await run('bash', ['scripts/smoke-pipeline.sh', '--host', 'local']);
     },
     rollback: async () => {
-      // Best-effort restore: recreate the running stack against the prior
-      // images. The git checkout is left to the operator (field validation
-      // MBOX-350) — this brings services back up so the box keeps serving.
+      // Best-effort restore: `docker compose up -d` brings the stack back up
+      // (no --build, so it reuses already-present images). The git revert and
+      // any digest re-pin are left to the operator (field validation
+      // MBOX-350) — this just keeps the box serving after a failed step.
       await run('docker', ['compose', 'up', '-d', '--remove-orphans']);
     },
   };
@@ -198,7 +204,7 @@ export async function runOtaUpdate(
   // Walk the forward steps in order; the first throw breaks out to rollback.
   const forward: ReadonlyArray<{ step: OtaStep; run: () => Promise<void> }> = [
     { step: 'pull', run: () => shell.pull() },
-    { step: 'recreate', run: () => shell.recreate(input.toDigest) },
+    { step: 'recreate', run: () => shell.recreate() },
     { step: 'migrate', run: () => shell.migrate() },
     { step: 'smoke', run: () => shell.smoke() },
   ];
@@ -223,7 +229,7 @@ export async function runOtaUpdate(
 
   // A forward step failed — attempt rollback so the box keeps serving.
   try {
-    await shell.rollback(input.fromDigest);
+    await shell.rollback();
     const detail = `${failureDetail}; rolled back to ${input.fromDigest ?? 'prior image'}`;
     await hooks.recordFinished(attemptId, 'rolled_back', detail);
     return { attempt_id: attemptId, result: 'rolled_back', failed_step: failedStep, detail };
