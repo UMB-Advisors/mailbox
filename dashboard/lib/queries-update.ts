@@ -57,6 +57,15 @@ const DEFAULT_REGISTRY_TIMEOUT_MS = 2500;
 // within a minute.
 const DEFAULT_REGISTRY_TTL_MS = 60_000;
 
+/**
+ * Total wall-clock ceiling a caller should give a single `checkUpdateAvailability`
+ * race. Wider than the orphan check's 800ms because a cold-cache registry read
+ * (anonymous token + manifest fetch, ~60s TTL) can take a few seconds on first
+ * hit. Shared so the /status route handler and the /status page race the helper
+ * on the same bound — a breach just degrades to a benign reason.
+ */
+export const OTA_CHECK_CEILING_MS = 6000;
+
 // Accept header advertising the manifest media types GHCR can return. The
 // image is multi-arch, so the registry returns an OCI image INDEX (a.k.a. the
 // "fat" manifest list); its Docker-Content-Digest is the digest you pin with

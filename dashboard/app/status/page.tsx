@@ -29,6 +29,7 @@ import {
 } from '@/lib/queries-system';
 import { getBootstrapState } from '@/lib/queries-system-state';
 import {
+  OTA_CHECK_CEILING_MS,
   checkUpdateAvailability,
   shortDigest,
   type UpdateAvailability,
@@ -157,8 +158,10 @@ export default async function StatusPage() {
   // latest GHCR-published digest read live from the registry (cached ~60s)
   // against the digests of the running mailbox-dashboard + caddy containers (via
   // the same MBOX-168 read-only docker.sock reader). Read-only — NO action
-  // button here. Bounded at 800ms total, same pattern as the orphan check. The
-  // helper itself is total-failure-safe.
+  // button here. Bounded at OTA_CHECK_CEILING_MS total (shared with the /status
+  // route handler so both race the helper on the same ceiling — wider than the
+  // orphan check's 800ms for a cold-cache registry read). The helper itself is
+  // total-failure-safe.
   const updates: UpdateAvailability = await Promise.race<UpdateAvailability>([
     checkUpdateAvailability(),
     new Promise<UpdateAvailability>((resolve) =>
@@ -167,9 +170,9 @@ export default async function StatusPage() {
           resolve({
             update_available: false,
             services: [],
-            reason: 'update_available check timed out (>800ms)',
+            reason: `update_available check timed out (>${OTA_CHECK_CEILING_MS}ms)`,
           }),
-        800,
+        OTA_CHECK_CEILING_MS,
       ),
     ),
   ]);
