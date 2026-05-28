@@ -320,26 +320,28 @@ function formatVerdictMd(
   lines.push(`# S1 Verdict — ${runTag}`);
   lines.push('');
   lines.push(
-    '**S1 gate (addendum §6 / DR-45):** classify p95 < 5000ms AND peak memory ≤ 4.0 GiB',
+    '**S1 gate (addendum §6 / DR-45):** classify p95 < 5000ms AND peak workload memory (Δ over baseline) ≤ 4.0 GiB',
   );
   lines.push(`**Trace set:** ${traceSetDir}`);
   lines.push('');
   lines.push(
-    '| Mode | Classify p95 (ms) | Draft p95 (ms) | Peak mem (GiB) | Verdict | Breaches |',
+    '| Mode | Classify p95 (ms) | Draft p95 (ms) | Baseline mem (GiB) | Peak mem (GiB) | Δ workload (GiB) | Verdict | Breaches |',
   );
   lines.push(
-    '|------|-------------------|----------------|----------------|---------|----------|',
+    '|------|-------------------|----------------|--------------------|----------------|------------------|---------|----------|',
   );
 
   for (const r of results) {
     const classifyP95 = r.overall_classify_p95_ms !== null ? r.overall_classify_p95_ms.toFixed(0) : 'n/a';
     const draftP95 = r.overall_draft_p95_ms !== null ? r.overall_draft_p95_ms.toFixed(0) : 'n/a';
+    const baselineMem = r.baseline_mem_gib.toFixed(3);
     const peakMem = r.peak_mem_gib.toFixed(3);
+    const workloadMem = r.peak_workload_mem_gib.toFixed(3);
     const verdictStr = r.verdict.verdict === 'pass' ? 'PASS' : 'FAIL';
     const breaches =
       r.verdict.verdict === 'fail' ? r.verdict.breaches.join(', ') : '';
     lines.push(
-      `| ${r.mode} | ${classifyP95} | ${draftP95} | ${peakMem} | ${verdictStr} | ${breaches} |`,
+      `| ${r.mode} | ${classifyP95} | ${draftP95} | ${baselineMem} | ${peakMem} | ${workloadMem} | ${verdictStr} | ${breaches} |`,
     );
   }
 
@@ -448,12 +450,14 @@ async function main(): Promise<void> {
     const p95Str = result.overall_classify_p95_ms !== null
       ? `${result.overall_classify_p95_ms.toFixed(0)}ms`
       : 'n/a';
-    const memStr = `${result.peak_mem_gib.toFixed(3)} GiB`;
+    const memStr =
+      `peak=${result.peak_mem_gib.toFixed(3)} baseline=${result.baseline_mem_gib.toFixed(3)} ` +
+      `Δworkload=${result.peak_workload_mem_gib.toFixed(3)} GiB`;
     const verdictStr = v.verdict === 'pass'
       ? 'PASS'
       : `FAIL(${v.breaches.join(',')})`;
     console.log(
-      `[concurrency-bench] mode=${mode} classify_p95=${p95Str} peak_mem=${memStr} verdict=${verdictStr}`,
+      `[concurrency-bench] mode=${mode} classify_p95=${p95Str} ${memStr} verdict=${verdictStr}`,
     );
   }
 

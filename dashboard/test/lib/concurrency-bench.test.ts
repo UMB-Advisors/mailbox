@@ -110,12 +110,12 @@ function makeClassifyStub(
 
 describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   it('passes when classify p95 = 4999ms AND peak = 4.0 GiB (both at ceiling, both ok)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakMemGiB: 4.0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakWorkloadMemGiB: 4.0 });
     expect(v.verdict).toBe('pass');
   });
 
   it('fails when classify p95 = 5000ms exactly (strict < 5000 required)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakMemGiB: 4.0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakWorkloadMemGiB: 4.0 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toEqual(['classify_p95']);
@@ -123,7 +123,7 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('fails when peak = 4.0001 GiB (> 4.0 is a breach; <= 4.0 is ok)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakMemGiB: 4.0001 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 4999, peakWorkloadMemGiB: 4.0001 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toEqual(['peak_memory']);
@@ -131,7 +131,7 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('fails and names both breaches when classify p95 = 5000ms AND peak = 4.0001 GiB', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakMemGiB: 4.0001 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 5000, peakWorkloadMemGiB: 4.0001 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toContain('classify_p95');
@@ -141,7 +141,7 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('fails when classify p95 is null (no data → cannot prove < 5000)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: null, peakMemGiB: 4.0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: null, peakWorkloadMemGiB: 4.0 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toEqual(['classify_p95']);
@@ -149,12 +149,12 @@ describe('evaluateS1Verdict — MBOX-162 S1 boundary cases', () => {
   });
 
   it('passes when classify p95 = 0ms (well below ceiling)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 0, peakMemGiB: 0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 0, peakWorkloadMemGiB: 0 });
     expect(v.verdict).toBe('pass');
   });
 
   it('fails when classify p95 = 5001ms (above ceiling)', () => {
-    const v = evaluateS1Verdict({ classifyP95Ms: 5001, peakMemGiB: 0 });
+    const v = evaluateS1Verdict({ classifyP95Ms: 5001, peakWorkloadMemGiB: 0 });
     expect(v.verdict).toBe('fail');
     if (v.verdict === 'fail') {
       expect(v.breaches).toContain('classify_p95');
@@ -515,5 +515,50 @@ describe('runConcurrencyBench — memory-sampler peak aggregation (MBOX-162 S1)'
     // The scripted peak 3.5 must appear somewhere in the sequence.
     expect(result.mem_samples_gib).toContain(3.5);
     expect(result.peak_mem_gib).toBe(3.5);
+
+    // Baseline is the t0 sample (1.0); workload delta = peak − baseline = 2.5.
+    expect(result.baseline_mem_gib).toBe(1.0);
+    expect(result.peak_workload_mem_gib).toBeCloseTo(2.5, 5);
+  });
+
+  it('verdict uses workload delta, not absolute peak: high host-used baseline still PASSES when the run adds little (live-box scenario)', async () => {
+    vi.useFakeTimers();
+
+    // Simulate a live appliance: ~5.8 GiB already resident at baseline, the run
+    // adds only ~0.2 GiB (serialized → one active request's KV). Absolute peak
+    // (6.0) exceeds the 4.0 ceiling, but the WORKLOAD delta (0.2) does not.
+    const scripted = [5.8, 6.0, 5.9];
+    let idx = 0;
+    const readUsedMemGiB = (): number => {
+      const v = scripted[idx % scripted.length] ?? 0;
+      idx++;
+      return v;
+    };
+
+    const classifyFn: ConcurrencyBenchDeps['classifyFn'] = async (): Promise<ClassifyResult> => {
+      await vi.advanceTimersByTimeAsync(100);
+      return { response: 'inquiry', eval_count: 5, latency_ms: 50, status: 'ok', error: null };
+    };
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(makeDraftResponse(), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ) as unknown as typeof fetch;
+
+    const result = await runConcurrencyBench([ACCOUNTS[0]!], [makeTrace()], 'serialized', {
+      classifyFn,
+      fetchFn,
+      readUsedMemGiB,
+      setIntervalFn: setInterval,
+      clearIntervalFn: clearInterval,
+      memSampleIntervalMs: 100,
+    });
+
+    expect(result.baseline_mem_gib).toBe(5.8);
+    expect(result.peak_mem_gib).toBeGreaterThan(4.0); // absolute exceeds ceiling
+    expect(result.peak_workload_mem_gib).toBeLessThanOrEqual(4.0); // delta does not
+    // classify p95 = 50ms < 5000 AND workload delta ≤ 4.0 → PASS despite high absolute peak.
+    expect(result.verdict.verdict).toBe('pass');
   });
 });

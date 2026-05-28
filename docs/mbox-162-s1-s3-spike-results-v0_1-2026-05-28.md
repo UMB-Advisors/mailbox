@@ -18,19 +18,29 @@ current state:
   live drafter, before concurrency is even tested.
 - **No trace set on the box** (eval/ is gitignored, not in the image) — would
   need building from the live DB first.
-- **Harness memory metric needs a fix before the verdict is meaningful.**
-  `defaultReadUsedMemGiB()` measures host-total-used (`MemTotal − MemAvailable`),
-  ~5.8 GiB on a live multi-service box, which cannot map to DR-45's 4.0 GiB
-  *model+KV footprint* ceiling → `peak_memory` would false-FAIL regardless of
-  whether 3 accounts actually fit. Fix: measure the model+KV delta (e.g. via
-  the llama.cpp/Ollama process RSS or a quiesced baseline subtraction), not
-  host total.
+- **Harness memory metric — FIXED (2026-05-28).** Previously
+  `defaultReadUsedMemGiB()` host-total (`MemTotal − MemAvailable`, ~5.8 GiB on a
+  live box) was compared directly to the 4.0 GiB ceiling → guaranteed false-FAIL.
+  Now the verdict compares the **workload-attributable delta** (peak − t0
+  baseline): `ConcurrencyBenchResult` carries `baseline_mem_gib` +
+  `peak_workload_mem_gib`, and `evaluateS1Verdict` takes `peakWorkloadMemGiB`.
+  A live-box unit test proves a 6.0 GiB absolute peak with a 0.2 GiB delta now
+  PASSES. Caveat: the t0 baseline should be captured with engines warm-but-idle
+  for a true model+KV reading (a cold baseline folds model weights into the delta).
 
-**Recommended path for a valid S1:** run on a **quiesced** appliance (live
-drafting stopped → real downtime window, not just an n8n pause) or on dedicated
-idle Jetson hardware, after the harness memory-metric fix. The latency signal
-(classify p95 < 5s under 3-account load) is the half that's measurable; the
-memory half needs the metric fix to mean anything.
+**Scheduling decision (operator, 2026-05-28):** accounts are processed
+**serially** (scheduled one after another), not simultaneously. This is DR-45's
+serialized model and it largely de-risks S1: serialized peak ≈ today's working
+single-account peak (one active inference at a time), so the memory envelope is
+already satisfied by current operation. The concurrent mode becomes the
+"what-if / T3" stress case, not the gate.
+
+**Recommended path for a valid S1 run:** with serialized scheduling + the
+delta metric, S1's memory dimension is largely answered (≈ single-account, which
+the box already sustains). The remaining measurable signal is **throughput/
+latency** — can the box process 3 accounts' mail serially within the poll cycle
+while holding classify p95 < 5s. Run on a quiesced window or idle Jetson when
+convenient; it is no longer a high-risk gate under the serialized model.
 
 ## S2 — Schema migration dry-run — PASS
 
