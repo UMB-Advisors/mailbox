@@ -64,12 +64,10 @@ describe('checkUpdateAvailability — comparison cases', () => {
         {
           name: 'mailbox-dashboard',
           image: `ghcr.io/umb-advisors/mailbox-dashboard@${DASH_DIGEST_A}`,
-          image_id: 'sha256:configdash',
         },
         {
           name: 'mailbox-caddy-1',
           image: `ghcr.io/umb-advisors/mailbox-caddy@${CADDY_DIGEST}`,
-          image_id: 'sha256:configcaddy',
         },
       ],
     });
@@ -86,12 +84,10 @@ describe('checkUpdateAvailability — comparison cases', () => {
         {
           name: 'mailbox-dashboard',
           image: `ghcr.io/umb-advisors/mailbox-dashboard@${DASH_DIGEST_A}`,
-          image_id: 'sha256:configdash',
         },
         {
           name: 'mailbox-caddy-1',
           image: `ghcr.io/umb-advisors/mailbox-caddy@${CADDY_DIGEST}`,
-          image_id: 'sha256:configcaddy',
         },
       ],
     });
@@ -111,12 +107,10 @@ describe('checkUpdateAvailability — comparison cases', () => {
         {
           name: 'mailbox-dashboard',
           image: 'mailbox-mailbox-dashboard:latest',
-          image_id: 'sha256:configdash',
         },
         {
           name: 'mailbox-caddy-1',
           image: 'mailbox-caddy:latest',
-          image_id: 'sha256:configcaddy',
         },
       ],
     });
@@ -133,7 +127,6 @@ describe('checkUpdateAvailability — comparison cases', () => {
         {
           name: 'mailbox-dashboard',
           image: 'mailbox-mailbox-dashboard:latest',
-          image_id: 'sha256:configdash',
         },
       ],
     });

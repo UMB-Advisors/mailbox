@@ -110,7 +110,7 @@ export interface CheckUpdateAvailabilityOptions {
    * Primarily for tests; production callers leave this unset.
    */
   runningContainers?:
-    | Array<{ name: string; image: string; image_id: string }>
+    | Array<{ name: string; image: string }>
     | { unavailable: string };
   /** Per-docker-call timeout. Mirrors queries-docker default. */
   dockerTimeoutMs?: number;
@@ -212,7 +212,7 @@ export async function checkUpdateAvailability(
   }
 
   // Phase 2 — running containers, keyed by name. Tests can short-circuit.
-  let running: Array<{ name: string; image: string; image_id: string }>;
+  let running: Array<{ name: string; image: string }>;
   if (opts.runningContainers !== undefined) {
     if (Array.isArray(opts.runningContainers)) {
       running = opts.runningContainers;

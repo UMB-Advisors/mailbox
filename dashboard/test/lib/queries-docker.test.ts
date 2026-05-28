@@ -68,7 +68,6 @@ describe('listRunningContainers — happy path', () => {
     expect(r.containers[0]).toEqual({
       name: 'mailbox-dashboard',
       image: 'mailbox-mailbox-dashboard:latest',
-      image_id: 'sha256:aaaa1111config',
       state: 'running',
     });
     expect(r.containers.map((c) => c.name)).toEqual([
