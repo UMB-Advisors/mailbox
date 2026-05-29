@@ -135,6 +135,15 @@ export const VIP_SENDER_KINDS = ['email', 'domain'] as const;
 
 export type VipSenderKind = (typeof VIP_SENDER_KINDS)[number];
 
+// Mail transport providers (MBOX-356 / DR-55, DR-57). SoT for the
+// mailbox.accounts.provider CHECK constraint (migration 037) and the
+// providerFor() factory in lib/mail/providers. NOTE: distinct from
+// mailbox.oauth_tokens.provider, which is the Google OAuth grant key
+// (google_calendar | google_tasks | google_drive) — see lib/oauth/google.ts.
+export const MAIL_PROVIDERS = ['gmail', 'imap', 'microsoft'] as const;
+
+export type MailProviderKind = (typeof MAIL_PROVIDERS)[number];
+
 // Urgency signal vocabulary (MBOX-134). The evaluator returns the subset of
 // these that fired for a draft; `urgent` is true iff at least one fired. Kept
 // here as the SoT so the SQL query helper, the evaluator, and any UI badge map
