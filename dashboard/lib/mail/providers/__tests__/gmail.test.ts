@@ -51,13 +51,17 @@ describe('GmailProvider.normalize', () => {
 
 describe('GmailProvider.normalizeThreadId', () => {
   it('passes the native Gmail thread id through', () => {
-    expect(gmail.normalizeThreadId(gmail.normalize({ message_id: 'x', thread_id: 't-9' }))).toBe('t-9');
+    expect(gmail.normalizeThreadId(gmail.normalize({ message_id: 'x', thread_id: 't-9' }))).toBe(
+      't-9',
+    );
   });
 });
 
 describe('GmailProvider.parseRateLimit', () => {
   it('extracts a future Retry-after hint from an error string', () => {
-    const { until } = gmail.parseRateLimit('429 Too Many Requests. Retry after 2099-01-01T00:00:00.000Z');
+    const { until } = gmail.parseRateLimit(
+      '429 Too Many Requests. Retry after 2099-01-01T00:00:00.000Z',
+    );
     expect(until?.toISOString()).toBe('2099-01-01T00:00:00.000Z');
   });
 
@@ -74,13 +78,25 @@ describe('GmailProvider.parseRateLimit', () => {
 
 describe('GmailProvider capabilities + I/O boundary', () => {
   it('declares native threading, poll-only, gmail quote strategy', () => {
-    expect(gmail.capabilities).toEqual({ nativeThreading: true, push: false, quoteStrategy: 'gmail' });
+    expect(gmail.capabilities).toEqual({
+      nativeThreading: true,
+      push: false,
+      quoteStrategy: 'gmail',
+    });
   });
 
   it('throws NotImplementedInP0 for transport I/O (n8n owns it in P0)', () => {
     const acct = { id: 1, provider: 'gmail' as const, provider_config: {} };
     expect(() => gmail.listNew(acct, null)).toThrow(NotImplementedInP0);
-    expect(() => gmail.send(acct, { thread_id: null, in_reply_to: null, to_addr: 'a@b.c', subject: 's', body: 'b' })).toThrow(NotImplementedInP0);
+    expect(() =>
+      gmail.send(acct, {
+        thread_id: null,
+        in_reply_to: null,
+        to_addr: 'a@b.c',
+        subject: 's',
+        body: 'b',
+      }),
+    ).toThrow(NotImplementedInP0);
     expect(() => gmail.backfillSent(acct, { lookbackHours: 24 })).toThrow(NotImplementedInP0);
   });
 });

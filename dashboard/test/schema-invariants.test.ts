@@ -6,6 +6,7 @@ import {
   AUTO_SEND_ACTIONS,
   CHAT_MESSAGE_ROLES,
   KB_DOC_STATUSES,
+  MAIL_PROVIDERS,
   REJECT_REASON_CODES,
   VIP_SENDER_KINDS,
 } from '../lib/types';
@@ -239,9 +240,23 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
     },
   );
 
+  it.skipIf(!DB_URL)(
+    'accounts.provider CHECK matches MAIL_PROVIDERS (MBOX-356, migration 037)',
+    async () => {
+      const allowed = await getCheckValues(pool!, 'accounts', 'accounts_provider_check');
+      const expected = [...MAIL_PROVIDERS];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
   it('AUTO_SEND_ACTIONS from lib/types.ts has no duplicates and is non-empty', () => {
     expect(AUTO_SEND_ACTIONS.length).toBeGreaterThan(0);
     expect(new Set(AUTO_SEND_ACTIONS).size).toBe(AUTO_SEND_ACTIONS.length);
+  });
+
+  it('MAIL_PROVIDERS from lib/types.ts has no duplicates and is non-empty', () => {
+    expect(MAIL_PROVIDERS.length).toBeGreaterThan(0);
+    expect(new Set(MAIL_PROVIDERS).size).toBe(MAIL_PROVIDERS.length);
   });
 
   it('VIP_SENDER_KINDS from lib/types.ts has no duplicates and is non-empty', () => {

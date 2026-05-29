@@ -31,6 +31,8 @@ export interface Accounts {
   email_address: string;
   id: Generated<number>;
   is_default: Generated<boolean>;
+  provider: Generated<string>;
+  provider_config: Generated<Json>;
 }
 
 export interface AlertSends {

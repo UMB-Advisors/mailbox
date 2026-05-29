@@ -14,12 +14,13 @@
 // Spec: docs/adr-mailprovider-abstraction-v0_1-2026-05-28.md
 //       docs/plan-mbox-356-p0-mailprovider-seam-v0_1-2026-05-29.md
 
-// The closed set of mail transports. SoT for the accounts.provider CHECK
-// constraint (migration 037) and the providerFor() factory. Promoted to
-// lib/types.ts alongside DRAFT_STATUSES/CATEGORIES in T5 (kept local in T1 so
-// the seam lands as pure-additive new files with no live-file edits).
-export const MAIL_PROVIDERS = ['gmail', 'imap', 'microsoft'] as const;
-export type MailProviderKind = (typeof MAIL_PROVIDERS)[number];
+// The closed set of mail transports. Canonical SoT lives in lib/types.ts
+// (MAIL_PROVIDERS) alongside the other CHECK-mirrored tuples; re-exported here
+// so the provider module is a one-stop import for callers.
+import { MAIL_PROVIDERS, type MailProviderKind } from '@/lib/types';
+
+export type { MailProviderKind };
+export { MAIL_PROVIDERS };
 
 // Minimal account shape the provider layer needs. Intentionally narrower than
 // the full mailbox.accounts row (lib/db/schema.ts `Accounts`) so the seam does
@@ -111,7 +112,10 @@ export interface MailProvider {
   // GmailProvider implementations below are declared for interface conformance
   // and throw NotImplementedInP0 — moving Gmail I/O into the dashboard is DR-56/
   // P3, gated on the S-MP-4 spike. IMAP (P1) / Graph (P2) implement these for real.
-  listNew(account: MailAccount, cursor: unknown): Promise<{ messages: CanonicalMessage[]; cursor: unknown }>;
+  listNew(
+    account: MailAccount,
+    cursor: unknown,
+  ): Promise<{ messages: CanonicalMessage[]; cursor: unknown }>;
   send(account: MailAccount, req: SendRequest): Promise<SendResult>;
   backfillSent(account: MailAccount, opts: BackfillOptions): AsyncIterable<CanonicalMessage>;
 }

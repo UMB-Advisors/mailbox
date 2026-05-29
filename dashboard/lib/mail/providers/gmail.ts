@@ -10,9 +10,11 @@
 // in P0 is the provider-neutral-facing logic: normalize, thread-id provenance,
 // and rate-limit parsing.
 //
-// In T2, lib/jobs/gmail-ratelimit-sweeper.ts is rewired to call
-// GmailProvider.parseRateLimit instead of inlining the regex. T1 lands this as a
-// new, separately-tested copy so the live sweeper is untouched until T2.
+// parseRateLimit is the provider-owned home for "how Gmail expresses a 429."
+// The live lib/jobs/gmail-ratelimit-sweeper.ts is deliberately NOT rewired in P0
+// — it reads n8n's execution_data (SQL-side extraction) and belongs to the
+// n8n-coupled world DR-56/P3 replaces. parseRateLimit is consumed by the
+// dashboard-owned IMAP/Graph poll loops (P1/P2), where a JS error object exists.
 
 import type {
   BackfillOptions,
@@ -108,7 +110,10 @@ export class GmailProvider implements MailProvider {
   // --- Transport I/O: n8n's job in P0 (see file header / DR-56). ---
   // These throw synchronously — they are not-implemented guards, not real async
   // paths. P1 (IMAP) / P2 (Graph) provide genuine async implementations.
-  listNew(_account: MailAccount, _cursor: unknown): Promise<{ messages: CanonicalMessage[]; cursor: unknown }> {
+  listNew(
+    _account: MailAccount,
+    _cursor: unknown,
+  ): Promise<{ messages: CanonicalMessage[]; cursor: unknown }> {
     throw new NotImplementedInP0('listNew');
   }
 

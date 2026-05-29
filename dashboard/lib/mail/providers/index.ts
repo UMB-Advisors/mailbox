@@ -8,8 +8,8 @@
 import { GmailProvider } from './gmail';
 import type { MailAccount, MailProvider, MailProviderKind } from './types';
 
-export * from './types';
 export { GmailProvider, NotImplementedInP0 } from './gmail';
+export * from './types';
 
 // Singleton instances — providers are stateless (config comes in per call via
 // MailAccount), so one instance per kind is sufficient.
