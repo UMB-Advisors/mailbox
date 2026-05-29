@@ -251,6 +251,12 @@ services:
       # be flipped on via .env at all — cloud-route drafts always fell back to
       # persona-stub. Default '' (not '1'): code checks `=== '1'`, so '' is off.
       RAG_CLOUD_ROUTE_ENABLED: ${RAG_CLOUD_ROUTE_ENABLED:-}
+      # P3 (MBOX-162) redraft-with-prompt feature flag. Default '' (off): the
+      # /api/internal/draft-redraft endpoint 403s and the queue hides the button
+      # until this is '1'. Must be forwarded here or the .env value never reaches
+      # the container (the dashboard service enumerates env explicitly). Local-
+      # only loop (DR-53); enable once validated on-box.
+      MAILBOX_REDRAFT_ENABLED: ${MAILBOX_REDRAFT_ENABLED:-}
       # Cloud drafter model + base URL overrides (router.ts:39-40). Documented
       # in CLAUDE.md as the override knob but ignored until forwarded.
       OLLAMA_CLOUD_MODEL: ${OLLAMA_CLOUD_MODEL:-gpt-oss:120b}
