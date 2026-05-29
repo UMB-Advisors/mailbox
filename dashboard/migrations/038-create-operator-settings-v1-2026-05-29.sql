@@ -1,4 +1,4 @@
--- Migration 037 — MBOX-162 P4 (sandbox UI port §4): operator workspace settings.
+-- Migration 038 — MBOX-162 P4 (sandbox UI port §4): operator workspace settings.
 -- WHAT: mailbox.operator_settings — a singleton row (id=1) holding the operator's
 --       right-pane embed config + scheduling link: booking_link,
 --       calendar_embed_src, drive_folder_id (all TEXT NOT NULL DEFAULT '').
