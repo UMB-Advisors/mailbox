@@ -260,9 +260,7 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       const pool = getTestPool();
       // Set system cooldown 10 min in the future. Restored after.
       await pool.query(
-        `INSERT INTO mailbox.mail_cooldowns (account_id, provider, until, set_at)
-         SELECT id, 'gmail', NOW() + interval '10 minutes', NOW() FROM mailbox.accounts WHERE is_default
-         ON CONFLICT (account_id, provider) DO UPDATE SET until = EXCLUDED.until, set_at = NOW()`,
+        `UPDATE mailbox.system_state SET gmail_rate_limit_until = NOW() + interval '10 minutes', gmail_rate_limit_set_at = NOW() WHERE id = 1`,
       );
       try {
         const { POST } = await import('@/app/api/drafts/[id]/retry/route');
@@ -284,7 +282,7 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       } finally {
         // Clear system cooldown so other tests aren't gated.
         await pool.query(
-          `DELETE FROM mailbox.mail_cooldowns WHERE provider = 'gmail' AND account_id = (SELECT id FROM mailbox.accounts WHERE is_default)`,
+          `UPDATE mailbox.system_state SET gmail_rate_limit_until = NULL, gmail_rate_limit_set_at = NULL WHERE id = 1`,
         );
         await deleteSeededDraft(seed);
       }

@@ -107,8 +107,8 @@ describe('providerFor factory', () => {
     expect(providerForKind('gmail')).toBeInstanceOf(GmailProvider);
   });
 
-  it('throws for the not-yet-implemented provider (microsoft / P2)', () => {
-    // imap is implemented as of P1 (MBOX-357) — covered in imap.test.ts.
+  it('throws for not-yet-implemented providers', () => {
+    expect(() => providerForKind('imap')).toThrow(/P1 \/ MBOX-357/);
     expect(() => providerForKind('microsoft')).toThrow(/P2 \/ MBOX-358/);
   });
 });

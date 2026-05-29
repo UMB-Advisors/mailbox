@@ -202,11 +202,12 @@ dbDescribe('auto-send rules — real Postgres', () => {
     it('SAFETY: an active Gmail cooldown blocks auto-send — draft stays pending', async () => {
       const pool = getTestPool();
       // Arm the circuit breaker (transitionToApprovedAndSend refuses to send
-      // while the (default account, 'gmail') mail_cooldowns row is in the future).
+      // while gmail_rate_limit_until is in the future).
       await pool.query(
-        `INSERT INTO mailbox.mail_cooldowns (account_id, provider, until, set_at)
-         SELECT id, 'gmail', NOW() + interval '1 hour', NOW() FROM mailbox.accounts WHERE is_default
-         ON CONFLICT (account_id, provider) DO UPDATE SET until = EXCLUDED.until, set_at = NOW()`,
+        `UPDATE mailbox.system_state
+            SET gmail_rate_limit_until = NOW() + interval '1 hour',
+                gmail_rate_limit_set_at = NOW()
+          WHERE id = 1`,
       );
       // Stub the webhook so a regression that bypasses the cooldown would be
       // caught by an unexpected fetch (the gate should short-circuit first).
@@ -240,7 +241,9 @@ dbDescribe('auto-send rules — real Postgres', () => {
 
       // Clean up the cooldown so it doesn't leak into other suites.
       await pool.query(
-        `DELETE FROM mailbox.mail_cooldowns WHERE provider = 'gmail' AND account_id = (SELECT id FROM mailbox.accounts WHERE is_default)`,
+        `UPDATE mailbox.system_state
+            SET gmail_rate_limit_until = NULL, gmail_rate_limit_set_at = NULL
+          WHERE id = 1`,
       );
     });
   });
