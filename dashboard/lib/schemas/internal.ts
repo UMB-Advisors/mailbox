@@ -116,6 +116,23 @@ export const llmChatStreamBodySchema = z
 
 export type LlmChatStreamBody = z.infer<typeof llmChatStreamBodySchema>;
 
+// POST /api/internal/draft-redraft — P3 (MBOX-162) operator redraft-with-prompt.
+// The browser sends the draft id (to load inbound context + persona
+// server-side), the operator's current in-progress body, and a refine
+// instruction. LOCAL-ONLY (DR-53/SM-73): no model/baseUrl field that could
+// redirect to a cloud provider; the route resolves the on-device runtime
+// exactly like the chat-stream sibling. `current_body` shares the edit route's
+// 10k cap.
+export const draftRedraftBodySchema = z
+  .object({
+    draft_id: z.number().int().positive(),
+    current_body: z.string().min(1).max(10_000),
+    instruction: z.string().trim().min(1).max(2_000),
+  })
+  .strip();
+
+export type DraftRedraftBody = z.infer<typeof draftRedraftBodySchema>;
+
 // POST /api/internal/inbox-messages — STAQPRO-135 ingest endpoint that
 // replaces n8n's `Insert Inbox (skip dupes)` Postgres node. Field shape
 // mirrors what n8n's `Extract Fields` set node already produces; tightening

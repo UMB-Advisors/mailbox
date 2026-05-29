@@ -60,9 +60,18 @@ interface Props {
   initialList: DraftWithMessage[];
   initialStuck: DraftWithMessage[];
   initialCooldown: CooldownState;
+  // P3 (MBOX-162) — SSR-resolved MAILBOX_REDRAFT_ENABLED flag. Gates the
+  // redraft button's visibility (the endpoint also 403s when off).
+  redraftEnabled: boolean;
 }
 
-export function QueueClient({ folder, initialList, initialStuck, initialCooldown }: Props) {
+export function QueueClient({
+  folder,
+  initialList,
+  initialStuck,
+  initialCooldown,
+  redraftEnabled,
+}: Props) {
   const mode = modeForFolder(folder);
   const [drafts, setDrafts] = useState(initialList);
   const [stuckApproved, setStuckApproved] = useState(initialStuck);
@@ -76,6 +85,10 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
   // EditModal overlay). Controlled here so the `e` keyboard shortcut can
   // toggle it; reset whenever the selected draft changes (see effect below).
   const [isEditing, setIsEditing] = useState(false);
+  // P3 (MBOX-162) — when the operator Applies a redraft, the inline editor
+  // opens pre-seeded with the redrafted text (not the stored body). Cleared
+  // whenever edit mode exits or the selection changes.
+  const [redraftSeedBody, setRedraftSeedBody] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMsg>(null);
   const [newCount, setNewCount] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(
@@ -224,9 +237,22 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on selection change only.
   useEffect(() => {
     setIsEditing(false);
+    setRedraftSeedBody(null);
   }, [selectedId]);
 
   const dismissToast = () => setToast(null);
+
+  // P3 — Apply a streamed redraft: open the inline editor seeded with the
+  // rewrite for a final human pass (no auto-send; reuses the P2 edit/save path).
+  function onRedraftApply(body: string) {
+    setRedraftSeedBody(body);
+    setIsEditing(true);
+  }
+
+  function exitEdit() {
+    setIsEditing(false);
+    setRedraftSeedBody(null);
+  }
   const dismissNewDrafts = () => setNewCount(0);
 
   // STAQPRO-331 #1 — fireAction now takes an optional `body` so reject can
@@ -467,6 +493,7 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? `Edit failed (${res.status})`);
       setIsEditing(false);
+      setRedraftSeedBody(null);
       setToast({ kind: 'success', text: 'Saved' });
       fetchData(true);
     } catch (err) {
@@ -739,9 +766,12 @@ export function QueueClient({ folder, initialList, initialStuck, initialCooldown
         readOnly={mode === 'archive'}
         onApprove={() => fireAction('approve', selected)}
         isEditing={isEditing}
+        seedBody={redraftSeedBody ?? undefined}
         onEditStart={() => setIsEditing(true)}
-        onEditCancel={() => setIsEditing(false)}
+        onEditCancel={exitEdit}
         onEditSave={onEditSave}
+        redraftEnabled={redraftEnabled}
+        onRedraftApply={onRedraftApply}
         onReject={(payload) => fireReject(payload, selected)}
         onReclassify={(category) => fireReclassify(selected, category)}
         rejectPopoverOpen={rejectPopoverOpen}

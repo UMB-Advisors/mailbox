@@ -16,15 +16,20 @@ const MAX_BODY = 10_000;
 export function InlineDraftEditor({
   draft,
   saving,
+  seedBody,
   onSave,
   onCancel,
 }: {
   draft: DraftWithMessage;
   saving: boolean;
+  // P3 (MBOX-162) — when the operator Applies a redraft, the editor opens
+  // pre-seeded with the redrafted text (instead of the stored draft body) for a
+  // final human pass. "Revert to original" still restores the stored body.
+  seedBody?: string;
   onSave: (body: string, subject: string | null) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [body, setBody] = useState(draft.draft_body);
+  const [body, setBody] = useState(seedBody ?? draft.draft_body);
   const [subject, setSubject] = useState(draft.draft_subject ?? '');
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
