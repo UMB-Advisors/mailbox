@@ -30,6 +30,18 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { getPool } from '@/lib/db';
+import { getDefaultAccountId } from '@/lib/queries-accounts';
+
+// MBOX-352 (MBOX-162 V2) — per-account OAuth routing. oauth_tokens is keyed
+// (provider, account_id) since migration 033; every token read/write now scopes
+// to a specific account. `accountId` is optional on each helper and falls back
+// to the seeded default account, so the existing single-account callers
+// (calendar pre-read, tasks handoff, the connect/callback routes) keep landing
+// on the default mailbox's tokens exactly as before. A multi-mailbox appliance
+// passes the draft's account so each inbox uses its own Google grant.
+async function resolveAccountId(accountId?: number): Promise<number> {
+  return accountId ?? (await getDefaultAccountId());
+}
 
 // The Google OAuth providers backed by mailbox.oauth_tokens. SoT for the
 // provider key strings; the push/connect routes and the calendar/tasks modules
@@ -150,7 +162,11 @@ export interface OAuthConnection {
   connected_at: string | null;
 }
 
-export async function getConnection(provider: OAuthProvider): Promise<OAuthConnection> {
+export async function getConnection(
+  provider: OAuthProvider,
+  accountId?: number,
+): Promise<OAuthConnection> {
+  const acct = await resolveAccountId(accountId);
   const pool = getPool();
   const r = await pool.query<{
     scope: string | null;
@@ -162,8 +178,8 @@ export async function getConnection(provider: OAuthProvider): Promise<OAuthConne
     `SELECT scope, account_email, last_fetched_at, connected_at,
             (refresh_token_enc IS NOT NULL) AS has_token
        FROM mailbox.oauth_tokens
-      WHERE provider = $1`,
-    [provider],
+      WHERE provider = $1 AND account_id = $2`,
+    [provider, acct],
   );
   const row = r.rows[0];
   return {
@@ -183,53 +199,67 @@ export async function saveToken(input: {
   refreshToken: string;
   scope: string;
   accountEmail: string | null;
+  accountId?: number;
 }): Promise<void> {
+  const acct = await resolveAccountId(input.accountId);
   const enc = encryptToken(input.refreshToken);
   const pool = getPool();
-  // MBOX-348 — oauth_tokens PK reshaped to (provider, account_id). account_id is
-  // omitted from the column list so its DEFAULT (the single connected mailbox =
-  // default account) fills it; the conflict target matches the new composite PK.
-  // Per-account OAuth (V2) will resolve account_id explicitly here.
+  // MBOX-352 (MBOX-162 V2) — resolve account_id explicitly (default account when
+  // the caller omits it). oauth_tokens PK is (provider, account_id) since
+  // migration 033; the conflict target matches it so re-connecting a provider on
+  // a given account overwrites that account's row, not another's.
   await pool.query(
     `INSERT INTO mailbox.oauth_tokens
-       (provider, refresh_token_enc, scope, account_email, connected_at, updated_at)
-     VALUES ($1, $2, $3, $4, NOW(), NOW())
+       (provider, account_id, refresh_token_enc, scope, account_email, connected_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
      ON CONFLICT (provider, account_id) DO UPDATE
        SET refresh_token_enc = EXCLUDED.refresh_token_enc,
            scope = EXCLUDED.scope,
            account_email = EXCLUDED.account_email,
            updated_at = NOW()`,
-    [input.provider, enc, input.scope, input.accountEmail],
+    [input.provider, acct, enc, input.scope, input.accountEmail],
   );
 }
 
 // Disconnect: clear the row entirely (revokes by deletion). Returns whether a
 // row was present. The route additionally best-effort revokes the grant at
 // Google and clears any per-provider cache.
-export async function deleteToken(provider: OAuthProvider): Promise<{ deleted: boolean }> {
+export async function deleteToken(
+  provider: OAuthProvider,
+  accountId?: number,
+): Promise<{ deleted: boolean }> {
+  const acct = await resolveAccountId(accountId);
   const pool = getPool();
-  const r = await pool.query('DELETE FROM mailbox.oauth_tokens WHERE provider = $1', [provider]);
+  const r = await pool.query(
+    'DELETE FROM mailbox.oauth_tokens WHERE provider = $1 AND account_id = $2',
+    [provider, acct],
+  );
   return { deleted: (r.rowCount ?? 0) > 0 };
 }
 
 // Stamp last_fetched_at after a successful data fetch (calendar events / tasks
 // list). Best-effort — a stamp failure must not fail the fetch itself.
-export async function markFetched(provider: OAuthProvider): Promise<void> {
+export async function markFetched(provider: OAuthProvider, accountId?: number): Promise<void> {
+  const acct = await resolveAccountId(accountId);
   const pool = getPool();
   await pool.query(
-    'UPDATE mailbox.oauth_tokens SET last_fetched_at = NOW(), updated_at = NOW() WHERE provider = $1',
-    [provider],
+    'UPDATE mailbox.oauth_tokens SET last_fetched_at = NOW(), updated_at = NOW() WHERE provider = $1 AND account_id = $2',
+    [provider, acct],
   );
 }
 
 // Read + decrypt the stored refresh token. Returns null when the provider is
 // not connected. Throws only on a decrypt failure (corrupt ciphertext / wrong
 // key), which is a configuration error the caller should surface.
-export async function getRefreshToken(provider: OAuthProvider): Promise<string | null> {
+export async function getRefreshToken(
+  provider: OAuthProvider,
+  accountId?: number,
+): Promise<string | null> {
+  const acct = await resolveAccountId(accountId);
   const pool = getPool();
   const r = await pool.query<{ refresh_token_enc: string | null }>(
-    'SELECT refresh_token_enc FROM mailbox.oauth_tokens WHERE provider = $1',
-    [provider],
+    'SELECT refresh_token_enc FROM mailbox.oauth_tokens WHERE provider = $1 AND account_id = $2',
+    [provider, acct],
   );
   const enc = r.rows[0]?.refresh_token_enc;
   if (!enc) return null;
@@ -399,8 +429,12 @@ export async function revokeAtGoogle(refreshToken: string): Promise<void> {
 // 'auth' → surface a reconnect prompt + fall back; 'transient' → retry/cooldown.
 // TODO(MBOX-130 follow-up): cache access token (~55m TTL) to avoid dual RTT on
 // the latency budget — refresh-then-data fetch is ~10s of the 30s local draft.
-export async function getAccessToken(provider: OAuthProvider, timeoutMs = 5_000): Promise<string> {
-  const refresh = await getRefreshToken(provider);
+export async function getAccessToken(
+  provider: OAuthProvider,
+  timeoutMs = 5_000,
+  accountId?: number,
+): Promise<string> {
+  const refresh = await getRefreshToken(provider, accountId);
   if (!refresh) {
     throw new OAuthTokenError(`${provider} not connected`, 'not_connected');
   }
@@ -408,7 +442,7 @@ export async function getAccessToken(provider: OAuthProvider, timeoutMs = 5_000)
   // BEFORE we spend a token refresh + data fetch only to eat a confusing Google
   // 403. A grant can lack the scope if the operator connected an older version
   // or revoked partial consent. Surface as 'auth' → caller prompts a reconnect.
-  const conn = await getConnection(provider);
+  const conn = await getConnection(provider, accountId);
   const required = PROVIDER_SCOPE[provider];
   if (!conn.scope?.split(/\s+/).includes(required)) {
     throw new OAuthTokenError(

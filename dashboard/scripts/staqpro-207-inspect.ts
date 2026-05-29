@@ -149,7 +149,9 @@ async function runDraftPass(pair: PairRow, mode: 'with-rag' | 'no-rag'): Promise
 
   const category: Category = (pair.inbound_classification as Category | null) ?? 'inquiry';
   const confidence = pair.inbound_confidence ?? 1.0;
-  const persona = await getPersonaContext(DEFAULT_PERSONA_KEY);
+  // MBOX-352 — getPersonaContext is now account-scoped (numeric account_id);
+  // the eval inspector runs against the default account, so pass nothing.
+  const persona = await getPersonaContext();
   const endpoint = pickEndpoint(category, confidence);
 
   const retrieval = await retrieveForDraft({

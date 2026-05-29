@@ -599,7 +599,9 @@ export async function generateDraft(
   const category: Category = (pair.inbox_classification as Category | null) ?? 'inquiry';
   const confidence = pair.inbox_confidence ?? 1.0;
 
-  const persona = await resolvePersona(DEFAULT_PERSONA_KEY);
+  // MBOX-352 — getPersonaContext is now account-scoped (numeric account_id);
+  // the eval harness runs against the default account, so pass nothing.
+  const persona = await resolvePersona();
   const endpoint = pickEndpoint(category, confidence);
   // Eval covers LOCAL route only. If routing decides cloud (escalate /
   // unknown), surface that as a soft skip via the retrieval reason — the

@@ -57,6 +57,10 @@ export async function POST(req: NextRequest) {
         // every same-thread point from retrieval via must_not on
         // payload.thread_id (gated by RAG_RETRIEVE_EXCLUDE_SAME_THREAD).
         'thread_id',
+        // MBOX-352 (MBOX-162 V2) — the owning mailbox. Threaded into persona
+        // resolution, exemplar mining, and RAG retrieval so a multi-account
+        // appliance drafts in the right voice against the right history.
+        'account_id',
       ])
       .where('id', '=', draft_id)
       .limit(1)
@@ -77,7 +81,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const persona = await getPersonaContext(DEFAULT_PERSONA_KEY);
+    // MBOX-352 (MBOX-162 V2) — resolve persona for the draft's owning account.
+    const persona = await getPersonaContext(row.account_id);
     const confidence = row.classification_confidence ?? 0;
 
     // STAQPRO-191 — pick the endpoint BEFORE assembling the prompt because
@@ -110,6 +115,8 @@ export async function POST(req: NextRequest) {
         body_text: row.body_text ?? null,
         draft_source: endpoint.source,
         persona_key: DEFAULT_PERSONA_KEY,
+        // MBOX-352 (MBOX-162 V2) — account hard-filter for per-mailbox recall.
+        account_id: row.account_id,
         // STAQPRO-219 — drop self-match from retrieval via must_not.has_id.
         message_id: row.message_id,
         // STAQPRO-222 (H3) — drop every same-thread point from retrieval
@@ -117,7 +124,7 @@ export async function POST(req: NextRequest) {
         // RAG_RETRIEVE_EXCLUDE_SAME_THREAD env var inside retrieveForDraft.
         thread_id: row.thread_id,
       }),
-      getCategoryExemplars(classification_category, 1, DEFAULT_PERSONA_KEY),
+      getCategoryExemplars(classification_category, 1, DEFAULT_PERSONA_KEY, row.account_id),
       getThreadHistory({
         thread_id: row.thread_id,
         message_id: row.message_id,

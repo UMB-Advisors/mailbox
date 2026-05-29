@@ -28,6 +28,12 @@ export interface KbPointPayload {
   mime_type: string;
   excerpt: string;
   uploaded_at: string; // ISO 8601
+  // MBOX-352 (MBOX-162 V2) — owning account for per-mailbox KB isolation.
+  // Optional because points ingested before V2 lack it; new ingestion (and a
+  // future retag) populate it. The account FILTER on searchKb stays gated until
+  // all KB points carry this (V1's retag only covered email_messages), so KB
+  // retrieval is still corpus-wide today — see kb-qdrant searchKb accountFilter.
+  account_id?: number;
 }
 
 export interface KbUpsertResult {
@@ -114,17 +120,28 @@ export interface KbSearchOptions {
   // Optional mime_type filter — useful if future UX wants to bias toward
   // policy docs vs price sheets per inbound query type. Unused at v1.
   mimeTypeFilter?: string;
+  // MBOX-352 (MBOX-162 V2) — per-account KB isolation. When set, ANDed onto the
+  // search so a mailbox only recalls its own uploaded corpus. GATED: not yet
+  // passed by retrieve.ts, because V1's retag covered only email_messages —
+  // existing KB points carry no payload.account_id, so enabling this filter
+  // before a KB retag would zero out KB recall. Wire it from retrieveForDraft
+  // only after scripts/rekey-qdrant-account-point-ids.ts has tagged KB points.
+  accountFilter?: number;
 }
 
 // Search by vector. No hard filter on per-counterparty (unlike email retrieval)
-// — KB content is corpus-wide knowledge, not per-sender history.
+// — KB content is corpus-wide knowledge, not per-sender history. (Per-account
+// KB isolation is available via accountFilter but gated — see the option doc.)
 export async function searchKb(
   vector: number[],
   opts: KbSearchOptions = {},
 ): Promise<KbSearchResult> {
   const limit = opts.limit ?? 3;
-  const must: Array<{ key: string; match: { value: string } }> = [];
+  const must: Array<{ key: string; match: { value: string | number } }> = [];
   if (opts.mimeTypeFilter) must.push({ key: 'mime_type', match: { value: opts.mimeTypeFilter } });
+  if (opts.accountFilter !== undefined) {
+    must.push({ key: 'account_id', match: { value: opts.accountFilter } });
+  }
   const filter = must.length > 0 ? { must } : undefined;
   try {
     const r = await qdrantRequest('POST', `/collections/${KB_COLLECTION}/points/search`, {

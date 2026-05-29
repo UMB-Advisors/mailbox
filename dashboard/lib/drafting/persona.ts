@@ -44,8 +44,13 @@ const FALLBACK: PersonaContext = {
   business_description: '',
 };
 
-export async function getPersonaContext(customerKey = 'default'): Promise<PersonaContext> {
-  const row = await getPersona(customerKey);
+// MBOX-352 (MBOX-162 V2) — persona is now resolved per account. `accountId`
+// is optional and falls back to the seeded default account inside getPersona,
+// so single-account callers (classification prompt, eval harness) that pass
+// nothing behave exactly as before. The draft-prompt route passes the in-flight
+// draft's account so a multi-mailbox appliance drafts in the right voice.
+export async function getPersonaContext(accountId?: number): Promise<PersonaContext> {
+  const row = await getPersona(accountId);
   const markers = (row?.statistical_markers ?? {}) as Record<string, unknown>;
   return resolvePersonaContext(markers);
 }
