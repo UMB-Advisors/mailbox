@@ -1,6 +1,7 @@
 'use client';
 
-import { Check, Pencil, Send, X } from 'lucide-react';
+import { Check, Pencil, Send, Wand2, X } from 'lucide-react';
+import { useState } from 'react';
 import type { Category } from '@/lib/classification/prompt';
 import type { ActionItem, DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
@@ -9,6 +10,7 @@ import { ClassificationOverride } from './ClassificationOverride';
 import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
 import { InlineDraftEditor } from './InlineDraftEditor';
+import { RedraftPanel } from './RedraftPanel';
 import type { RejectPayload } from './RejectPopover';
 import { RoutingBadge } from './RoutingBadge';
 import { SenderHistoryPanel } from './SenderHistoryPanel';
@@ -21,9 +23,12 @@ export function DraftDetail({
   readOnly = false,
   onApprove,
   isEditing = false,
+  seedBody,
   onEditStart,
   onEditCancel,
   onEditSave,
+  redraftEnabled = false,
+  onRedraftApply,
   onReject,
   onReclassify,
   rejectPopoverOpen,
@@ -38,9 +43,17 @@ export function DraftDetail({
   // onEditStart enters edit mode (the ActionButtons "Edit"), onEditSave
   // persists via the edit route, onEditCancel exits without saving.
   isEditing?: boolean;
+  // P3 (MBOX-162) — when set, the inline editor opens pre-seeded with this
+  // body (a just-applied redraft) instead of the stored draft body.
+  seedBody?: string;
   onEditStart: () => void;
   onEditCancel: () => void;
   onEditSave: (body: string, subject: string | null) => Promise<void>;
+  // P3 (MBOX-162) — redraft-with-prompt. Flag-gated (MAILBOX_REDRAFT_ENABLED);
+  // when off the button is hidden. onRedraftApply hands the streamed rewrite up
+  // to QueueClient, which opens the inline editor seeded with it.
+  redraftEnabled?: boolean;
+  onRedraftApply: (body: string) => void;
   // STAQPRO-331 #1 — reject now carries structured feedback.
   onReject: (payload: RejectPayload) => void;
   // MBOX-123 — operator classification override (relabel only, no re-draft).
@@ -50,6 +63,8 @@ export function DraftDetail({
   rejectPopoverOpen?: boolean;
   onRejectPopoverChange?: (open: boolean) => void;
 }) {
+  // P3 — redraft panel open state (local; no keyboard shortcut for v1).
+  const [redraftOpen, setRedraftOpen] = useState(false);
   return (
     // STAQPRO-148-followup (Delphi UX pass) — restructured top-to-bottom so
     // operator never scrolls to reach the primary action: actions → draft →
@@ -95,6 +110,7 @@ export function DraftDetail({
             key={draft.id}
             draft={draft}
             saving={busy === 'edit'}
+            seedBody={seedBody}
             onSave={onEditSave}
             onCancel={onEditCancel}
           />
@@ -109,6 +125,31 @@ export function DraftDetail({
             <pre className="whitespace-pre-wrap font-serif text-base leading-relaxed text-ink">
               {draft.draft_body}
             </pre>
+            {/* P3 (MBOX-162) — redraft-with-prompt. Flag-gated; hidden on
+                read-only (archive) folders. Opens an inline panel; Apply hands
+                the result to QueueClient, which opens the editor seeded with it. */}
+            {redraftEnabled && !readOnly && !redraftOpen && (
+              <button
+                type="button"
+                onClick={() => setRedraftOpen(true)}
+                className="mt-3 flex items-center gap-1.5 rounded-sm border border-accent-blue/40 bg-accent-blue/5 px-2.5 py-1 font-sans text-sm text-accent-blue transition-colors hover:bg-accent-blue/10"
+              >
+                <Wand2 className="h-3.5 w-3.5" aria-hidden />
+                Redraft with prompt
+              </button>
+            )}
+            {redraftEnabled && !readOnly && redraftOpen && (
+              <RedraftPanel
+                key={draft.id}
+                draftId={draft.id}
+                currentBody={draft.draft_body}
+                onApply={(body) => {
+                  setRedraftOpen(false);
+                  onRedraftApply(body);
+                }}
+                onClose={() => setRedraftOpen(false)}
+              />
+            )}
           </>
         )}
         {/* MBOX-131 — structured action items extracted from the inbound +

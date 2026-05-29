@@ -100,12 +100,19 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
     );
   }
 
+  // P3 (MBOX-162) — gate the redraft-with-prompt button on the same env flag the
+  // /api/internal/draft-redraft endpoint enforces. SSR-read so it's resolved at
+  // request time (force-dynamic), keeping the button hidden until the loop is
+  // validated on M1.
+  const redraftEnabled = process.env.MAILBOX_REDRAFT_ENABLED === '1';
+
   return (
     <QueueClient
       folder={folder}
       initialList={initialList}
       initialStuck={initialStuck}
       initialCooldown={initialCooldown}
+      redraftEnabled={redraftEnabled}
     />
   );
 }
