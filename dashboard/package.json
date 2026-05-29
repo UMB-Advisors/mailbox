@@ -21,7 +21,7 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
-    "@umb-advisors/llm": "^0.1.0",
+    "@umb-advisors/llm": "^0.1.2",
     "kysely": "^0.28.16",
     "lucide-react": "^0.469.0",
     "mammoth": "^1.12.0",

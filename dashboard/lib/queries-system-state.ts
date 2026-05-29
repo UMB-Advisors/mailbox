@@ -25,19 +25,25 @@ export interface GmailCooldown {
 // and the n8n-facing gate use the same recommendation.
 const SAFE_BUFFER_MS = 60 * 60 * 1000;
 
+// Since migration 039 the cooldown SoT is mailbox.mail_cooldowns, keyed
+// (account_id, provider). These three Gmail helpers keep their global signatures
+// (every caller is unchanged) and operate on the default account's 'gmail'
+// bucket — behavior-preserving for the single-account M1. IMAP/Graph get their
+// own (account, provider) rows via their own helpers in P1 T5 / P2.
 export async function getGmailCooldown(): Promise<GmailCooldown> {
   const db = getKysely();
   const row = await sql<{
-    gmail_rate_limit_until: string | null;
-    gmail_rate_limit_set_at: string | null;
+    until: string | null;
+    set_at: string | null;
   }>`
-    SELECT gmail_rate_limit_until, gmail_rate_limit_set_at
-    FROM mailbox.system_state
-    WHERE id = 1
+    SELECT mc.until, mc.set_at
+      FROM mailbox.mail_cooldowns mc
+      JOIN mailbox.accounts a ON a.id = mc.account_id
+     WHERE a.is_default AND mc.provider = 'gmail'
   `.execute(db);
   const r = row.rows[0];
-  const until = r?.gmail_rate_limit_until ? new Date(r.gmail_rate_limit_until) : null;
-  const set_at = r?.gmail_rate_limit_set_at ? new Date(r.gmail_rate_limit_set_at) : null;
+  const until = r?.until ? new Date(r.until) : null;
+  const set_at = r?.set_at ? new Date(r.set_at) : null;
   const recommended_safe_at = until ? new Date(until.getTime() + SAFE_BUFFER_MS) : null;
   // `isActive` is keyed off the recommended safe deadline so the banner
   // stays visible across the +1h buffer window — matches the n8n-facing
@@ -57,11 +63,15 @@ export async function getGmailCooldown(): Promise<GmailCooldown> {
 // near-simultaneously and the sweeper races to record the latest.
 export async function setGmailCooldown(until: Date): Promise<void> {
   const db = getKysely();
+  // Upsert the default account's gmail bucket; GREATEST keeps the advance-only
+  // semantics (never retreat an active probation window).
   await sql`
-    UPDATE mailbox.system_state
-       SET gmail_rate_limit_until = GREATEST(gmail_rate_limit_until, ${until.toISOString()}::timestamptz),
-           gmail_rate_limit_set_at = NOW()
-     WHERE id = 1
+    INSERT INTO mailbox.mail_cooldowns (account_id, provider, until, set_at)
+    SELECT id, 'gmail', ${until.toISOString()}::timestamptz, NOW()
+      FROM mailbox.accounts WHERE is_default
+    ON CONFLICT (account_id, provider)
+    DO UPDATE SET until = GREATEST(mail_cooldowns.until, EXCLUDED.until),
+                  set_at = NOW()
   `.execute(db);
 }
 
@@ -89,14 +99,16 @@ export async function clearGmailCooldown(): Promise<ClearGmailCooldownResult> {
   const db = getKysely();
   const row = await sql<{ previous_until: string | null }>`
     WITH prev AS (
-      SELECT gmail_rate_limit_until AS previous_until
-        FROM mailbox.system_state
-       WHERE id = 1
+      SELECT mc.until AS previous_until
+        FROM mailbox.mail_cooldowns mc
+        JOIN mailbox.accounts a ON a.id = mc.account_id
+       WHERE a.is_default AND mc.provider = 'gmail'
     )
-    UPDATE mailbox.system_state
-       SET gmail_rate_limit_until = NULL,
-           gmail_rate_limit_set_at = NULL
-     WHERE id = 1
+    UPDATE mailbox.mail_cooldowns mc
+       SET until = NULL,
+           set_at = NULL
+      FROM mailbox.accounts a
+     WHERE a.id = mc.account_id AND a.is_default AND mc.provider = 'gmail'
     RETURNING (SELECT previous_until FROM prev)
   `.execute(db);
   const previousUntilRaw = row.rows[0]?.previous_until ?? null;
