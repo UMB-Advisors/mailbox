@@ -29,9 +29,9 @@
 | 2026-05-28 | §5 (NEW) | Cross-cutting requirements (threading, rate-limit, auth, idempotency) |
 | 2026-05-28 | §6 (NEW) | Provider matrix — Gmail vs IMAP/SMTP vs Microsoft Graph |
 | 2026-05-28 | §7 (NEW) | Validation spikes + kill criteria |
-| 2026-05-28 | DR-55 → DR-58 (NEW) | Abstraction, n8n boundary, provider dimension, IMAP auth |
-| 2026-05-28 | SM-91 → SM-95 (NEW) | Success metrics |
-| 2026-05-28 | NC-33 → NC-38 (NEW) | Open questions |
+| 2026-05-28 | DR-55 → DR-57, DR-63 (NEW) | Abstraction, n8n boundary, provider dimension, IMAP auth |
+| 2026-05-28 | SM-91 → SM-94, SM-100 (NEW) | Success metrics |
+| 2026-05-28 | NC-33 → NC-37, NC-42 (NEW) | Open questions |
 
 ---
 
@@ -153,7 +153,8 @@ Per the project's spike-gate discipline (mirrors the multi-account §6). Candida
 > `mailbox.accounts.provider` enum; per-`(account_id, provider)` cooldown (retire the single global `gmail_rate_limit_until`); `gmail_message_id` → `provider_message_id`; dedup scoped per account. Extends migration 033's substrate, does not parallel it.
 > **Delivery split (2026-05-29):** P0 (migration 037, MBOX-356) lands `accounts.provider` + `provider_config` only — the discriminator the `MailProvider` factory needs. The cooldown reshape (`mail_cooldowns(account_id, provider)`) and `provider_message_id` are **deferred to P1 (MBOX-357)**, the phase that first consumes them, to avoid landing dead schema and to keep P0 off the live circuit-breaker tables.
 
-> **DR-58 (Candidate, gated on NC-33) — IMAP auth strategy.**
+> **DR-63 (Candidate, gated on NC-33) — IMAP auth strategy.**
+> _(Renumbered from DR-58 on 2026-05-29 — DR-58 was concurrently claimed by `addendum-mailbox-draft-quality-v0_1-2026-05-29.md`.)_
 > Default to app-password / basic-auth IMAP for v1 (covers cPanel/Fastmail/Zoho). Add XOAUTH2 only if a target customer's host (Gmail-IMAP, Yahoo) has deprecated basic-auth. Do not build a general OAuth-IMAP layer speculatively.
 
 ---
@@ -166,7 +167,7 @@ Per the project's spike-gate discipline (mirrors the multi-account §6). Candida
 | **SM-92** | A Microsoft 365 account completes the same round-trip. |
 | **SM-93** | Threading correctness: replies land in-thread in the counterparty's client on all three providers (FR-MP-1). |
 | **SM-94** | Zero regression on the Gmail path post-abstraction — existing eval baselines + pipeline smoke green (the P0 gate). |
-| **SM-95** | A mixed-provider appliance (Gmail + Outlook concurrently) processes both inboxes without cross-provider cooldown bleed (validates §4.3). |
+| **SM-100** | A mixed-provider appliance (Gmail + Outlook concurrently) processes both inboxes without cross-provider cooldown bleed (validates §4.3). |
 
 ---
 
@@ -174,12 +175,12 @@ Per the project's spike-gate discipline (mirrors the multi-account §6). Candida
 
 | Ref | Question |
 |-----|----------|
-| **NC-33** | IMAP auth: app-password only, or XOAUTH2 for hosts that deprecated basic-auth (Gmail-IMAP, Yahoo)? Drives DR-58. |
+| **NC-33** | IMAP auth: app-password only, or XOAUTH2 for hosts that deprecated basic-auth (Gmail-IMAP, Yahoo)? Drives DR-63. |
 | **NC-34** | Microsoft consent model: delegated OAuth (per-user consent) vs app-only (admin consent + `Mail.ReadWrite` application permission)? Who owns the Azure app registration — a Staqs multi-tenant app, or per-customer? |
-| **NC-35** | ✅ **RESOLVED 2026-05-29 — compose.** Multi-provider composes with multi-account: `(account_id, provider)` is the universal key. Rationale: V2 (MBOX-352) already made `account_id` a first-class scoping key, so a non-composing design would contradict shipped code. One appliance may run Gmail + Outlook concurrently (SM-95). |
+| **NC-35** | ✅ **RESOLVED 2026-05-29 — compose.** Multi-provider composes with multi-account: `(account_id, provider)` is the universal key. Rationale: V2 (MBOX-352) already made `account_id` a first-class scoping key, so a non-composing design would contradict shipped code. One appliance may run Gmail + Outlook concurrently (SM-100). |
 | **NC-36** | Microsoft ingress: poll-only first, or build change-notification subscriptions (webhooks need Caddy endpoint + renewal lifecycle)? |
 | **NC-37** | SMTP send deliverability: send via the customer's own SMTP (SPF/DKIM aligned to their domain) — confirm no relay/reputation layer is needed. |
-| **NC-38** | Does the shared-OAuth-client plan (STAQPRO-197, Gmail) extend to a shared Microsoft multi-tenant app, or stay per-customer? |
+| **NC-42** | Does the shared-OAuth-client plan (STAQPRO-197, Gmail) extend to a shared Microsoft multi-tenant app, or stay per-customer? |
 
 ---
 

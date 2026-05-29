@@ -5,7 +5,7 @@
 > **Date:** 2026-05-28
 > **Context spec:** `addendum-mailbox-multi-provider-mail-v0_1-2026-05-28.md`
 > **Supersedes / extends:** nothing. Builds on migration 033 (`account_id`, `mailbox.accounts`, `mailbox.oauth_tokens`; MBOX-348) and the n8n Boundary Contract (STAQPRO-186).
-> **Related:** DR-56 (n8n boundary, Candidate), DR-57 (provider dimension, Accepted), DR-58 (IMAP auth, Candidate), STAQPRO-187 (narrow-the-n8n-boundary spike), DR-22 (Pub/Sub KILLED — we poll).
+> **Related:** DR-56 (n8n boundary, Candidate), DR-57 (provider dimension, Accepted), DR-63 (IMAP auth, Candidate), STAQPRO-187 (narrow-the-n8n-boundary spike), DR-22 (Pub/Sub KILLED — we poll).
 
 ---
 
