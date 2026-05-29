@@ -18,6 +18,7 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { getKysely } from '@/lib/db';
 import { getKbDocument, updateKbDocumentStatus } from '@/lib/queries-kb';
 import { embedText } from '@/lib/rag/embed';
 import { chunkText } from '@/lib/rag/kb-chunker';
@@ -65,6 +66,17 @@ export async function embedAndUpsertChunks(doc_id: number): Promise<IngestResult
     return { ok: false, chunkCount: 0, error: `kb_documents row ${doc_id} not found` };
   }
 
+  // MBOX-352 (MBOX-162 V2) — the owning account is stamped into every KB point
+  // so per-account KB isolation can filter on it once the corpus is retagged.
+  // Read directly: the curated KbDocument view doesn't expose account_id, and
+  // this is a once-per-upload cost.
+  const acctRow = await getKysely()
+    .selectFrom('kb_documents')
+    .select('account_id')
+    .where('id', '=', doc_id)
+    .executeTakeFirst();
+  const accountId = acctRow?.account_id;
+
   try {
     const ext = path.extname(doc.filename).replace(/^\.+/, '') || 'bin';
     const filePath = kbStoragePath(doc.sha256, ext);
@@ -101,6 +113,7 @@ export async function embedAndUpsertChunks(doc_id: number): Promise<IngestResult
         mime_type: doc.mime_type,
         excerpt: chunk.text.slice(0, PAYLOAD_EXCERPT_CHAR_CAP),
         uploaded_at: doc.uploaded_at,
+        account_id: accountId,
       };
 
       const upsert = await upsertKbPoint(vector, payload);

@@ -1316,6 +1316,35 @@ CREATE TABLE IF NOT EXISTS mailbox.alert_sends (
   CONSTRAINT alert_sends_alert_key_uniq UNIQUE (alert_key)
 );
 
+-- ── MBOX-352 (migration 036): MBOX-162 V2 per-account isolation, SQL layer ──
+-- Hand-applied to fixture pending next pg_dump refresh. Adds account_id to
+-- persona (the table 033 skipped) + reshapes the persona and kb_documents dedup
+-- keys to be account-scoped. See dashboard/migrations/036-account-scope-*.
+DO $$
+DECLARE
+  default_acct integer;
+BEGIN
+  SELECT id INTO default_acct FROM mailbox.accounts WHERE is_default;
+  IF default_acct IS NULL THEN
+    RAISE EXCEPTION 'no default account — migration 033 must run before 036';
+  END IF;
+
+  ALTER TABLE mailbox.persona ADD COLUMN IF NOT EXISTS account_id integer;
+  UPDATE mailbox.persona SET account_id = default_acct WHERE account_id IS NULL;
+  EXECUTE format('ALTER TABLE mailbox.persona ALTER COLUMN account_id SET DEFAULT %s', default_acct);
+  ALTER TABLE mailbox.persona ALTER COLUMN account_id SET NOT NULL;
+  ALTER TABLE mailbox.persona
+    ADD CONSTRAINT persona_account_fk FOREIGN KEY (account_id) REFERENCES mailbox.accounts(id);
+END $$;
+
+DROP INDEX mailbox.persona_customer_key_uq;
+CREATE UNIQUE INDEX persona_account_customer_key_uq
+  ON mailbox.persona (account_id, customer_key);
+
+ALTER TABLE mailbox.kb_documents DROP CONSTRAINT kb_documents_sha256_unique;
+ALTER TABLE mailbox.kb_documents
+  ADD CONSTRAINT kb_documents_account_sha256_unique UNIQUE (account_id, sha256);
+
 --
 -- PostgreSQL database dump complete
 --

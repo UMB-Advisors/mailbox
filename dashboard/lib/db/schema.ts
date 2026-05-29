@@ -263,6 +263,7 @@ export interface OtaUpdateAttempts {
 }
 
 export interface Persona {
+  account_id: Generated<number>;
   category_exemplars: Generated<Json>;
   created_at: Generated<string>;
   customer_key: Generated<string>;

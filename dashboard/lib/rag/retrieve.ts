@@ -44,7 +44,12 @@
 import { embedText } from './embed';
 import { buildBodyExcerpt, buildEmbeddingInput, stripQuotedHistory } from './excerpt';
 import { searchKb } from './kb-qdrant';
-import { normalizeSender, pointIdFromMessageId, searchByVector } from './qdrant';
+import {
+  normalizeSender,
+  pointIdFromAccountMessage,
+  pointIdFromMessageId,
+  searchByVector,
+} from './qdrant';
 
 export interface RetrievalRef {
   point_id: string;
@@ -130,6 +135,14 @@ export interface RetrievalInput {
   // the value written into payload.persona_key at ingestion time or the
   // search returns zero hits.
   persona_key: string;
+  // MBOX-352 (MBOX-162 V2) — the mailbox.accounts id that owns this draft.
+  // When set, retrieval hard-filters Qdrant on payload.account_id so a
+  // multi-mailbox appliance only recalls history from the owning inbox, and
+  // self-exclude additionally drops the account-scoped point id. Optional for
+  // back-compat: the eval harness and legacy callers omit it and retain the
+  // pre-V2 (unfiltered, message_id-keyed) behavior. The draft-prompt route
+  // always supplies it (the in-flight draft's account_id).
+  account_id?: number;
   // STAQPRO-219 — Gmail message_id of the inbound being drafted against.
   // Used to compute the inbound's own deterministic point UUID and exclude
   // it from search results via must_not.has_id. Without this filter, the
@@ -339,7 +352,19 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
   // so the drafter never sees how the operator actually writes — voice
   // transfer fails. When MAILBOX_OPERATOR_EMAIL is unset, fall back to inbound-only
   // (single Qdrant call, console warning logged once-ish per process).
-  const selfPointId = input.message_id ? pointIdFromMessageId(input.message_id) : undefined;
+  // MBOX-352 — exclude the inbound's own twin under BOTH keying schemes. The
+  // legacy message_id-keyed id covers points ingested before the V2 rekey; the
+  // account-scoped id covers points ingested after. Both are listed so
+  // self-exclusion holds across the rekey window (and is byte-identical to
+  // pre-V2 for points that only ever had the legacy id).
+  const selfPointIds = input.message_id
+    ? [
+        pointIdFromMessageId(input.message_id),
+        ...(input.account_id !== undefined
+          ? [pointIdFromAccountMessage(input.account_id, input.message_id)]
+          : []),
+      ]
+    : undefined;
   const operatorAddr = operatorEmail();
   const outboundSearchEnabled = operatorAddr.length > 0;
   if (!outboundSearchEnabled) {
@@ -359,7 +384,8 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
     limit: topKInbound(),
     senderFilter: normalizedSender,
     personaKey: input.persona_key,
-    excludePointId: selfPointId,
+    accountFilter: input.account_id,
+    excludePointIds: selfPointIds,
     excludeThreadId,
   });
   const outboundSearchP = outboundSearchEnabled
@@ -368,7 +394,8 @@ export async function retrieveForDraft(input: RetrievalInput): Promise<Retrieval
         senderFilter: operatorAddr,
         recipientFilter: normalizedSender,
         personaKey: input.persona_key,
-        excludePointId: selfPointId,
+        accountFilter: input.account_id,
+        excludePointIds: selfPointIds,
         excludeThreadId,
       })
     : Promise.resolve(null);

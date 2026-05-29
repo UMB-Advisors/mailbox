@@ -77,7 +77,29 @@ export interface UpsertResult {
 // chars → 8-4-4-4-12 dash format with version/variant nibbles set per RFC
 // 4122 §4.4 so the result is a syntactically valid UUID v4.
 export function pointIdFromMessageId(messageId: string): string {
-  const h = createHash('sha256').update(messageId).digest('hex');
+  return uuidFromSha256(createHash('sha256').update(messageId).digest('hex'));
+}
+
+// MBOX-352 (MBOX-162 V2) — account-scoped point id. The same Gmail message can
+// legitimately land in two connected inboxes (addressed to founder@ and
+// consulting@); keying the point on message_id alone would collide them onto a
+// single Qdrant point and cross-contaminate per-account recall. Deriving the id
+// from `${account_id}:${message_id}` gives each account its own point.
+//
+// Migration story: existing single-account points predate this and are keyed by
+// message_id alone. They keep working — the account_id FILTER (payload, tagged
+// by V1's retag) does the isolation regardless of the point id, and self-exclude
+// (retrieve.ts) checks BOTH the legacy and account-scoped ids so an old point is
+// still dropped. scripts/rekey-qdrant-account-point-ids.ts re-points them to the
+// new scheme; until it runs (moot while accounts=1) the two schemes coexist.
+export function pointIdFromAccountMessage(accountId: number, messageId: string): string {
+  return uuidFromSha256(createHash('sha256').update(`${accountId}:${messageId}`).digest('hex'));
+}
+
+// Shared 8-4-4-4-12 RFC-4122-§4.4 derivation: first 32 hex chars of a sha256
+// digest with the version (4) and variant (8/9/a/b) nibbles forced so the
+// result is a syntactically valid UUID v4 that Qdrant accepts as a point id.
+function uuidFromSha256(h: string): string {
   // Set version (4) and variant (8/9/a/b) bits per RFC 4122.
   const v = `4${h.slice(13, 16)}`;
   const variantNibble = ((Number.parseInt(h[16] ?? '0', 16) & 0b0011) | 0b1000).toString(16);
@@ -115,7 +137,12 @@ export async function upsertEmailPoint(
   vector: number[],
   payload: EmailPointPayload,
 ): Promise<UpsertResult> {
-  const pointId = pointIdFromMessageId(payload.message_id);
+  // MBOX-352 (MBOX-162 V2) — account-scoped point id so the same Gmail message
+  // landing in two connected inboxes occupies two distinct points instead of
+  // colliding on one. payload.account_id is always present (required field,
+  // resolved by the ingestion routes). Legacy points keyed by message_id alone
+  // are migrated by scripts/rekey-qdrant-account-point-ids.ts.
+  const pointId = pointIdFromAccountMessage(payload.account_id, payload.message_id);
   try {
     const r = await qdrantRequest('PUT', `/collections/${COLLECTION}/points`, {
       points: [{ id: pointId, vector, payload }],
@@ -166,8 +193,17 @@ export interface SearchOptions {
   // Qdrant's must_not + has_id filter primitive (Qdrant 1.13+). Without
   // this, the inbound's own embedding scores 1.000 against itself and
   // burns one top-k slot on every query. Caller passes the inbound's own
-  // deterministic point UUID (pointIdFromMessageId(message_id)).
-  excludePointId?: string;
+  // deterministic point UUID(s). MBOX-352: a list, because a message can have
+  // both a legacy (message_id-keyed) and an account-scoped point id during the
+  // pre-rekey window — both must be excluded.
+  excludePointIds?: string[];
+  // MBOX-352 (MBOX-162 V2) — per-account isolation. When set, ANDed with the
+  // sender/persona filters so a multi-mailbox appliance only retrieves history
+  // belonging to the account that owns the in-flight draft. Email points carry
+  // payload.account_id (V1 migration 033 + retag), so this is safe to apply on
+  // a single-account box too — the default account matches every point. When
+  // unset (eval harness, legacy callers), no account filter is applied.
+  accountFilter?: number;
   // STAQPRO-222 (H3) — drop every point whose payload.thread_id matches the
   // inbound's thread_id. Same-thread refs duplicate context the drafter
   // already has in the inbound body's quoted-history chain. ANDed with the
@@ -187,20 +223,27 @@ export async function searchByVector(
   opts: SearchOptions = {},
 ): Promise<SearchResult> {
   const limit = opts.limit ?? 5;
-  const must: Array<{ key: string; match: { value: string } }> = [];
+  const must: Array<{ key: string; match: { value: string | number } }> = [];
   if (opts.senderFilter) must.push({ key: 'sender', match: { value: opts.senderFilter } });
   // STAQPRO-221 — recipient filter is normalized at the call site (same
   // normalizeSender() flow); we just pass through here. Lowercase /
   // angle-bracket stripping has already happened.
   if (opts.recipientFilter) must.push({ key: 'recipient', match: { value: opts.recipientFilter } });
   if (opts.personaKey) must.push({ key: 'persona_key', match: { value: opts.personaKey } });
-  // STAQPRO-219 — must_not.has_id drops the inbound's own UUID from results.
+  // MBOX-352 (MBOX-162 V2) — per-account hard filter. Integer match on
+  // payload.account_id; ANDed with the sender/persona filters above.
+  if (opts.accountFilter !== undefined) {
+    must.push({ key: 'account_id', match: { value: opts.accountFilter } });
+  }
+  // STAQPRO-219 — must_not.has_id drops the inbound's own UUID(s) from results.
   // STAQPRO-222 (H3) — must_not.thread_id drops every point in the same
   // conversation thread. Qdrant treats heterogeneous must_not clauses as
   // an OR-of-mismatch: a point is excluded if ANY clause matches it.
   type MustNotClause = { has_id: string[] } | { key: string; match: { value: string } };
   const must_not: MustNotClause[] = [];
-  if (opts.excludePointId) must_not.push({ has_id: [opts.excludePointId] });
+  if (opts.excludePointIds && opts.excludePointIds.length > 0) {
+    must_not.push({ has_id: opts.excludePointIds });
+  }
   if (opts.excludeThreadId) {
     must_not.push({ key: 'thread_id', match: { value: opts.excludeThreadId } });
   }

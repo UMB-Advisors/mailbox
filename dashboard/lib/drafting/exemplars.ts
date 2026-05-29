@@ -63,15 +63,23 @@ function excerptCharCap(): number {
  * @param category   The classification category to filter on.
  * @param k          Maximum number of exemplars to return.
  * @param persona_key Reserved for multi-persona; ignored today.
+ * @param accountId  MBOX-352 (MBOX-162 V2) — when set, restricts the mined
+ *                   exemplars to one account's send history so each mailbox
+ *                   primes the drafter with its own past replies. Omitted →
+ *                   corpus-wide (pre-V2 behavior); the draft-prompt route
+ *                   passes the in-flight draft's account.
  */
 export async function getCategoryExemplars(
   category: Category,
   k: number,
   // biome-ignore lint/correctness/noUnusedFunctionParameters: persona_key reserved for multi-persona; see comment above
   persona_key?: string,
+  accountId?: number,
 ): Promise<ReadonlyArray<CategoryExemplar>> {
   if (k <= 0) return [];
   const cap = excerptCharCap();
+  // null sentinel → the `IS NULL OR` guard below is a no-op (corpus-wide).
+  const acct = accountId ?? null;
 
   try {
     const db = getKysely();
@@ -95,6 +103,7 @@ export async function getCategoryExemplars(
         AND message_id IS NOT NULL
         AND COALESCE(draft_sent, body_text) IS NOT NULL
         AND LENGTH(TRIM(COALESCE(draft_sent, body_text, ''))) > 0
+        AND (${acct}::int IS NULL OR account_id = ${acct})
       ORDER BY sent_at DESC
       LIMIT ${k}
     `.execute(db);

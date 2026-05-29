@@ -28,7 +28,6 @@ import { draftRedraftBodySchema } from '@/lib/schemas/internal';
 // button when the flag is off).
 
 const REDRAFT_ENABLED = process.env.MAILBOX_REDRAFT_ENABLED === '1';
-const DEFAULT_PERSONA_KEY = 'default';
 
 // SSE requires the response to stream; opt out of static optimization.
 export const dynamic = 'force-dynamic';
@@ -59,6 +58,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       'classification_category',
       'classification_confidence',
       'status',
+      // MBOX-352 (MBOX-162 V2) — resolve persona for the draft's owning account.
+      'account_id',
     ])
     .where('id', '=', draft_id)
     .limit(1)
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const persona = await getPersonaContext(DEFAULT_PERSONA_KEY);
+  const persona = await getPersonaContext(row.account_id);
   const strippedInbound = stripQuotedAndSignature(row.body_text ?? '');
 
   const messages = assembleRedraftMessages({

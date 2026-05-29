@@ -12,12 +12,16 @@ dbDescribe('persona route handlers — real Postgres', () => {
     // CI bootstraps the schema from a pg_dump -s snapshot (no rows). Seed the
     // default persona row idempotently. Local dev DBs that already have the
     // row from migration 006 see a no-op upsert.
+    // MBOX-352 (migration 036): persona uniqueness is now (account_id,
+    // customer_key) — the global UNIQUE(customer_key) was dropped. account_id is
+    // omitted here so its column DEFAULT (the seeded default account) fills it,
+    // and the conflict target matches the new composite unique index.
     const pool = getTestPool();
     await pool.query(
       `INSERT INTO mailbox.persona
          (customer_key, statistical_markers, category_exemplars, source_email_count)
        VALUES ('default', '{}'::jsonb, '{}'::jsonb, 0)
-       ON CONFLICT (customer_key) DO UPDATE
+       ON CONFLICT (account_id, customer_key) DO UPDATE
          SET statistical_markers = '{}'::jsonb,
              category_exemplars = '{}'::jsonb,
              updated_at = NOW()`,
