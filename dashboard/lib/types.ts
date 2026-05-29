@@ -457,6 +457,15 @@ export interface AutoSendAuditEntry {
   evaluated_at: string;
 }
 
+// MBOX-162 P4 — operator workspace settings (singleton row in
+// mailbox.operator_settings). Curated view: the three operator-editable fields
+// the right pane + settings page consume. id/updated_at stay on the DB row.
+export interface OperatorSettings {
+  booking_link: string;
+  calendar_embed_src: string;
+  drive_folder_id: string;
+}
+
 // ── Full DB row shapes (re-exports of kysely-codegen output) ────────────────
 //
 // Use these when you need a column the curated view doesn't expose. The

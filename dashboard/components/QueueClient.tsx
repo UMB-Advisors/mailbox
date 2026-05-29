@@ -14,7 +14,7 @@ import { EmptyState } from './EmptyState';
 import { type CooldownState, GmailCooldownBanner } from './GmailCooldownBanner';
 import { NewDraftsBanner } from './NewDraftsBanner';
 import type { RejectPayload } from './RejectPopover';
-import { RightPaneStub } from './RightPaneStub';
+import { RightPane } from './RightPane';
 import { ShortcutsHelp } from './ShortcutsHelp';
 import { StuckApproved } from './StuckApproved';
 import { Toast } from './Toast';
@@ -63,6 +63,11 @@ interface Props {
   // P3 (MBOX-162) — SSR-resolved MAILBOX_REDRAFT_ENABLED flag. Gates the
   // redraft button's visibility (the endpoint also 403s when off).
   redraftEnabled: boolean;
+  // P4 (MBOX-162) — operator_settings values feeding the right pane's
+  // Calendar/Drive embeds. SSR-loaded by app/queue/page.tsx; '' when unset
+  // (the pane renders a configure CTA linking to /settings/workspace).
+  calendarSrc: string;
+  driveFolderId: string;
 }
 
 export function QueueClient({
@@ -71,6 +76,8 @@ export function QueueClient({
   initialStuck,
   initialCooldown,
   redraftEnabled,
+  calendarSrc,
+  driveFolderId,
 }: Props) {
   const mode = modeForFolder(folder);
   const [drafts, setDrafts] = useState(initialList);
@@ -872,7 +879,11 @@ export function QueueClient({
                 <span className="absolute inset-y-0 -left-1 -right-1 z-10" />
               </PanelResizeHandle>
               <Panel id="queue-right" order={3} defaultSize={25} minSize={18}>
-                <RightPaneStub onClose={toggleRightPane} />
+                <RightPane
+                  calendarSrc={calendarSrc}
+                  driveFolderId={driveFolderId}
+                  onClose={toggleRightPane}
+                />
               </Panel>
             </>
           )}

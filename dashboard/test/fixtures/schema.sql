@@ -1345,6 +1345,20 @@ ALTER TABLE mailbox.kb_documents DROP CONSTRAINT kb_documents_sha256_unique;
 ALTER TABLE mailbox.kb_documents
   ADD CONSTRAINT kb_documents_account_sha256_unique UNIQUE (account_id, sha256);
 
+-- ── MBOX-162 P4 (migration 037): operator workspace settings singleton ──────
+-- Hand-applied to fixture pending next pg_dump refresh. Singleton (id=1) holding
+-- the right-pane Calendar/Drive embed config + scheduling link. Mirrors
+-- mailbox.system_state. See dashboard/migrations/037-create-operator-settings-*.
+CREATE TABLE IF NOT EXISTS mailbox.operator_settings (
+  id                  INT PRIMARY KEY DEFAULT 1,
+  booking_link        TEXT NOT NULL DEFAULT '',
+  calendar_embed_src  TEXT NOT NULL DEFAULT '',
+  drive_folder_id     TEXT NOT NULL DEFAULT '',
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT operator_settings_singleton CHECK (id = 1)
+);
+INSERT INTO mailbox.operator_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
 --
 -- PostgreSQL database dump complete
 --
