@@ -125,6 +125,16 @@ services:
       # (Express trust proxy = false default) and floods logs every webhook
       # call. STAQPRO-228.
       N8N_PROXY_HOPS: '1'
+      # MBOX-185 — allow workflow expressions to read $env. n8n 2.x defaults
+      # N8N_BLOCK_ENV_ACCESS_IN_NODE=true, which blocks `$env.*` in node/trigger
+      # expressions. That made BOTH the MailBOX-Digest and MailBOX-AlertCheck
+      # SCHEDULE triggers fail to activate ("access to env vars denied") — so
+      # neither ever fired (digest_sends sat empty from MBOX-132 onward, undetected
+      # until the AlertCheck import 2026-05-29). Both read $env in their schedule
+      # interval/hour expression. Single-tenant trusted appliance with first-party
+      # workflows → allowing $env is acceptable; without it the two env-driven
+      # schedules silently never run.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
       # MBOX-132 — daily digest schedule. DIGEST_SEND_HOUR_LOCAL is read by the
       # MailBOX-Digest schedule trigger (`$env.DIGEST_SEND_HOUR_LOCAL`) — the
       # hour-of-day the once-per-day operator digest fires. GENERIC_TIMEZONE is
@@ -134,6 +144,11 @@ services:
       # MBOX-306: unset → 7am UTC (the workflow's own `?? 7` fallback + UTC).
       DIGEST_SEND_HOUR_LOCAL: ${DIGEST_SEND_HOUR_LOCAL:-7}
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      # MBOX-185 — poll cadence (minutes) for the MailBOX-AlertCheck schedule
+      # trigger (`$env.ALERT_CHECK_INTERVAL_MIN ?? 15`). Threshold tuning +
+      # recipient resolution live on the dashboard side (ALERT_* read by
+      # /api/internal/alert-check); n8n only needs the cadence. Unset → 15.
+      ALERT_CHECK_INTERVAL_MIN: ${ALERT_CHECK_INTERVAL_MIN:-15}
     volumes:
     - n8n_data:/home/node/.n8n
     healthcheck:

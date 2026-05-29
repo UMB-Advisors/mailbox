@@ -76,12 +76,7 @@ export interface ProviderCapabilities {
   nativeThreading: boolean;
   // false → poll-only (all transports today; Gmail Pub/Sub was KILLED, DR-22).
   push: boolean;
-  // Reserved/informational (FR-MP-2, corrected 2026-05-29). NOT dispatched
-  // today: quote format is set by the COUNTERPARTY's client, not the operator's
-  // provider, so lib/drafting/strip-quoting stays sender-agnostic (try-all,
-  // fail-open — already handles Gmail/Outlook/Apple/mobile/`>`). This flag is a
-  // future hook to ADD a provider-specific pattern (e.g. a Graph quirk), never
-  // to restrict.
+  // Selects the quote/signature stripping strategy in lib/drafting/strip-quoting.
   quoteStrategy: 'gmail' | 'outlook' | 'generic';
 }
 

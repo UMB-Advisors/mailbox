@@ -6,17 +6,14 @@
 // error, not a runtime fallthrough.
 
 import { GmailProvider } from './gmail';
-import { ImapSmtpProvider } from './imap';
 import type { MailAccount, MailProvider, MailProviderKind } from './types';
 
 export { GmailProvider, NotImplementedInP0 } from './gmail';
-export { ImapSmtpProvider, NotImplementedYet } from './imap';
 export * from './types';
 
 // Singleton instances — providers are stateless (config comes in per call via
 // MailAccount), so one instance per kind is sufficient.
 const GMAIL = new GmailProvider();
-const IMAP = new ImapSmtpProvider();
 
 export function providerFor(account: Pick<MailAccount, 'provider'>): MailProvider {
   return providerForKind(account.provider);
@@ -27,7 +24,8 @@ export function providerForKind(kind: MailProviderKind): MailProvider {
     case 'gmail':
       return GMAIL;
     case 'imap':
-      return IMAP;
+      // P1 / MBOX-357.
+      throw new Error(`MailProvider 'imap' not implemented yet (P1 / MBOX-357)`);
     case 'microsoft':
       // P2 / MBOX-358.
       throw new Error(`MailProvider 'microsoft' not implemented yet (P2 / MBOX-358)`);

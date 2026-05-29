@@ -66,13 +66,7 @@ export interface OllamaCallParams {
 const DEFAULT_TIMEOUT_MS = 90_000;
 
 export async function chat(params: OllamaCallParams): Promise<OllamaChatResult> {
-  // Compose by suffix so a baseUrl that carries a PATH (the llm proxy,
-  // `…/dashboard/api/internal/llm`) is preserved. `new URL('/api/chat', base)`
-  // treats the leading slash as an absolute path and discards the proxy
-  // prefix → `{origin}/api/chat` → 404. This matches how n8n composes the URL
-  // (`${baseUrl}/api/chat`, see router.ts) and is identical for origin-only
-  // baseUrls (Ollama / cloud). MBOX-120.
-  const url = `${params.baseUrl.replace(/\/+$/, '')}/api/chat`;
+  const url = new URL('/api/chat', params.baseUrl).toString();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
