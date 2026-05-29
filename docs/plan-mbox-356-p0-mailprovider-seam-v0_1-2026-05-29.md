@@ -14,6 +14,20 @@ P0 is a **pure de-risking refactor — no new provider, no user-visible feature.
 
 ---
 
+## Scope adjustment (2026-05-29, post NC-35 = "compose")
+
+As-built P0 is **tighter than the original task list**, on two engineering grounds (no dead schema; keep P0 off the live circuit-breaker tables):
+
+| Original task | As-built | Reason |
+|---------------|----------|--------|
+| T2 — rewire the rate-limit sweeper to call `parseRateLimit` | **Deferred.** Sweeper left as-is. | It's an n8n-`execution_data` reader (SQL-side extraction) — part of the n8n-coupled world P3 replaces. `GmailProvider.parseRateLimit` exists + is unit-tested, ready for the dashboard-owned IMAP/Graph poll loops (P1/P2) where JS errors exist. |
+| T3 — migration: `accounts.provider` + cooldown reshape + `provider_message_id` | **Trimmed to `accounts.provider` + `provider_config`** (migration 037). Cooldown reshape + `provider_message_id` → **P1 (MBOX-357)**. | The latter two have no consumer until a 2nd provider exists → would be dead schema, and would needlessly touch the live `system_state` cooldown + the n8n-written `sent_gmail_message_id`. |
+| T4 — capability-based quote-strategy dispatch | **Deferred to P1.** | The `outlook`/`generic` strategies don't exist yet; wiring a no-op strategy param now is churn. |
+
+Net P0 = **the seam (T1) + the `accounts.provider` discriminator + the `MAIL_PROVIDERS` SoT tuple + invariant (T5) + docs (T6)** — zero live-behavior change, zero dead schema. This fully enables P1 (IMAP attaches as a new `MailProvider` class).
+
+---
+
 ## Scope boundary (read this first)
 
 **In scope (P0):**

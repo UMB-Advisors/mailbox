@@ -151,6 +151,7 @@ Per the project's spike-gate discipline (mirrors the multi-account §6). Candida
 
 > **DR-57 (Accepted) — Provider is a first-class dimension alongside account.**
 > `mailbox.accounts.provider` enum; per-`(account_id, provider)` cooldown (retire the single global `gmail_rate_limit_until`); `gmail_message_id` → `provider_message_id`; dedup scoped per account. Extends migration 033's substrate, does not parallel it.
+> **Delivery split (2026-05-29):** P0 (migration 037, MBOX-356) lands `accounts.provider` + `provider_config` only — the discriminator the `MailProvider` factory needs. The cooldown reshape (`mail_cooldowns(account_id, provider)`) and `provider_message_id` are **deferred to P1 (MBOX-357)**, the phase that first consumes them, to avoid landing dead schema and to keep P0 off the live circuit-breaker tables.
 
 > **DR-58 (Candidate, gated on NC-33) — IMAP auth strategy.**
 > Default to app-password / basic-auth IMAP for v1 (covers cPanel/Fastmail/Zoho). Add XOAUTH2 only if a target customer's host (Gmail-IMAP, Yahoo) has deprecated basic-auth. Do not build a general OAuth-IMAP layer speculatively.
@@ -175,7 +176,7 @@ Per the project's spike-gate discipline (mirrors the multi-account §6). Candida
 |-----|----------|
 | **NC-33** | IMAP auth: app-password only, or XOAUTH2 for hosts that deprecated basic-auth (Gmail-IMAP, Yahoo)? Drives DR-58. |
 | **NC-34** | Microsoft consent model: delegated OAuth (per-user consent) vs app-only (admin consent + `Mail.ReadWrite` application permission)? Who owns the Azure app registration — a Staqs multi-tenant app, or per-customer? |
-| **NC-35** | v1 scope: must multi-provider compose with multi-account (one appliance running Gmail + Outlook simultaneously, SM-95), or is provider-per-appliance acceptable first? |
+| **NC-35** | ✅ **RESOLVED 2026-05-29 — compose.** Multi-provider composes with multi-account: `(account_id, provider)` is the universal key. Rationale: V2 (MBOX-352) already made `account_id` a first-class scoping key, so a non-composing design would contradict shipped code. One appliance may run Gmail + Outlook concurrently (SM-95). |
 | **NC-36** | Microsoft ingress: poll-only first, or build change-notification subscriptions (webhooks need Caddy endpoint + renewal lifecycle)? |
 | **NC-37** | SMTP send deliverability: send via the customer's own SMTP (SPF/DKIM aligned to their domain) — confirm no relay/reputation layer is needed. |
 | **NC-38** | Does the shared-OAuth-client plan (STAQPRO-197, Gmail) extend to a shared Microsoft multi-tenant app, or stay per-customer? |
