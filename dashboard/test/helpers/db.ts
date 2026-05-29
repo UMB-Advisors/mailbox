@@ -47,6 +47,10 @@ export interface SeedOpts {
   // can exercise the kb-context-refs resolution path. Same jsonb shape as
   // rag_context_refs; default [].
   kbContextRefs?: readonly string[];
+  // MBOX-360 (MBOX-162 V3) — owning account for the seeded draft + its inbox
+  // row. Omitted → the column DEFAULT (the seeded default account). Set to a
+  // 2nd account id to exercise the account filter.
+  accountId?: number;
 }
 
 export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
@@ -95,7 +99,21 @@ export async function seedDraft(opts: SeedOpts = {}): Promise<SeededDraft> {
       JSON.stringify([...kbContextRefs]),
     ],
   );
-  return { draftId: draft.rows[0].id, inboxMessageId };
+  const draftId = draft.rows[0].id;
+
+  // MBOX-360 — re-home both rows onto a specific account when requested (the
+  // INSERTs above use the account_id column DEFAULT = the default account).
+  if (opts.accountId !== undefined) {
+    await pool.query('UPDATE mailbox.inbox_messages SET account_id = $1 WHERE id = $2', [
+      opts.accountId,
+      inboxMessageId,
+    ]);
+    await pool.query('UPDATE mailbox.drafts SET account_id = $1 WHERE id = $2', [
+      opts.accountId,
+      draftId,
+    ]);
+  }
+  return { draftId, inboxMessageId };
 }
 
 export async function deleteSeededDraft(s: SeededDraft): Promise<void> {

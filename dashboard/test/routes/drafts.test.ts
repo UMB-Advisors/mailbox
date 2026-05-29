@@ -394,6 +394,50 @@ dbDescribe('drafts route handlers — real Postgres', () => {
       const res = await GET(fakeRequest({ url: 'http://test/api/drafts?status=bogus' }));
       expect(res.status).toBe(400);
     });
+
+    // MBOX-360 (MBOX-162 V3) — the account filter narrows the unified queue to
+    // one connected inbox; omitting it returns every account's drafts.
+    it('filters by account', async () => {
+      const pool = getTestPool();
+      const acct = await pool.query<{ id: number }>(
+        `INSERT INTO mailbox.accounts (email_address, display_label, is_default)
+         VALUES ($1, 'V3 Filter Test', false) RETURNING id`,
+        [`v3-filter-${Date.now()}@example.com`],
+      );
+      const otherAccountId = acct.rows[0].id;
+      const seedDefault = await seedDraft({ status: 'pending' });
+      const seedOther = await seedDraft({ status: 'pending', accountId: otherAccountId });
+      try {
+        const { GET } = await import('@/app/api/drafts/route');
+
+        // Scoped to the 2nd account → only its draft.
+        const scoped = await GET(
+          fakeRequest({
+            url: `http://test/api/drafts?status=pending&limit=250&account=${otherAccountId}`,
+          }),
+        );
+        expect(scoped.status).toBe(200);
+        const scopedIds = ((await scoped.json()) as { drafts: Array<{ id: number }> }).drafts.map(
+          (d) => d.id,
+        );
+        expect(scopedIds).toContain(seedOther.draftId);
+        expect(scopedIds).not.toContain(seedDefault.draftId);
+
+        // No filter → both accounts' drafts.
+        const all = await GET(
+          fakeRequest({ url: 'http://test/api/drafts?status=pending&limit=250' }),
+        );
+        const allIds = ((await all.json()) as { drafts: Array<{ id: number }> }).drafts.map(
+          (d) => d.id,
+        );
+        expect(allIds).toContain(seedOther.draftId);
+        expect(allIds).toContain(seedDefault.draftId);
+      } finally {
+        await deleteSeededDraft(seedDefault);
+        await deleteSeededDraft(seedOther);
+        await pool.query('DELETE FROM mailbox.accounts WHERE id = $1', [otherAccountId]);
+      }
+    });
   });
 
   describe('POST /api/drafts/[id]/undo-reject', () => {
