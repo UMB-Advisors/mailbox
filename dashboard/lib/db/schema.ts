@@ -156,6 +156,7 @@ export interface Drafts {
   model: string;
   original_draft_body: string | null;
   output_tokens: number | null;
+  provider_message_id: string | null;
   rag_context_refs: Generated<Json>;
   rag_retrieval_reason: Generated<string>;
   received_at: string | null;
@@ -221,6 +222,13 @@ export interface KbDocuments {
   title: string;
   uploaded_at: Generated<string>;
   uploaded_by: string | null;
+}
+
+export interface MailCooldowns {
+  account_id: number;
+  provider: string;
+  set_at: string | null;
+  until: string | null;
 }
 
 export interface Migrations {
@@ -394,6 +402,7 @@ export interface DB {
   inbox_messages: InboxMessages;
   job_runs: JobRuns;
   kb_documents: KbDocuments;
+  mail_cooldowns: MailCooldowns;
   migrations: Migrations;
   oauth_tokens: OauthTokens;
   onboarding: Onboarding;

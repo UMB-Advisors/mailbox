@@ -18,14 +18,14 @@ dbDescribe('Gmail cooldown force-resume — real Postgres', () => {
   });
 
   beforeEach(async () => {
-    // Reset singleton to no-cooldown baseline for each test. Migration 018
-    // guarantees the row exists; we just null the cooldown columns.
+    // Reset the default account's gmail cooldown bucket to baseline. Since
+    // migration 039 the SoT is mailbox.mail_cooldowns (keyed account_id,
+    // provider); the helpers upsert the row on demand, so DELETE is a clean reset.
     const pool = getTestPool();
     await pool.query(`
-      UPDATE mailbox.system_state
-         SET gmail_rate_limit_until = NULL,
-             gmail_rate_limit_set_at = NULL
-       WHERE id = 1
+      DELETE FROM mailbox.mail_cooldowns
+       WHERE provider = 'gmail'
+         AND account_id = (SELECT id FROM mailbox.accounts WHERE is_default)
     `);
   });
 
@@ -41,18 +41,19 @@ dbDescribe('Gmail cooldown force-resume — real Postgres', () => {
       // by ISO string to avoid millisecond drift on the wire.
       expect(result.previous_until?.toISOString()).toBe(future.toISOString());
 
-      // Verify the row was actually nulled.
+      // Verify the row was actually nulled in mail_cooldowns (the SoT since 039).
       const pool = getTestPool();
       const { rows } = await pool.query<{
-        gmail_rate_limit_until: string | null;
-        gmail_rate_limit_set_at: string | null;
+        until: string | null;
+        set_at: string | null;
       }>(`
-        SELECT gmail_rate_limit_until, gmail_rate_limit_set_at
-          FROM mailbox.system_state
-         WHERE id = 1
+        SELECT mc.until, mc.set_at
+          FROM mailbox.mail_cooldowns mc
+          JOIN mailbox.accounts a ON a.id = mc.account_id
+         WHERE a.is_default AND mc.provider = 'gmail'
       `);
-      expect(rows[0].gmail_rate_limit_until).toBeNull();
-      expect(rows[0].gmail_rate_limit_set_at).toBeNull();
+      expect(rows[0]?.until ?? null).toBeNull();
+      expect(rows[0]?.set_at ?? null).toBeNull();
     });
 
     it('is idempotent — clearing an already-cleared cooldown is a no-op success', async () => {
