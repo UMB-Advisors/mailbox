@@ -38,7 +38,12 @@ import path from 'node:path';
 import type { Category } from '../lib/classification/prompt';
 import { grammarForCategory } from '../lib/drafting/grammar-dispatch';
 import { chat } from '../lib/drafting/ollama';
-import { type Trace, traceManifestSchema, traceSchema, verifyManifest } from '../lib/eval/trace-set';
+import {
+  type Trace,
+  traceManifestSchema,
+  traceSchema,
+  verifyManifest,
+} from '../lib/eval/trace-set';
 
 // Categories this harness evaluates — the constrained set.
 const EVAL_CATEGORIES: ReadonlyArray<Category> = ['reorder', 'scheduling'];

@@ -44,7 +44,8 @@ function parseArgs(argv: readonly string[]): CliArgs {
 // this is a refinement aid, not a parser. Counts are directional.
 const GREETING_RE = /^\s*(hi|hello|hey|dear|good (morning|afternoon|evening)|thanks|thank you)\b/i;
 const PO_RE = /\b(po|p\.o\.|purchase order|order(?:\s*(?:#|no\.?|ref|number))?)\b/i;
-const SHIP_RE = /\b(ship(?:ping|ped|s|-by| by)?|deliver(?:y|ed)?|eta|lead time|ready by|out the door)\b/i;
+const SHIP_RE =
+  /\b(ship(?:ping|ped|s|-by| by)?|deliver(?:y|ed)?|eta|lead time|ready by|out the door)\b/i;
 const SIGNOFF_RE =
   /\b(thanks|thank you|best|regards|cheers|warmly|sincerely|talk soon|appreciate (it|you))\b/i;
 
@@ -110,7 +111,11 @@ async function main(): Promise<void> {
     if (GREETING_RE.test(first)) {
       withGreeting++;
       // Normalize the greeting to its first word for the form tally.
-      const word = first.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+      const word =
+        first
+          .split(/\s+/)[0]
+          ?.toLowerCase()
+          .replace(/[^a-z]/g, '') ?? '';
       if (word) bump(greetingForms, word);
     }
     if (PO_RE.test(body)) withPO++;
