@@ -1365,6 +1365,22 @@ CREATE TABLE IF NOT EXISTS mailbox.operator_settings (
 );
 INSERT INTO mailbox.operator_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 
+-- ── MBOX-357 (migration 039): per-(account_id, provider) mail cooldowns ─────
+-- Hand-applied to fixture pending next pg_dump refresh. Keyed cooldown bucket
+-- per mailbox×transport (a Gmail 429 must not pause IMAP). The Gmail cooldown
+-- helpers (lib/queries-system-state.ts) read/write the (default account,'gmail')
+-- row here since 039; system_state.gmail_rate_limit_until stays as read-compat.
+-- Also adds drafts.provider_message_id (provider-neutral sent id).
+-- See dashboard/migrations/039-create-mail-cooldowns-and-provider-message-id-*.
+CREATE TABLE IF NOT EXISTS mailbox.mail_cooldowns (
+  account_id integer NOT NULL REFERENCES mailbox.accounts(id),
+  provider   text NOT NULL CHECK (provider IN ('gmail', 'imap', 'microsoft')),
+  until      timestamptz,
+  set_at     timestamptz,
+  PRIMARY KEY (account_id, provider)
+);
+ALTER TABLE mailbox.drafts ADD COLUMN IF NOT EXISTS provider_message_id text;
+
 --
 -- PostgreSQL database dump complete
 --
