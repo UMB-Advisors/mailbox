@@ -110,6 +110,7 @@ Both endpoints live on `http://n8n:5678/...` over the docker-compose internal ne
 | Webhook | Caller | Body | Response | Side effects |
 |---|---|---|---|---|
 | `POST /webhook/mailbox-send` | `dashboard/lib/n8n.ts` (called by approve, retry, transitions) | `{ draft_id: number }` | `respondToWebhook` "When Last Node Finishes". Three terminal nodes: `Respond Success` (draft loaded + sent), `Respond Failure` (Gmail Reply errored), `Respond Not Found` (draft id missing) | `MailBOX-Send` loads `mailbox.drafts` → `Gmail Reply` via OAuth → `UPDATE drafts SET status='sent'` (or `'failed'`) + writes `sent_at` / `gmail_message_id`. State-transition trigger (STAQPRO-185, migration 009) defaults `actor='system'` for these flips. |
+| `POST /webhook/mailbox-imap-send` | `dashboard/lib/n8n.ts` `triggerSendWebhook(id, 'imap')` (MBOX-357 P1 T5) | `{ draft_id: number }` | Same `respondToWebhook` shape as mailbox-send (`Respond Success` / `Respond Not Found` / `Respond Already Attempted` 409) | `MailBOX-Imap-Send` loads the draft (JOIN accounts), CAS-acquires `send_attempt_at`, sends via SMTP `Send Email`, writes `status='sent'` + `provider_message_id`. URL in `N8N_IMAP_WEBHOOK_URL`. The dashboard picks this vs `mailbox-send` by the draft's `accounts.provider` (gmail → mailbox-send, unchanged). |
 | `POST /webhook/mailbox-fetch-history` | `dashboard/lib/onboarding/gmail-history-backfill.ts` (called by `POST /api/onboarding/backfill`) | `{ days_lookback?: number, max_messages?: number }` (defaults: 180 days / 5000 msgs) | NDJSON stream of sent-history rows | `MailBOX-FetchHistory` lists Gmail Sent over lookback window (`q=in:sent after:<computed-date>`); per-message PII scrub + reply-pairing happens in the dashboard ingestor, not n8n. |
 
 **URL configuration:**
@@ -126,7 +127,8 @@ All routes live on `http://mailbox-dashboard:3001/...` over the docker network. 
 
 #### `POST /api/internal/inbox-messages` — STAQPRO-135 (replaces n8n Postgres `Insert Inbox` node)
 - **Caller**: `MailBOX` parent workflow, `Insert Inbox (HTTP)` node
-- **Schema**: `inboxMessageInsertBodySchema` in `lib/schemas/internal.ts` — `{ message_id (Gmail msg id, required), thread_id?, from_addr?, to_addr?, subject?, snippet?, body?, in_reply_to?, references?, received_at? }`
+- **Schema**: `inboxMessageInsertBodySchema` in `lib/schemas/internal.ts` — `{ message_id (required), provider? ('gmail'|'imap'|'microsoft', default 'gmail'), account_id?, account_email?, thread_id?, from_addr?, to_addr?, subject?, snippet?, body?, in_reply_to?, references?, received_at? }`
+- **Provider discriminator (MBOX-357 P1 T5)**: when `provider !== 'gmail'`, the route runs `providerForKind(provider).normalize(...)` server-side before insert — for IMAP this SYNTHESIZES `thread_id` from the `References`/`In-Reply-To` chain (IMAP has no native thread id; n8n can't compute the sha256 hash) and strips the `<...>` off the Message-ID. Gmail (default) skips normalization → the locked STAQPRO-135 contract is byte-preserved. Caller: `MailBOX-Imap`'s `Build Inbox Payload` sends raw header fields + `provider:'imap'` + `account_email`.
 - **Response (LOCKED — downstream `MailBOX-Classify > Load Inbox Row` reads `$json.id`)**: `{ id: number, message_id: string, created: boolean }`. `created` distinguishes a fresh INSERT from a dedupe-on-`message_id` skip via the postgres `xmax = 0` trick.
 - **Side effects**:
   - Upserts row in `mailbox.inbox_messages` (deduplicated on `message_id`)

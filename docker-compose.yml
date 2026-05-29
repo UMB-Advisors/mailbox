@@ -198,6 +198,11 @@ services:
     environment:
       POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       N8N_WEBHOOK_URL: http://n8n:5678/webhook/mailbox-send
+      # MBOX-357 (P1 T5) — per-provider send webhook for IMAP accounts. The
+      # dashboard routes approve/retry here when the draft's account is an IMAP
+      # provider; Gmail accounts keep using N8N_WEBHOOK_URL. Only consumed when
+      # an IMAP account exists — harmless on a Gmail-only appliance.
+      N8N_IMAP_WEBHOOK_URL: ${N8N_IMAP_WEBHOOK_URL:-http://n8n:5678/webhook/mailbox-imap-send}
       NODE_ENV: production
       PORT: "3001"
       # STAQPRO-148 — KB upload original-bytes storage. Sha256-keyed file

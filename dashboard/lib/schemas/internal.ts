@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ONBOARDING_STAGES } from '@/lib/types';
+import { MAIL_PROVIDERS, ONBOARDING_STAGES } from '@/lib/types';
 
 // Schemas for the n8n-facing internal routes. These accept the exact shapes
 // n8n already sends today; tightening here would break the live pipeline.
@@ -139,6 +139,13 @@ export type DraftRedraftBody = z.infer<typeof draftRedraftBodySchema>;
 // here would break the live workflow.
 export const inboxMessageInsertBodySchema = z.object({
   message_id: z.string().min(1, 'message_id (Gmail message id) required'),
+  // MBOX-357 (P1 T5) — mail-transport discriminator. Omitted by the live Gmail
+  // workflow (→ 'gmail', the un-changed path where n8n's Extract Fields node
+  // sends already-mapped columns). The MailBOX-Imap workflow sends
+  // provider:'imap' + raw header fields; the route then runs
+  // providerFor(provider).normalize(...) server-side to synthesize thread_id
+  // (IMAP has no native thread id — n8n can't compute the sha256 chain hash).
+  provider: z.enum(MAIL_PROVIDERS).optional().default('gmail'),
   // MBOX-348 — multi-account ingestion target. The fan-out passes ONE of these
   // to route the message into the right inbox; the legacy single-account path
   // sends neither and the route falls back to the default account. Both omitted

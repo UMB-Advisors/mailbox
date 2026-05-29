@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
+import type { MailProviderKind } from '@/lib/types';
 
 // MBOX-348 (MBOX-162 V1) — account resolution for multi-account ingestion.
 //
@@ -78,4 +79,29 @@ export async function resolveIngestAccountId(input: {
   }
 
   return { ok: true, account_id: await getDefaultAccountId() };
+}
+
+// MBOX-357 (P1 T5) — resolve a draft's owning account + mail-transport provider
+// so the send path can (a) gate on the right per-(account, provider) cooldown
+// and (b) route to the right n8n send webhook (gmail → mailbox-send; imap →
+// mailbox-imap-send). Returns null when the draft id doesn't exist — the caller
+// proceeds with the default Gmail behavior and the status-flip step surfaces the
+// not-found 409, so no extra error branch is needed here.
+export interface DraftProviderContext {
+  account_id: number;
+  provider: MailProviderKind;
+}
+
+export async function getDraftProviderContext(
+  draftId: number,
+): Promise<DraftProviderContext | null> {
+  const db = getKysely();
+  const row = await db
+    .selectFrom('drafts as d')
+    .innerJoin('accounts as a', 'a.id', 'd.account_id')
+    .select(['d.account_id as account_id', 'a.provider as provider'])
+    .where('d.id', '=', draftId)
+    .executeTakeFirst();
+  if (!row) return null;
+  return { account_id: row.account_id, provider: row.provider as MailProviderKind };
 }

@@ -12,6 +12,8 @@ The `*.json` files in this directory are the version-controlled exports of the n
 | `MailBOX-Classify.json` | `MlbxClsfySub0001` | `executeWorkflow` | Sub-workflow. Runs Qwen3 classify, calls `/api/internal/classification-normalize`, gates against `/api/onboarding/live-gate`, inserts the draft stub, fires `MailBOX-Draft`. |
 | `MailBOX-Draft.json` | `MlbxDraftSub0001` | `executeWorkflow` | Sub-workflow. Calls `/api/internal/draft-prompt` → routes local Qwen3 vs Ollama Cloud → calls `/api/internal/draft-finalize` to persist. |
 | `MailBOX-Send.json` | `mailbox-send` | Webhook `/webhook/mailbox-send` | Triggered by the dashboard on operator approve. Sends via Gmail Reply, updates `mailbox.drafts.status` → `sent` or `failed`. |
+| `MailBOX-Imap.json` | `MailBoxImap000001` | IMAP trigger (`emailReadImap`) | **MBOX-357 (P1 T5).** Per-provider ingress for IMAP accounts (DR-56 Option A). The IMAP trigger watches INBOX; `Build Inbox Payload` flattens fields + tags `provider:'imap'`; POST `/api/internal/inbox-messages` then runs `ImapSmtpProvider.normalize` server-side (thread-id synthesis) and fires the shared `MailBOX-Classify`. **Not yet imported/activated on the fleet.** |
+| `MailBOX-Imap-Send.json` | `mailbox-imap-send` | Webhook `/webhook/mailbox-imap-send` | **MBOX-357 (P1 T5).** Per-provider egress for IMAP accounts. Dashboard routes here (via `N8N_IMAP_WEBHOOK_URL`) when the draft's account is IMAP — leaves `MailBOX-Send` (the live Gmail path) untouched. Same `{ draft_id }` + `send_attempt_at` CAS lock; sends via SMTP `Send Email`, writes `drafts.provider_message_id`. **Not yet imported/activated on the fleet.** |
 | `MailBOX-Digest.json` | `MlbxDigestSb0001` | Schedule (daily @ `DIGEST_SEND_HOUR_LOCAL`) | MBOX-132. Daily operator digest. GET `/api/internal/digest` (render + send-decision), gate on `should_send`, Gmail send (appliance OAuth), then POST `/api/internal/digest/record` to claim the day in `mailbox.digest_sends`. **Not yet imported/activated on the fleet — import + activate per the procedure below.** |
 
 `legacy/` archives the deactivated NIM-era workflows (kept for reference, not imported).
@@ -48,7 +50,10 @@ After import, on the target appliance:
    - `MailBOX-Classify` → Postgres
    - `MailBOX-Draft` → Postgres + Ollama (HTTP Request) + Ollama Cloud (HTTP Request, optional)
    - `MailBOX-Send` → Gmail OAuth2 + Postgres
-2. **Activate** the trigger-bearing workflows: `MailBOX` (schedule) and `MailBOX-Send` (webhook). Sub-workflows (`MailBOX-Classify`, `MailBOX-Draft`) **stay inactive** — they're invoked via `executeWorkflow`. (Activating them surfaces "no native trigger" cosmetic noise on every restart.)
+   - `MailBOX-Imap` → **IMAP** (`MailBox IMAP`) — host/port/TLS/user/app-password for the operator's mailbox (DR-58: app-password / basic-auth for v1). Also set `Build Inbox Payload`'s `account_email` to that account's address (omit only on a single-account appliance where the IMAP account IS the default).
+   - `MailBOX-Imap-Send` → **SMTP** (`MailBox SMTP`) — the operator's outbound server (domain-aligned, no relay per NC-37) + Postgres.
+2. **Activate** the trigger-bearing workflows: `MailBOX` (schedule), `MailBOX-Send` (webhook), and — when an IMAP account exists — `MailBOX-Imap` (IMAP trigger) + `MailBOX-Imap-Send` (webhook). Sub-workflows (`MailBOX-Classify`, `MailBOX-Draft`) **stay inactive** — they're invoked via `executeWorkflow`. (Activating them surfaces "no native trigger" cosmetic noise on every restart.)
+   > **DR-56 residual (verify before relying on IMAP):** stand up `MailBOX-Imap`'s `emailReadImap` against a test mailbox and confirm it polls + hands off reliably, and that `MailBOX-Imap-Send`'s SMTP `Send Email` lands the reply in-thread (true RFC `In-Reply-To`/`References` threading is the S-MP-2 gate — kill-criterion is ship flat + flag degraded mode).
 3. **Restart n8n** to pick up activation:
    ```bash
    ssh <host> 'cd ~/mailbox && docker compose restart n8n'
