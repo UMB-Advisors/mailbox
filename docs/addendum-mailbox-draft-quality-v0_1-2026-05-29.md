@@ -22,6 +22,7 @@
 | 2026-05-29 | DR-59 → DR-62 (NEW) | Four new Decision Records claimed (next-free above DR-58) |
 | 2026-05-29 | SM-96 → SM-99 (NEW) | Four new Success Metrics claimed (next-free above SM-95) |
 | 2026-05-29 | NC-39 → NC-41 (NEW) | Three new open questions claimed (next-free above NC-38) |
+| 2026-05-29 | §6.2 / footer / refs (SYNC) | MBOX-120 constrained-decoding code split from the bundled #179 and **merged to master via PR #183** (flag OFF); issue stays In Development pending the package bump + on-device eval. Added the n8n-forwarding gate + the GBNF-ambiguity review note surfaced during the PR #183 review. |
 
 ---
 
@@ -161,17 +162,19 @@ Each item carries a tier tag and an explicit gate. MBOX-119 supplied the four de
 
 ### 6.2 M4 spikes — **Exploratory**, with on-device gates
 
-Both spikes have code committed off-device (branch `feat/mbox-118-120-m4-spikes`, PR #179) but are **NOT Delivered** — the operator deliberately left them open pending on-device gates. Neither may be promoted without an M1 measurement.
+Both spikes are **NOT Delivered** — the operator deliberately left them open pending on-device gates; neither may be promoted without an M1 measurement. **Code state now differs between the two (2026-05-29):** MBOX-120 (constrained decoding) was split clean out of the bundled spike branch and **merged to `master` via PR #183** (flag default OFF — zero runtime change); MBOX-118 (style vectors) **remains off-device** on branch `feat/mbox-118-120-m4-spikes` / PR #179. "Merged code" is not "Delivered": both issues stay In Development until their on-device evidence lands.
 
 **Style-vector spike — MBOX-118 (In Development; Exploratory).** Represent per-customer writing style as a single vector in hidden-activation space; add to a chosen layer at decode time. No fine-tuning, few-KB per customer. Tests StyleVector (naive) and SteerX variants. Shipped scaffold: `optimization/style-vectors/` (uv+pyproject), `extract_naive` + `extract_steerx`, residual-stream steering with genuine λ=0 identity, §5.8-trace eval scaffold (**blind-pref-ready JSONL, no fabricated win-rates**), CLI, pytest. **Open gates (all need Jetson + real corpus):**
 - Kill-criterion: hidden-state injection on T2 without losing >30% t/s; **<15 t/s (SM-60 floor) = dead.** M1 number **unmeasured**.
 - Blind-pref win rate on Eric's approved drafts (base vs base+vector) — needs corpus + judge; **not run**.
 - Productization: prototype uses HF transformers forward hooks; **llama.cpp exposes no hidden-state hook** → production needs a fork / C++ plugin (central feasibility flag).
 
-**Constrained-decoding spike — MBOX-120 (In Development; Exploratory).** GBNF grammar per category enforcing **structure only** (greeting/body/slots/sign-off); body content decodes freely. Scoped to `reorder` first, then `scheduling`. Shipped: `reorder.gbnf` + `scheduling.gbnf`, `grammar-dispatch.ts` gated behind `CONSTRAINED_DECODING_ENABLED` (**default OFF**), `grammar?` param plumbed `ollama.ts → llm proxy → llama.cpp`, `grammar-eval.ts` A/B wrapper, benefit/caveat memo. Typecheck clean, 6/6 dispatch unit tests pass. **Open gates:**
-- The installed `@umb-advisors/llm ^0.1.0` translator does **not** map `grammar` → llama.cpp's native `/completion grammar` field → currently a **NO-OP**; needs a package bump.
-- On-device `reorder`/`scheduling` A/B on M1's `qwen3:4b-ctx4k` (blind-pref: does the grammar help or hurt) is **pending**; until it runs `CONSTRAINED_DECODING_ENABLED` stays default OFF.
+**Constrained-decoding spike — MBOX-120 (In Development; Exploratory).** GBNF grammar per category enforcing **structure only** (greeting/body/slots/sign-off); body content decodes freely. Scoped to `reorder` first, then `scheduling`. **Merged to `master` via PR #183 (2026-05-29, split clean from the bundled #179):** `reorder.gbnf` + `scheduling.gbnf`, `grammar-dispatch.ts` gated behind `CONSTRAINED_DECODING_ENABLED` (**default OFF**), `grammar?` param plumbed `ollama.ts → llm proxy → llama.cpp`, `grammar-eval.ts` A/B wrapper, `analyze-reorder-structure.ts`, benefit/caveat memo (`docs/memo-constrained-decoding-benefit-map-v0_1-2026-05-28.md`, now on master). Typecheck clean, 6/6 dispatch unit tests pass (re-verified pre-merge). **Open gates (code merged ≠ Delivered — issue stays In Development):**
+- The installed `@umb-advisors/llm ^0.1.0` translator does **not** map `grammar` → llama.cpp's native `/completion grammar` field → currently a **NO-OP end-to-end**; needs a package bump in `thumbox-platform` (where the package publishes — outside this repo).
+- The production path also needs n8n's `MailBOX-Draft` node to forward the top-level `grammar` from `/api/internal/draft-prompt` into the chat call's `options.grammar` (live-n8n edit; the `grammar-eval.ts` harness hits the llm proxy directly and bypasses n8n, so the eval is unaffected).
+- On-device `reorder`/`scheduling` A/B on M1's `qwen3:4b-ctx4k` (blind-pref: does the grammar help or hurt) is **pending** and only meaningful after the package bump; until it runs `CONSTRAINED_DECODING_ENABLED` stays default OFF.
 - Live M1 corpus too thin to author data-driven grammars (reorder=2, scheduling=1) → grammars are first-principles structural, not corpus-derived.
+- **Review note (PR #183):** the GBNF `body` rule is ambiguous against the structured-slot label lines (a `PO: …` line is also a valid body line), so llama.cpp unions both parse paths and the required-slot constraint only truly bites at EOS — flagged for the on-device eval to watch.
 
 ### 6.3 Other parked items adjacent to draft quality
 
@@ -271,7 +274,7 @@ Numbers assigned from the registry high-water mark **DR-58** (multi-provider add
 - Eval harness: MBOX-121 / MBOX-135; PRs #82/#98/#108.
 - llama.cpp / DR-25: MBOX-136; PR #84; `project_dr25_cutover_landed.md`; CLAUDE.md.
 - Retrieval few-shot: MBOX-115; PR #164.
-- LoRA: MBOX-116 (STAQPRO-344). Style vectors: MBOX-118 (PR #179). Constrained decoding: MBOX-120 (PR #179). Critic: MBOX-144. KV cache: MBOX-145. b5283 upgrade: MBOX-334.
+- LoRA: MBOX-116 (STAQPRO-344). Style vectors: MBOX-118 (PR #179, off-device). Constrained decoding: MBOX-120 (PR #183, merged to master 2026-05-29). Critic: MBOX-144. KV cache: MBOX-145. b5283 upgrade: MBOX-334.
 
 ---
 
@@ -285,7 +288,7 @@ Numbers assigned from the registry high-water mark **DR-58** (multi-provider add
 | MBOX-116 | Per-customer LoRA personalization | BACKLOG / unstarted | §4 Candidate (NOT BUILT) |
 | MBOX-117 | Cloud-use doctrine | (doctrine source — DRAFT, pending Eric/Kevin) | §1 restated |
 | MBOX-118 | Style-vector spike | In Development (code off-device, PR #179; NOT Delivered) | §6.2 Exploratory (DR-62) |
-| MBOX-120 | Constrained-decoding spike | In Development (code off-device, PR #179; NOT Delivered) | §6.2 Exploratory (DR-62) |
+| MBOX-120 | Constrained-decoding spike | In Development (code **merged to master via PR #183** 2026-05-29, flag OFF; package bump + on-device eval pending; NOT Delivered) | §6.2 Exploratory (DR-62) |
 | MBOX-121 | §5.8 eval harness + trace set v1.0 | Delivered | §2/§3/§6 (eval instrument) |
 | MBOX-135 | Trace-set v1.1 corpus-quality filter | Delivered | §3 (Run-3 corpus) |
 | MBOX-136 | llama.cpp migration on T2 (DR-20/DR-25) | Delivered | §2 Accepted (live runtime) |
