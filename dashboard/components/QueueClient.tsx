@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { apiUrl } from '@/lib/api';
 import type { Category } from '@/lib/classification/prompt';
-import { type DraftWithMessage, REJECT_REASON_LABELS } from '@/lib/types';
+import { type AccountRef, type DraftWithMessage, REJECT_REASON_LABELS } from '@/lib/types';
 import type { ActionKind } from './ActionButtons';
 import { AppShell } from './AppShell';
 import { DraftCard } from './DraftCard';
@@ -68,6 +68,11 @@ interface Props {
   // (the pane renders a configure CTA linking to /settings/workspace).
   calendarSrc: string;
   driveFolderId: string;
+  // MBOX-360 (MBOX-162 V3) — connected inboxes for the account selector, and
+  // the SSR-resolved active filter (undefined = all inboxes). AccountRef is a
+  // type-only import so no server DB code leaks into the client bundle.
+  accounts: AccountRef[];
+  initialAccountId?: number;
 }
 
 export function QueueClient({
@@ -78,6 +83,8 @@ export function QueueClient({
   redraftEnabled,
   calendarSrc,
   driveFolderId,
+  accounts,
+  initialAccountId,
 }: Props) {
   const mode = modeForFolder(folder);
   const [drafts, setDrafts] = useState(initialList);
@@ -116,6 +123,10 @@ export function QueueClient({
   // Default closed; hydrated from localStorage on mount so the operator's
   // choice survives reload without an SSR/client markup mismatch.
   const [rightPaneOpen, setRightPaneOpen] = useState(false);
+  // MBOX-360 (MBOX-162 V3) — account filter for the unified queue. undefined =
+  // all inboxes; a number narrows to one connected account. SSR-seeded from the
+  // ?account= param so a deep-linked/reloaded filter survives.
+  const [accountFilter, setAccountFilter] = useState<number | undefined>(initialAccountId);
 
   useEffect(() => {
     try {
@@ -161,7 +172,12 @@ export function QueueClient({
   // MBOX-162 V3 — the priority folder polls the urgency-aware list endpoint so
   // the client refresh stays consistent with the SSR fetch (getHighPriorityQueue).
   const urgentParam = folder === 'priority' ? '&urgent=1' : '';
-  const showAccount = folder === 'priority';
+  // MBOX-360 (MBOX-162 V3) — badge the owning mailbox whenever the box serves
+  // more than one inbox (so any folder reads as cross-account), and always on
+  // the Priority view. Single-account boxes stay uncluttered.
+  const showAccount = accounts.length > 1 || folder === 'priority';
+  // MBOX-360 — narrow the list fetch to the selected inbox when a filter is set.
+  const accountParam = accountFilter !== undefined ? `&account=${accountFilter}` : '';
 
   const wantsStuck = folder === 'queue';
 
@@ -169,7 +185,7 @@ export function QueueClient({
     async (silent: boolean) => {
       try {
         const [listRes, stuckRes, cooldownRes] = await Promise.all([
-          fetch(apiUrl(`/api/drafts?status=${statusQuery}&limit=50${urgentParam}`), {
+          fetch(apiUrl(`/api/drafts?status=${statusQuery}&limit=50${urgentParam}${accountParam}`), {
             cache: 'no-store',
           }),
           // Stuck-approved banner only needs refreshing on the queue folder;
@@ -211,7 +227,7 @@ export function QueueClient({
         // Background poll — swallow transient errors.
       }
     },
-    [statusQuery, urgentParam, wantsStuck, mode],
+    [statusQuery, urgentParam, accountParam, wantsStuck, mode],
   );
 
   // STAQPRO-331 #11 — visibility-aware polling. Skip ticks when the tab is
@@ -237,6 +253,36 @@ export function QueueClient({
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [fetchData]);
+
+  // MBOX-360 (MBOX-162 V3) — refetch immediately when the account filter
+  // changes. The polling effect above only re-arms its interval on a fetchData
+  // change; it doesn't fire a tick. Silent so switching inboxes doesn't trip
+  // the "new drafts" banner. Skip the initial mount — the SSR list already
+  // reflects initialAccountId.
+  const accountFilterMounted = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fetchData is recreated when accountFilter changes; accountFilter is the intended sole trigger.
+  useEffect(() => {
+    if (!accountFilterMounted.current) {
+      accountFilterMounted.current = true;
+      return;
+    }
+    fetchData(true);
+  }, [accountFilter]);
+
+  // MBOX-360 — apply a new account filter: client state + URL sync (deep-link /
+  // reload preserves it) via replaceState, avoiding a full SSR navigation. The
+  // effect above repaints the list.
+  const handleAccountFilterChange = (next: number | undefined) => {
+    setAccountFilter(next);
+    try {
+      const url = new URL(window.location.href);
+      if (next === undefined) url.searchParams.delete('account');
+      else url.searchParams.set('account', String(next));
+      window.history.replaceState(null, '', url.toString());
+    } catch {
+      // URL sync is best-effort; the client-state filter still applies.
+    }
+  };
 
   // P2 — exit inline edit when the selected draft changes (operator clicks a
   // different row, or approve/reject auto-advances). An in-progress unsaved
@@ -689,6 +735,32 @@ export function QueueClient({
   // into a `flex h-full flex-col` container by both layouts.
   const listContent = (
     <>
+      {/* MBOX-360 (MBOX-162 V3) — account filter. Only rendered when the box
+          serves more than one inbox; single-account boxes never see it. "All
+          inboxes" clears the filter (cross-account unified view). */}
+      {accounts.length > 1 && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-panel px-3 py-1.5 font-mono text-[11px] text-ink-dim">
+          <label htmlFor="account-filter" className="shrink-0">
+            Inbox
+          </label>
+          <select
+            id="account-filter"
+            value={accountFilter ?? ''}
+            onChange={(e) =>
+              handleAccountFilterChange(e.target.value ? Number(e.target.value) : undefined)
+            }
+            className="min-w-0 flex-1 rounded-sm border border-border bg-bg-deep px-1.5 py-0.5 text-ink"
+          >
+            <option value="">All inboxes</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.display_label || a.email_address}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* STAQPRO-331 #8 — sort selector (active folder only). Lets the
           operator flip to oldest-first so overdue rows surface at the top of
           the list. Hidden in archive folders. */}

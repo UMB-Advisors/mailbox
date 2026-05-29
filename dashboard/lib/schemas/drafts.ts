@@ -52,6 +52,18 @@ export const listDraftsQuerySchema = z.object({
     .string()
     .optional()
     .transform((s) => s === '1' || s === 'true'),
+  // MBOX-360 (MBOX-162 V3) — optional account filter for the unified queue.
+  // `account=<id>` narrows the list to one connected inbox; absent / empty /
+  // non-numeric (e.g. "all") → undefined (all accounts). Garbage never 400s —
+  // it just falls back to the cross-account view.
+  account: z
+    .string()
+    .optional()
+    .transform((s) => {
+      const n = s ? Number.parseInt(s, 10) : Number.NaN;
+      return Number.isFinite(n) ? n : undefined;
+    })
+    .pipe(z.number().int().positive().optional()),
 });
 
 export type ListDraftsQuery = z.infer<typeof listDraftsQuerySchema>;

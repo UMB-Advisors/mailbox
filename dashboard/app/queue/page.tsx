@@ -1,6 +1,7 @@
 import type { CooldownState } from '@/components/GmailCooldownBanner';
 import { QueueClient } from '@/components/QueueClient';
 import { getHighPriorityQueue, listDrafts } from '@/lib/queries';
+import { type AccountRow, listAccounts } from '@/lib/queries-accounts';
 import { getOperatorSettings } from '@/lib/queries-operator-settings';
 import { getGmailCooldown } from '@/lib/queries-system-state';
 import type { DraftStatus, DraftWithMessage, OperatorSettings } from '@/lib/types';
@@ -59,12 +60,22 @@ function statusesForFolder(folder: FolderKey): DraftStatus[] {
   }
 }
 
+// MBOX-360 (MBOX-162 V3) — parse the ?account=<id> filter. Non-numeric /
+// absent → undefined (the cross-account view).
+function parseAccountId(raw: string | string[] | undefined): number | undefined {
+  if (Array.isArray(raw)) return parseAccountId(raw[0]);
+  const n = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 interface QueuePageProps {
-  searchParams?: { folder?: string | string[] };
+  searchParams?: { folder?: string | string[]; account?: string | string[] };
 }
 
 export default async function QueuePage({ searchParams }: QueuePageProps) {
   const folder = parseFolder(searchParams?.folder);
+  // MBOX-360 (MBOX-162 V3) — the active account filter (undefined = all inboxes).
+  const accountId = parseAccountId(searchParams?.account);
 
   // The queue folder still needs the approved-list separately to power the
   // StuckApproved banner — approved drafts that errored on Gmail Reply leave
@@ -74,22 +85,31 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
   let initialList: DraftWithMessage[] = [];
   let initialStuck: DraftWithMessage[] = [];
   let initialCooldown: CooldownState = EMPTY_COOLDOWN;
+  let initialAccounts: AccountRow[] = [];
   let operatorSettings: OperatorSettings = EMPTY_OPERATOR_SETTINGS;
   let error: string | null = null;
 
   try {
-    const [list, stuck, cooldown, settings] = await Promise.all([
-      folder === 'priority' ? getHighPriorityQueue(50) : listDrafts(statusesForFolder(folder), 50),
+    const [list, stuck, cooldown, accounts, settings] = await Promise.all([
+      // MBOX-360 (MBOX-162 V3) — the list respects the active account filter.
+      folder === 'priority'
+        ? getHighPriorityQueue(50, process.env, accountId)
+        : listDrafts(statusesForFolder(folder), 50, accountId),
+      // StuckApproved is a cross-account safety surface — never hidden by the
+      // account filter, so the operator always sees every stuck send.
       wantsStuck ? listDrafts(['approved'], 50) : Promise.resolve([] as DraftWithMessage[]),
       // STAQPRO-331 #5 — initial cooldown read for the banner. Client-side
       // polling refreshes it alongside the drafts list.
       getGmailCooldown(),
+      // MBOX-360 — connected inboxes for the account selector.
+      listAccounts(),
       // P4 (MBOX-162) — right-pane embed config. Degrades to empty on failure
       // so the queue still renders (pane shows a configure CTA).
       getOperatorSettings().catch(() => EMPTY_OPERATOR_SETTINGS),
     ]);
     initialList = list;
     initialStuck = stuck;
+    initialAccounts = accounts;
     operatorSettings = settings;
     initialCooldown = {
       is_active: cooldown.isActive,
@@ -128,6 +148,8 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
       initialStuck={initialStuck}
       initialCooldown={initialCooldown}
       redraftEnabled={redraftEnabled}
+      accounts={initialAccounts}
+      initialAccountId={accountId}
       calendarSrc={operatorSettings.calendar_embed_src}
       driveFolderId={operatorSettings.drive_folder_id}
     />

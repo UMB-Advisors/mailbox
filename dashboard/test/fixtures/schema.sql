@@ -1227,7 +1227,13 @@ CREATE TABLE IF NOT EXISTS mailbox.accounts (
   email_address text NOT NULL UNIQUE,
   display_label text,
   is_default    boolean NOT NULL DEFAULT false,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  -- migration 037 (MBOX-356 / DR-57): mail-transport provider dimension.
+  -- SoT for the CHECK = MAIL_PROVIDERS in lib/types.ts. Distinct from
+  -- oauth_tokens.provider (Google OAuth grant key).
+  provider        text NOT NULL DEFAULT 'gmail'
+    CHECK (provider IN ('gmail', 'imap', 'microsoft')),
+  provider_config jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_default
   ON mailbox.accounts (is_default) WHERE is_default;

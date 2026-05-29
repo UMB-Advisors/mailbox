@@ -24,6 +24,9 @@ export { DRAFT_STATUSES as VALID_STATUSES } from '@/lib/types';
 export async function listDrafts(
   statuses: DraftStatus[] = ['pending'],
   limit = 50,
+  // MBOX-360 (MBOX-162 V3) — optional account filter for the unified queue.
+  // When set, narrows to one connected inbox; omitted = all accounts.
+  accountId?: number,
 ): Promise<DraftWithMessage[]> {
   const db = getKysely();
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
@@ -32,6 +35,7 @@ export async function listDrafts(
     .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
     .innerJoin('accounts as a', 'a.id', 'd.account_id')
     .where('d.status', 'in', statuses)
+    .$if(accountId !== undefined, (qb) => qb.where('d.account_id', '=', accountId as number))
     .selectAll('d')
     .select((eb) =>
       jsonBuildObject({
@@ -216,6 +220,8 @@ export async function getQueueWithUrgency(
   // (the Priority / cross-account view). Same OR-of-signals predicate as
   // countUrgentDrafts, applied set-wise in SQL (no per-row evaluator pass).
   urgentOnly = false,
+  // MBOX-360 (MBOX-162 V3) — optional account filter for the unified queue.
+  accountId?: number,
 ): Promise<DraftWithUrgency[]> {
   const db = getKysely();
   const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
@@ -224,6 +230,9 @@ export async function getQueueWithUrgency(
     .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
     .innerJoin('accounts as a', 'a.id', 'd.account_id')
     .where('d.status', 'in', statuses);
+  if (accountId !== undefined) {
+    query = query.where('d.account_id', '=', accountId);
+  }
   if (urgentOnly) {
     query = query.where((eb) =>
       eb.or([
@@ -307,8 +316,10 @@ export async function getQueueWithUrgency(
 export async function getHighPriorityQueue(
   limit = 50,
   env: Record<string, string | undefined> = process.env,
+  // MBOX-360 (MBOX-162 V3) — optional account filter for the unified queue.
+  accountId?: number,
 ): Promise<DraftWithUrgency[]> {
-  return getQueueWithUrgency(['pending', 'edited'], limit, env, true);
+  return getQueueWithUrgency(['pending', 'edited'], limit, env, true, accountId);
 }
 
 // Red-flag count for the dashboard header (GET /api/queue/urgent-count). Counts
