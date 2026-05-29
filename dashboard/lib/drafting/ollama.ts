@@ -15,6 +15,10 @@ export interface OllamaChatRequest {
   options?: {
     temperature?: number;
     num_predict?: number; // Ollama's name for max_tokens
+    // MBOX-120 — GBNF grammar for constrained decoding. Consumed by the
+    // llama.cpp proxy (translated to llama.cpp's native `grammar` field);
+    // a harmless ignored option against real Ollama. Absent on the normal path.
+    grammar?: string;
   };
   stream?: false;
 }
@@ -49,6 +53,11 @@ export interface OllamaCallParams {
   messages: ReadonlyArray<ChatMessage>;
   temperature?: number;
   max_tokens?: number;
+  // MBOX-120 — optional GBNF grammar for constrained decoding. When present it
+  // is forwarded as `options.grammar` (the llama.cpp proxy maps it to
+  // llama.cpp's native `grammar`; real Ollama ignores it). Undefined = today's
+  // unconstrained behavior, byte-identical.
+  grammar?: string;
   // Per-request timeout. Local Qwen3:4b drafts land in 5-17s; cloud models
   // typically <10s. 90s is a generous ceiling that still surfaces hangs.
   timeout_ms?: number;
@@ -72,6 +81,9 @@ export async function chat(params: OllamaCallParams): Promise<OllamaChatResult> 
     options: {
       ...(params.temperature !== undefined && { temperature: params.temperature }),
       ...(params.max_tokens !== undefined && { num_predict: params.max_tokens }),
+      // MBOX-120 — only present the key when a grammar was supplied, so the
+      // normal path's request body is unchanged.
+      ...(params.grammar !== undefined && { grammar: params.grammar }),
     },
   };
 

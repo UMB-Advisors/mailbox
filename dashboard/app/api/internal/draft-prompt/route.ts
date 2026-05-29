@@ -251,6 +251,11 @@ export async function POST(req: NextRequest) {
       messages: assembled.messages,
       max_tokens: assembled.max_tokens,
       temperature: assembled.temperature,
+      // MBOX-120 — GBNF grammar for constrained decoding, present only for
+      // reorder/scheduling drafts when CONSTRAINED_DECODING_ENABLED is on. n8n's
+      // Draft HTTP node forwards it as `options.grammar`; absent on every normal
+      // path (spike default OFF), so the response shape is unchanged otherwise.
+      ...(assembled.grammar !== undefined && { grammar: assembled.grammar }),
       // STAQPRO-191 — email RAG audit signal for n8n logging + dashboard
       // debug surface. refs_count is what dashboards graph; reason is what
       // eval/triage scripts filter on.

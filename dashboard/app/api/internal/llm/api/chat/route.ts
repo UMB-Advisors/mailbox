@@ -23,7 +23,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     let result: OllamaChatResponse;
     if (runtime === 'llama-cpp') {
-      result = await callLlamaCppChat(body, {
+      // MBOX-120 — forward an Ollama-shape `options.grammar` (a GBNF string) to
+      // the llama.cpp upstream as its native `grammar` field. We carry it on the
+      // request body's `options` bag (Ollama wire shape) rather than the deps
+      // arg, because `LlamaCppCallDeps` is strictly `{ baseUrl, model }`. Only
+      // attach the top-level `grammar` mirror when present so the unconstrained
+      // path is byte-identical to before.
+      //
+      // NOTE: `@umb-advisors/llm` ^0.1.0's `chatRequestToLlamaCpp` maps the
+      // Ollama options bag onto `/v1/chat/completions` params and does NOT yet
+      // surface `grammar` to llama.cpp's `/completion` `grammar` field — so this
+      // is a no-op against the current translator. That's acceptable for the
+      // MBOX-120 spike (flag default OFF); the grammar still rides on the wire
+      // so a package bump that adds GBNF mapping picks it up with no route edit.
+      const grammar = (body.options as { grammar?: unknown } | undefined)?.grammar;
+      const llamaCppBody: OllamaChatRequest =
+        typeof grammar === 'string' && grammar.length > 0
+          ? { ...body, options: { ...body.options, grammar } }
+          : body;
+      result = await callLlamaCppChat(llamaCppBody, {
         baseUrl: readLlamaCppBaseUrl(),
         model: readLlamaCppModel(),
       });
