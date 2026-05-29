@@ -254,6 +254,14 @@ export interface Onboarding {
   tuning_sample_count: Generated<number>;
 }
 
+export interface OperatorSettings {
+  booking_link: Generated<string>;
+  calendar_embed_src: Generated<string>;
+  drive_folder_id: Generated<string>;
+  id: Generated<number>;
+  updated_at: Generated<string>;
+}
+
 export interface OtaUpdateAttempts {
   detail: string | null;
   finished_at: string | null;
@@ -389,6 +397,7 @@ export interface DB {
   migrations: Migrations;
   oauth_tokens: OauthTokens;
   onboarding: Onboarding;
+  operator_settings: OperatorSettings;
   ota_update_attempts: OtaUpdateAttempts;
   persona: Persona;
   rejected_history: RejectedHistory;

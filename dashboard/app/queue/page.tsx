@@ -2,8 +2,9 @@ import type { CooldownState } from '@/components/GmailCooldownBanner';
 import { QueueClient } from '@/components/QueueClient';
 import { getHighPriorityQueue, listDrafts } from '@/lib/queries';
 import { type AccountRow, listAccounts } from '@/lib/queries-accounts';
+import { getOperatorSettings } from '@/lib/queries-operator-settings';
 import { getGmailCooldown } from '@/lib/queries-system-state';
-import type { DraftStatus, DraftWithMessage } from '@/lib/types';
+import type { DraftStatus, DraftWithMessage, OperatorSettings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,15 @@ const EMPTY_COOLDOWN: CooldownState = {
   until: null,
   set_at: null,
   recommended_safe_at: null,
+};
+
+// P4 (MBOX-162) — operator_settings feed the right pane's Calendar/Drive
+// embeds. A read failure must NOT take down the queue, so it loads with an
+// all-empty fallback (the pane then renders a configure CTA).
+const EMPTY_OPERATOR_SETTINGS: OperatorSettings = {
+  booking_link: '',
+  calendar_embed_src: '',
+  drive_folder_id: '',
 };
 
 // Folder keys come from the left rail (components/Sidebar.tsx). Each folder
@@ -76,10 +86,11 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
   let initialStuck: DraftWithMessage[] = [];
   let initialCooldown: CooldownState = EMPTY_COOLDOWN;
   let initialAccounts: AccountRow[] = [];
+  let operatorSettings: OperatorSettings = EMPTY_OPERATOR_SETTINGS;
   let error: string | null = null;
 
   try {
-    const [list, stuck, cooldown, accounts] = await Promise.all([
+    const [list, stuck, cooldown, accounts, settings] = await Promise.all([
       // MBOX-360 (MBOX-162 V3) — the list respects the active account filter.
       folder === 'priority'
         ? getHighPriorityQueue(50, process.env, accountId)
@@ -92,10 +103,14 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
       getGmailCooldown(),
       // MBOX-360 — connected inboxes for the account selector.
       listAccounts(),
+      // P4 (MBOX-162) — right-pane embed config. Degrades to empty on failure
+      // so the queue still renders (pane shows a configure CTA).
+      getOperatorSettings().catch(() => EMPTY_OPERATOR_SETTINGS),
     ]);
     initialList = list;
     initialStuck = stuck;
     initialAccounts = accounts;
+    operatorSettings = settings;
     initialCooldown = {
       is_active: cooldown.isActive,
       until: cooldown.until?.toISOString() ?? null,
@@ -135,6 +150,8 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
       redraftEnabled={redraftEnabled}
       accounts={initialAccounts}
       initialAccountId={accountId}
+      calendarSrc={operatorSettings.calendar_embed_src}
+      driveFolderId={operatorSettings.drive_folder_id}
     />
   );
 }
