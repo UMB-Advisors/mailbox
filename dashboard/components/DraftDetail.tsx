@@ -96,6 +96,17 @@ export function DraftDetail({
       <div className="px-5 py-4">
         <p className="mb-2 flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-ink-dim">
           <span>Draft reply</span>
+          {/* MBOX-360 (MBOX-162 V3) — the owning mailbox this reply sends from.
+              Lets the operator see the sending identity in a cross-account
+              queue. Populated by the accounts join; absent on legacy rows. */}
+          {draft.account && (
+            <span
+              className="rounded-sm border border-border bg-bg-deep px-1.5 py-0.5 normal-case tracking-normal text-ink-dim"
+              title={draft.account.email_address}
+            >
+              via {draft.account.display_label || draft.account.email_address}
+            </span>
+          )}
           {draft.status === 'edited' && (
             <span className="rounded-full border border-accent-blue/40 bg-accent-blue/10 px-2 py-0.5 normal-case tracking-normal text-accent-blue">
               edited
