@@ -205,7 +205,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   );
 
   it.skipIf(!DB_URL)(
-    'sender_never_spam has the unique (email) index — allowlist upsert key + classify-time lookup (MBOX-370, migrations 041→042)',
+    'sender_never_spam has the unique (email) index — allowlist upsert key + classify-time lookup (MBOX-370, migrations 041→043)',
     async () => {
       const def = await getIndexDef(pool!, 'sender_never_spam_email_uidx');
       expect(def).toMatch(/CREATE UNIQUE INDEX/i);
@@ -214,7 +214,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   );
 
   it.skipIf(!DB_URL)(
-    'sender_never_spam carries NO category column — it is an allowlist, not a force-to-category rule (migration 042 dropped it)',
+    'sender_never_spam carries NO category column — it is an allowlist, not a force-to-category rule (migration 043 dropped it)',
     async () => {
       const { rows } = await pool!.query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns

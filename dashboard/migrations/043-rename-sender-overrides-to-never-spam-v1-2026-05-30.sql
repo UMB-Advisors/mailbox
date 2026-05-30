@@ -1,4 +1,6 @@
--- Migration 042 — MBOX-370: evolve the sender override into a never-spam allowlist.
+-- Migration 043 — MBOX-370: evolve the sender override into a never-spam allowlist.
+-- (Numbered 043, not 042 — MBOX-369's 042-add-inbox-message-actions landed on
+--  master first; renumbered before any persistent apply to keep numbers unique.)
 -- WHAT: Repurposes mailbox.sender_classification_overrides (migration 041) from a
 --       "force this sender to category X" table into mailbox.sender_never_spam —
 --       a per-sender allowlist that only means "never let this sender be dropped
