@@ -197,6 +197,13 @@ De-dupe lives in the DB constraint (UNIQUE on `sent_on`, migration 029), not app
 - `LOCAL_CATEGORIES` (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`) → local Qwen3
 - `CLOUD_CATEGORIES` (`escalate`, `unknown`) → Ollama Cloud (`gpt-oss:120b`; `OLLAMA_CLOUD_MODEL` env override)
 
+### Operator sender-override (MBOX-368, migration 041)
+
+`mailbox.sender_classification_overrides` (one row per sender email → forced category) is the operator's reclassify-by-sender rule, set from `/dashboard/classifications`. Two halves:
+
+- **Future** — highest-precedence preclass in `app/api/internal/classification-normalize/route.ts` (`getSenderOverride`, before noreply/self-loop/operator-domain and the owns-thread guard). An override forces the category for all future inbound from that exact (lowercased) address. Kill switch `SENDER_OVERRIDE_PRECLASS_DISABLE=1`; fail-open on DB error. **No n8n change** — the Normalize node already sends `from`.
+- **Past** — `POST /api/classifications/reclassify-sender` (`lib/queries-sender-overrides.ts:reclassifyBySender`) relabels every existing `inbox_messages` from the sender + appends a `classification_log` row per message (`model_version='operator-sender-override'`) + relabels existing drafts, all in one txn. **Relabel only — no drafts generated for historical dropped (spam) mail.** Extends MBOX-123's draft-id-keyed single-row override, which couldn't reach dropped `spam_marketing` rows.
+
 ### RAG retrieval (STAQPRO-191)
 
 `POST /api/internal/draft-prompt` embeds inbound, queries Qdrant `email_messages` with hard sender filter (`payload.sender == inbound.from_addr`) for counterparty-scoped recall. Top-k snippets land in `lib/drafting/prompt.ts` `rag_refs`; point IDs persist to `drafts.rag_context_refs`.

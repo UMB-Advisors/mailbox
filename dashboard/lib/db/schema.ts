@@ -307,6 +307,16 @@ export interface RejectedHistory {
   subject: string | null;
 }
 
+export interface SenderClassificationOverrides {
+  category: string;
+  created_at: Generated<string>;
+  created_by: Generated<string>;
+  email: string;
+  id: Generated<Int8>;
+  reason: string | null;
+  updated_at: Generated<string>;
+}
+
 export interface SentHistory {
   account_id: Generated<number>;
   action_items: Generated<Json>;
@@ -411,6 +421,7 @@ export interface DB {
   ota_update_attempts: OtaUpdateAttempts;
   persona: Persona;
   rejected_history: RejectedHistory;
+  sender_classification_overrides: SenderClassificationOverrides;
   sent_history: SentHistory;
   state_transitions: StateTransitions;
   system_state: SystemState;

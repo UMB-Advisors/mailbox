@@ -205,6 +205,28 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   );
 
   it.skipIf(!DB_URL)(
+    'sender_classification_overrides.category CHECK matches CATEGORIES — the MBOX-368 reclassify-by-sender preclass forces this category, so its set must equal the canonical CATEGORIES (migration 041)',
+    async () => {
+      const allowed = await getCheckValues(
+        pool!,
+        'sender_classification_overrides',
+        'sender_classification_overrides_category_check',
+      );
+      const expected = [...CATEGORIES];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
+    'sender_classification_overrides has the unique (email) index — upsert key + classify-time lookup (MBOX-368, migration 041)',
+    async () => {
+      const def = await getIndexDef(pool!, 'sender_classification_overrides_email_uidx');
+      expect(def).toMatch(/CREATE UNIQUE INDEX/i);
+      expect(def).toMatch(/\(email\)/);
+    },
+  );
+
+  it.skipIf(!DB_URL)(
     'auto_send_rules.action CHECK matches AUTO_SEND_ACTIONS (MBOX-16, migration 031)',
     async () => {
       const allowed = await getCheckValues(
