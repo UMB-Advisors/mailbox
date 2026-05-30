@@ -7,16 +7,19 @@
 
 import { GmailProvider } from './gmail';
 import { ImapSmtpProvider } from './imap';
+import { MicrosoftGraphProvider } from './microsoft';
 import type { MailAccount, MailProvider, MailProviderKind } from './types';
 
 export { GmailProvider, NotImplementedInP0 } from './gmail';
 export { ImapSmtpProvider, NotImplementedYet } from './imap';
+export { GraphNotImplementedYet, MicrosoftGraphProvider } from './microsoft';
 export * from './types';
 
 // Singleton instances — providers are stateless (config comes in per call via
 // MailAccount), so one instance per kind is sufficient.
 const GMAIL = new GmailProvider();
 const IMAP = new ImapSmtpProvider();
+const MICROSOFT = new MicrosoftGraphProvider();
 
 export function providerFor(account: Pick<MailAccount, 'provider'>): MailProvider {
   return providerForKind(account.provider);
@@ -29,8 +32,7 @@ export function providerForKind(kind: MailProviderKind): MailProvider {
     case 'imap':
       return IMAP;
     case 'microsoft':
-      // P2 / MBOX-358.
-      throw new Error(`MailProvider 'microsoft' not implemented yet (P2 / MBOX-358)`);
+      return MICROSOFT;
     default: {
       // Exhaustiveness guard — if MailProviderKind grows, this stops compiling.
       const _exhaustive: never = kind;
