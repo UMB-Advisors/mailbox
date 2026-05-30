@@ -272,3 +272,106 @@ async function fetchSnapshot(input: CalendarFetchInput): Promise<CalendarSnapsho
   const lines = events.map((ev) => formatEventLine(ev)).filter((l) => l.length > 0);
   return { reason: 'ok', lines };
 }
+
+// ── MBOX-398 — operator-facing day view (right-rail Calendar panel) ──────────
+// Distinct from getCalendarSnapshot above (draft-time, privacy-gated by
+// draft_source, 14-day window, rendered to prompt lines). THIS is the operator
+// viewing their OWN calendar in their OWN dashboard — no LLM, no cloud egress —
+// so there is no draft_source privacy gate. Returns the raw events for a single
+// local day (operator's GENERIC_TIMEZONE) for the panel to render on an hour
+// grid. Never throws — every failure maps to a typed reason.
+
+export type CalendarDayReason =
+  | 'ok'
+  | 'not_connected'
+  | 'token_expired'
+  | 'rate_limited'
+  | 'fetch_failed';
+
+export interface CalendarDayResult {
+  reason: CalendarDayReason;
+  date: string; // YYYY-MM-DD (operator tz) the events belong to
+  events: CalendarEvent[];
+}
+
+// Format a Date as YYYY-MM-DD in the given IANA tz (en-CA yields ISO order).
+function localDateKey(d: Date, tz: string): string {
+  return d.toLocaleDateString('en-CA', { timeZone: tz });
+}
+
+// Pure (exported for tests): keep events whose start lands on dateStr in tz,
+// sorted ascending by start. All-day events carry a date-only start (no 'T') —
+// compared directly; timed events are projected into tz.
+export function filterEventsForDay(
+  events: CalendarEvent[],
+  dateStr: string,
+  tz: string,
+): CalendarEvent[] {
+  return events
+    .filter((ev) => {
+      if (!ev.start.includes('T')) return ev.start.slice(0, 10) === dateStr;
+      const d = new Date(ev.start);
+      if (Number.isNaN(d.getTime())) return false;
+      return localDateKey(d, tz) === dateStr;
+    })
+    .sort((a, b) => a.start.localeCompare(b.start));
+}
+
+export async function getDayEvents(
+  dateStr: string,
+  now: Date = new Date(),
+): Promise<CalendarDayResult> {
+  void now; // reserved for future "today" affordances; keeps the signature testable
+  const tz = process.env.GENERIC_TIMEZONE ?? 'UTC';
+  const conn = await getConnection('google_calendar');
+  if (!conn.connected) return { reason: 'not_connected', date: dateStr, events: [] };
+
+  let accessToken: string;
+  try {
+    accessToken = await getAccessToken('google_calendar');
+  } catch (err) {
+    if (err instanceof OAuthTokenError) {
+      if (err.kind === 'not_connected')
+        return { reason: 'not_connected', date: dateStr, events: [] };
+      if (err.kind === 'auth') return { reason: 'token_expired', date: dateStr, events: [] };
+    }
+    return { reason: 'fetch_failed', date: dateStr, events: [] };
+  }
+
+  // Fetch a generous UTC window around the requested local day (±26h covers any
+  // tz offset), then filter to the requested day in the operator tz. Avoids a
+  // tz library for exact day boundaries; a few extra events get filtered out.
+  const anchor = new Date(`${dateStr}T12:00:00Z`);
+  if (Number.isNaN(anchor.getTime())) return { reason: 'fetch_failed', date: dateStr, events: [] };
+  const timeMin = new Date(anchor.getTime() - 26 * 3600 * 1000).toISOString();
+  const timeMax = new Date(anchor.getTime() + 26 * 3600 * 1000).toISOString();
+
+  const url = new URL(CALENDAR_EVENTS_URL);
+  url.searchParams.set('timeMin', timeMin);
+  url.searchParams.set('timeMax', timeMax);
+  url.searchParams.set('singleEvents', 'true');
+  url.searchParams.set('orderBy', 'startTime');
+  url.searchParams.set('maxResults', '100');
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(6_000),
+    });
+  } catch {
+    return { reason: 'fetch_failed', date: dateStr, events: [] };
+  }
+  if (res.status === 429) return { reason: 'rate_limited', date: dateStr, events: [] };
+  if (res.status === 401 || res.status === 403) {
+    return { reason: 'token_expired', date: dateStr, events: [] };
+  }
+  if (!res.ok) return { reason: 'fetch_failed', date: dateStr, events: [] };
+
+  const json = (await res.json().catch(() => null)) as { items?: unknown } | null;
+  if (!json) return { reason: 'fetch_failed', date: dateStr, events: [] };
+
+  void markFetched('google_calendar').catch(() => undefined);
+  const events = filterEventsForDay(coerceEvents(json.items, conn.account_email), dateStr, tz);
+  return { reason: 'ok', date: dateStr, events };
+}

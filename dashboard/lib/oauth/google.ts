@@ -44,18 +44,26 @@ async function resolveAccountId(accountId?: number): Promise<number> {
 }
 
 // The Google OAuth providers backed by mailbox.oauth_tokens. SoT for the
-// provider key strings; the push/connect routes and the calendar/tasks modules
-// read this set. 'google_drive' is reserved for STAQPRO-212 when it lands.
-export const OAUTH_PROVIDERS = ['google_calendar', 'google_tasks', 'google_drive'] as const;
+// provider key strings; the push/connect routes and the calendar/tasks/contacts
+// modules read this set. 'google_drive' is reserved for STAQPRO-212 when it
+// lands. 'google_contacts' (MBOX-398) backs the right-rail Contacts panel.
+export const OAUTH_PROVIDERS = [
+  'google_calendar',
+  'google_tasks',
+  'google_drive',
+  'google_contacts',
+] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
 // Per-provider scope. calendar.readonly is read-only (MBOX-130 — pre-read, not
 // write). tasks is read/write (MBOX-129 pushes a task). drive scope deferred to
-// STAQPRO-212.
+// STAQPRO-212. contacts.readonly is read-only (MBOX-398 — right-rail Contacts
+// panel only reads the operator's own connections via the People API).
 export const PROVIDER_SCOPE: Record<OAuthProvider, string> = {
   google_calendar: 'https://www.googleapis.com/auth/calendar.readonly',
   google_tasks: 'https://www.googleapis.com/auth/tasks',
   google_drive: 'https://www.googleapis.com/auth/drive.readonly',
+  google_contacts: 'https://www.googleapis.com/auth/contacts.readonly',
 };
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
