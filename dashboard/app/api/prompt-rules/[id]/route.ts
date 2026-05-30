@@ -1,13 +1,17 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { parseJson, parseParams } from '@/lib/middleware/validate';
+import { parseJson, parseParams, parseQuery } from '@/lib/middleware/validate';
 import { deletePromptRule, updatePromptRule } from '@/lib/queries-prompt-rules';
+import { accountQuerySchema } from '@/lib/schemas/common';
 import { promptRuleIdParamSchema, promptRuleUpdateSchema } from '@/lib/schemas/prompt-rules';
 
 // MBOX-162 P5b — edit / remove a single drafting guideline.
 //
-// PATCH  /api/prompt-rules/[id] → { rule } | 404. Content edits bump version;
-//                                 an enabled-only toggle does not.
-// DELETE /api/prompt-rules/[id] → { deleted: true, id } | 404.
+// MBOX-374 — account-scoped via `?account=<id>` (absent → default account); the
+// query scopes the UPDATE/DELETE to that account, so a rule from another inbox
+// can't be edited cross-account (a foreign id → 404).
+// PATCH  /api/prompt-rules/[id][?account=<id>] → { rule } | 404. Content edits
+//                                 bump version; an enabled-only toggle does not.
+// DELETE /api/prompt-rules/[id][?account=<id>] → { deleted: true, id } | 404.
 
 export const dynamic = 'force-dynamic';
 
@@ -17,11 +21,13 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const p = parseParams(params, promptRuleIdParamSchema);
   if (!p.ok) return p.response;
+  const q = parseQuery(request, accountQuerySchema);
+  if (!q.ok) return q.response;
   const parsed = await parseJson(request, promptRuleUpdateSchema);
   if (!parsed.ok) return parsed.response;
 
   try {
-    const rule = await updatePromptRule(p.data.id, parsed.data);
+    const rule = await updatePromptRule(p.data.id, parsed.data, q.data.account);
     if (!rule) {
       return NextResponse.json({ error: 'not_found', id: p.data.id }, { status: 404 });
     }
@@ -36,14 +42,16 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } },
 ): Promise<NextResponse> {
   const p = parseParams(params, promptRuleIdParamSchema);
   if (!p.ok) return p.response;
+  const q = parseQuery(request, accountQuerySchema);
+  if (!q.ok) return q.response;
 
   try {
-    const deleted = await deletePromptRule(p.data.id);
+    const deleted = await deletePromptRule(p.data.id, q.data.account);
     if (!deleted) {
       return NextResponse.json({ error: 'not_found', id: p.data.id }, { status: 404 });
     }

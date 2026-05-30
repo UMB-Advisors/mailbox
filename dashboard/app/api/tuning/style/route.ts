@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { parseJson } from '@/lib/middleware/validate';
+import { parseJson, parseQuery } from '@/lib/middleware/validate';
 import { mergePersonaMarkers } from '@/lib/queries-persona';
+import { accountQuerySchema } from '@/lib/schemas/common';
 import { styleProfileSchema } from '@/lib/schemas/tuning';
 import { markersToStyle, styleToMarkers } from '@/lib/tuning/style';
 
@@ -12,19 +13,21 @@ import { markersToStyle, styleToMarkers } from '@/lib/tuning/style';
 // markers + category_exemplars). The drafting prompt consumes the resolved
 // values via lib/drafting/persona.ts → buildSystemPrompt's voiceStyleLines.
 //
-// Single-account scope for now: this writes the default account's persona, same
-// as the legacy PUT /api/persona. Multi-account Style editing rides in behind
-// the V3 account selector later if needed.
+// MBOX-374 — account-scoped via `?account=<id>`. Absent → the seeded default
+// account (single-account behaviour unchanged). The Tuning page's account
+// selector deep-links the chosen inbox, so the operator tunes per-mailbox voice.
 
 export const dynamic = 'force-dynamic';
 
 export async function PUT(request: NextRequest) {
+  const q = parseQuery(request, accountQuerySchema);
+  if (!q.ok) return q.response;
   const parsed = await parseJson(request, styleProfileSchema);
   if (!parsed.ok) return parsed.response;
 
   try {
     const markers = styleToMarkers(parsed.data);
-    const persona = await mergePersonaMarkers(markers);
+    const persona = await mergePersonaMarkers(markers, q.data.account);
     // Echo back the resolved Style profile so the client can re-sync from the
     // authoritative persisted markers (and pick up clamping/normalization).
     return NextResponse.json({ style: markersToStyle(persona.statistical_markers) });
