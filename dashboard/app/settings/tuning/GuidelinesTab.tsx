@@ -32,9 +32,13 @@ const SCOPE_META: Record<PromptRuleScope, { label: string; hint: string; ring: s
 
 export function GuidelinesTab({
   initialRules,
+  accountSuffix,
   onToast,
 }: {
   initialRules: PromptRule[];
+  // MBOX-374 — `?account=<id>` (or '' for the default account); appended to
+  // every CRUD call so rules are created/edited/deleted on the selected inbox.
+  accountSuffix: string;
   onToast: ToastSetter;
 }) {
   const [rules, setRules] = useState<PromptRule[]>(initialRules);
@@ -45,7 +49,7 @@ export function GuidelinesTab({
 
   async function call<T>(url: string, init: RequestInit): Promise<T | null> {
     try {
-      const res = await fetch(apiUrl(url), {
+      const res = await fetch(apiUrl(url) + accountSuffix, {
         headers: { 'Content-Type': 'application/json' },
         ...init,
       });

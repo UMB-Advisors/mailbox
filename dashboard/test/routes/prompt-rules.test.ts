@@ -46,7 +46,7 @@ dbDescribe('prompt-rules route handlers — real Postgres', () => {
     expect(rule.rationale).toBe('');
 
     // List — surfaces the new rule.
-    const listed = await GET();
+    const listed = await GET(fakeRequest({}));
     const { rules } = (await listed.json()) as { rules: { id: number }[] };
     expect(rules.some((r) => r.id === rule.id)).toBe(true);
 
@@ -91,5 +91,44 @@ dbDescribe('prompt-rules route handlers — real Postgres', () => {
       params: { id: '999999' },
     });
     expect(res.status).toBe(404);
+  });
+
+  // MBOX-374 — per-account scoping: a rule created on inbox B must be invisible
+  // to inbox A's reads, and A can't edit B's rule (the WHERE account_id guard).
+  it('scopes rules per account via ?account=<id> (read + write isolation)', async () => {
+    const { POST, GET } = await import('@/app/api/prompt-rules/route');
+    const idRoute = await import('@/app/api/prompt-rules/[id]/route');
+    const pool = getTestPool();
+    const { rows } = await pool.query<{ id: number }>(
+      `INSERT INTO mailbox.accounts (email_address) VALUES ('acct2-tuning-test@example.com') RETURNING id`,
+    );
+    const acct2 = rows[0].id;
+    const acctUrl = `http://test.local/api?account=${acct2}`;
+    try {
+      const created = await POST(
+        fakeRequest({ url: acctUrl, body: { scope: 'always', rule: 'acct2 only rule' } }),
+      );
+      expect(created.status).toBe(200);
+      const { rule } = (await created.json()) as { rule: { id: number } };
+
+      // Default-account read must NOT see acct2's rule.
+      const defList = (await (await GET(fakeRequest({}))).json()) as { rules: { id: number }[] };
+      expect(defList.rules.some((r) => r.id === rule.id)).toBe(false);
+
+      // acct2 read sees it.
+      const a2List = (await (await GET(fakeRequest({ url: acctUrl }))).json()) as {
+        rules: { id: number }[];
+      };
+      expect(a2List.rules.some((r) => r.id === rule.id)).toBe(true);
+
+      // Cross-account write (default account editing acct2's rule) → 404.
+      const crossPatch = await idRoute.PATCH(fakeRequest({ body: { enabled: false } }), {
+        params: { id: String(rule.id) },
+      });
+      expect(crossPatch.status).toBe(404);
+    } finally {
+      await pool.query(`DELETE FROM mailbox.prompt_rules WHERE account_id = $1`, [acct2]);
+      await pool.query(`DELETE FROM mailbox.accounts WHERE id = $1`, [acct2]);
+    }
   });
 });

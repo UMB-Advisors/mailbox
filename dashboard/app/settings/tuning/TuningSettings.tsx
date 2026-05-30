@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
 import { Toast } from '@/components/Toast';
 import { apiUrl } from '@/lib/api';
+import type { AccountRow } from '@/lib/queries-accounts';
 import type { PromptRule } from '@/lib/queries-prompt-rules';
 import type { EmojiPolicy, SentenceLength, StyleProfile } from '@/lib/tuning/style';
 import { GuidelinesTab } from './GuidelinesTab';
@@ -47,11 +48,15 @@ function formalityLabel(n: number): string {
 }
 
 export function TuningSettings({
+  accounts,
+  selectedAccountId,
   initialStyle,
   initialRules,
   toneOverride,
   loadError,
 }: {
+  accounts: AccountRow[];
+  selectedAccountId?: number;
   initialStyle: StyleProfile;
   initialRules: PromptRule[];
   toneOverride: boolean;
@@ -62,6 +67,13 @@ export function TuningSettings({
   const [jargonDraft, setJargonDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastMsg>(null);
+
+  // MBOX-374 — scope every read/write to the selected inbox. Switching accounts
+  // navigates (server reload) so the page re-seeds that account's style + rules.
+  const accountSuffix = selectedAccountId ? `?account=${selectedAccountId}` : '';
+  function switchAccount(id: number) {
+    window.location.assign(apiUrl(`/settings/tuning?account=${id}`));
+  }
 
   function patch(next: Partial<StyleProfile>) {
     setStyle((s) => ({ ...s, ...next }));
@@ -89,7 +101,7 @@ export function TuningSettings({
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await fetch(apiUrl('/api/tuning/style'), {
+      const res = await fetch(apiUrl('/api/tuning/style') + accountSuffix, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(style),
@@ -114,8 +126,27 @@ export function TuningSettings({
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
-      <header className="flex h-12 shrink-0 items-center border-b border-border-subtle bg-bg-panel px-4">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-panel px-4">
         <span className="font-mono text-[11px] text-ink-dim">Tuning</span>
+        {/* MBOX-374 — per-account selector. Hidden on a single-account box
+            (nothing to choose); switching navigates so the page re-seeds. */}
+        {accounts.length > 1 && (
+          <label className="flex items-center gap-2 font-mono text-[11px] text-ink-dim">
+            Inbox
+            <select
+              value={selectedAccountId ?? ''}
+              onChange={(e) => switchAccount(Number(e.target.value))}
+              className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-1 font-mono text-[11px] text-ink"
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.display_label?.trim() || a.email_address}
+                  {a.is_default ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </header>
 
       {/* Tab bar */}
@@ -147,7 +178,11 @@ export function TuningSettings({
           )}
 
           {tab === 'guidelines' && (
-            <GuidelinesTab initialRules={initialRules} onToast={(t) => setToast(t)} />
+            <GuidelinesTab
+              initialRules={initialRules}
+              accountSuffix={accountSuffix}
+              onToast={(t) => setToast(t)}
+            />
           )}
 
           {tab === 'style' && (
