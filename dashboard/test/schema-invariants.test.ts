@@ -205,24 +205,24 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   );
 
   it.skipIf(!DB_URL)(
-    'sender_classification_overrides.category CHECK matches CATEGORIES — the MBOX-368 reclassify-by-sender preclass forces this category, so its set must equal the canonical CATEGORIES (migration 041)',
+    'sender_never_spam has the unique (email) index — allowlist upsert key + classify-time lookup (MBOX-370, migrations 041→042)',
     async () => {
-      const allowed = await getCheckValues(
-        pool!,
-        'sender_classification_overrides',
-        'sender_classification_overrides_category_check',
-      );
-      const expected = [...CATEGORIES];
-      expect([...allowed].sort()).toEqual([...expected].sort());
+      const def = await getIndexDef(pool!, 'sender_never_spam_email_uidx');
+      expect(def).toMatch(/CREATE UNIQUE INDEX/i);
+      expect(def).toMatch(/\(email\)/);
     },
   );
 
   it.skipIf(!DB_URL)(
-    'sender_classification_overrides has the unique (email) index — upsert key + classify-time lookup (MBOX-368, migration 041)',
+    'sender_never_spam carries NO category column — it is an allowlist, not a force-to-category rule (migration 042 dropped it)',
     async () => {
-      const def = await getIndexDef(pool!, 'sender_classification_overrides_email_uidx');
-      expect(def).toMatch(/CREATE UNIQUE INDEX/i);
-      expect(def).toMatch(/\(email\)/);
+      const { rows } = await pool!.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'mailbox' AND table_name = 'sender_never_spam'`,
+      );
+      const cols = rows.map((r) => r.column_name);
+      expect(cols).toContain('email');
+      expect(cols).not.toContain('category');
     },
   );
 

@@ -35,21 +35,24 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
   const [busyEmail, setBusyEmail] = useState<string | null>(null);
   const [reclassifyError, setReclassifyError] = useState<string | null>(null);
 
-  async function reclassifySender(email: string, category: Category) {
+  // MBOX-370 — "reclassify automatically": take the sender off spam (never-spam
+  // allowlist) and re-run the classifier on their existing mail. No category is
+  // sent; the model decides each email's real type.
+  async function reclassifySender(email: string) {
     setReclassifyError(null);
     setBusyEmail(email);
     try {
       const res = await fetch(apiUrl('/api/classifications/reclassify-sender'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, category }),
+        body: JSON.stringify({ email }),
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
         throw new Error(detail.error ?? `reclassify failed (${res.status})`);
       }
-      // Re-run the server component so every row from this sender reflects the
-      // new category (the relabel fans out across the whole table).
+      // Re-run the server component so every row from this sender reflects its
+      // re-classified category (the fan-out updates the whole table).
       router.refresh();
     } catch (err) {
       setReclassifyError(err instanceof Error ? err.message : 'reclassify failed');
@@ -213,9 +216,9 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
                   <Td>
                     <ReclassifyControl
                       fromAddr={row.from_addr}
-                      currentCategory={row.category}
+                      category={row.category}
                       busy={busyEmail != null}
-                      onPick={reclassifySender}
+                      onReclassify={reclassifySender}
                     />
                   </Td>
                 </tr>
@@ -302,51 +305,44 @@ function OutcomePill({ status }: { status: DraftOutcome }) {
   return <span className={`font-mono text-[10px] uppercase ${palette[status]}`}>{status}</span>;
 }
 
-// Per-row reclassify control. A compact category picker that, on selection,
-// confirms the blast radius (this relabels ALL mail from the sender + makes the
-// rule sticky for future inbound) then fires the reclassify-by-sender request.
-// The <select> is controlled to value="" so it always snaps back to the
-// "↻ reclassify" placeholder after an action.
+// Per-row "reclassify automatically" control (MBOX-370). A single action — NOT
+// a category picker. It takes the sender off the spam list (never-spam allowlist)
+// and re-runs the classifier on their existing mail; the model decides each
+// email's real category. Confirm dialog spells out the behavior before firing.
 function ReclassifyControl({
   fromAddr,
-  currentCategory,
+  category,
   busy,
-  onPick,
+  onReclassify,
 }: {
   fromAddr: string | null;
-  currentCategory: string;
+  category: string;
   busy: boolean;
-  onPick: (email: string, category: Category) => void;
+  onReclassify: (email: string) => void;
 }) {
   const email = bareEmail(fromAddr);
   if (!email) {
     return <span className="font-mono text-[10px] text-ink-dim">—</span>;
   }
   return (
-    <select
-      aria-label={`Reclassify all mail from ${email}`}
+    <button
+      type="button"
+      aria-label={`Reclassify mail from ${email} automatically`}
       disabled={busy}
-      value=""
-      onChange={(e) => {
-        const next = e.target.value as Category;
-        if (!next) return;
+      onClick={() => {
         const ok = window.confirm(
-          `Reclassify ALL mail from ${email} as "${next}"?\n\n` +
-            `This relabels every existing message from this sender ` +
-            `(currently shown as "${currentCategory}") and applies to all future ` +
-            `inbound from this address.`,
+          `Reclassify mail from ${email} automatically?\n\n` +
+            `This removes them from the spam list and re-runs the classifier on ` +
+            `their existing emails (currently "${category}") so each gets its real ` +
+            `category. Future mail is classified normally and never auto-dropped ` +
+            `as spam.`,
         );
-        if (ok) onPick(email, next);
+        if (ok) onReclassify(email);
       }}
       className="rounded-sm border border-border bg-bg-panel px-1.5 py-0.5 font-mono text-[10px] text-ink-muted hover:text-ink disabled:opacity-50"
     >
-      <option value="">↻ reclassify</option>
-      {CATEGORIES.map((cat) => (
-        <option key={cat} value={cat} disabled={cat === currentCategory}>
-          {cat}
-        </option>
-      ))}
-    </select>
+      ↻ reclassify
+    </button>
   );
 }
 

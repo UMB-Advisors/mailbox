@@ -1,26 +1,19 @@
 import { z } from 'zod';
 import { extractAddress } from '@/lib/classification/preclass';
-import { CATEGORIES, type Category } from '@/lib/classification/prompt';
 
-// POST /api/classifications/reclassify-sender — MBOX-368 sender-level override.
-// Body shape: { email: string, category: <enum>, reason?: string }.
+// POST /api/classifications/reclassify-sender — MBOX-370 "reclassify automatically".
+// Body shape: { email: string, reason?: string }.  NO category — this is the
+// never-spam allowlist action, not a force-to-category rule (that was MBOX-368,
+// reverted). The classifier re-runs and decides the real per-email category.
 //
 // `email` accepts either a bare address or a full "Name <addr>" header and is
-// normalized through extractAddress() (the SAME helper the classify-time
-// preclass uses) so the value we store and the value the classifier looks up
-// are byte-identical lowercased addresses. Anything without an `@` after
-// extraction is rejected 400.
+// normalized through extractAddress() (the SAME helper the classify-time guard
+// uses) so the value we store and the value the classifier looks up are
+// byte-identical lowercased addresses. Anything without an `@` after extraction
+// is rejected 400.
 //
-// `category` is anchored to the canonical CATEGORIES tuple from
-// lib/classification/prompt.ts (same 8-category set as the live
-// sender_classification_overrides / classification_log / drafts CHECK
-// constraints — asserted by test/schema-invariants.test.ts).
-//
-// `reason` is an optional free-text operator note; it lands in each appended
-// classification_log.raw_output as the audit trail for why the relabel
-// happened. Cap mirrors the MBOX-123 override reason cap.
+// `reason` is an optional free-text operator note (why this sender isn't spam).
 const RECLASSIFY_REASON_MAX = 2000;
-const categoryEnum = z.enum(CATEGORIES as readonly [Category, ...Category[]]);
 
 export const reclassifyBySenderBodySchema = z.object({
   email: z
@@ -28,7 +21,6 @@ export const reclassifyBySenderBodySchema = z.object({
     .min(1, 'email required')
     .transform((s) => extractAddress(s))
     .pipe(z.string().min(3).regex(/.+@.+/, 'must be an email address')),
-  category: categoryEnum,
   reason: z
     .string()
     .trim()

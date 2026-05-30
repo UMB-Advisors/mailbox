@@ -312,8 +312,7 @@ export interface RejectedHistory {
   subject: string | null;
 }
 
-export interface SenderClassificationOverrides {
-  category: string;
+export interface SenderNeverSpam {
   created_at: Generated<string>;
   created_by: Generated<string>;
   email: string;
@@ -426,7 +425,7 @@ export interface DB {
   ota_update_attempts: OtaUpdateAttempts;
   persona: Persona;
   rejected_history: RejectedHistory;
-  sender_classification_overrides: SenderClassificationOverrides;
+  sender_never_spam: SenderNeverSpam;
   sent_history: SentHistory;
   state_transitions: StateTransitions;
   system_state: SystemState;

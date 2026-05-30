@@ -33,10 +33,11 @@ export interface ClassificationResult {
     | 'noreply-pattern'
     | 'operator-self-loop'
     | 'operator-owns-thread'
-    // MBOX-368: operator reclassified this exact sender from /classifications.
-    // Highest precedence — applied in the classification-normalize route, not
-    // in the sync preclass chain (it needs an async DB lookup).
-    | 'sender-override'
+    // MBOX-370: sender is on the never-spam allowlist — a spam_marketing verdict
+    // was overridden to surface (unknown→cloud) instead of dropping. Applied in
+    // the classification-normalize route + the reclassify re-run (needs a DB
+    // lookup, so not in the sync preclass chain).
+    | 'sender-never-spam'
     | null;
   // Why the draft was suppressed (distinct from generic spam). Populated when
   // precheckSelfLoop fires ('self_loop') or when the async thread-ownership
