@@ -1,6 +1,8 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import { apiUrl } from '@/lib/api';
 import { CATEGORIES, type Category } from '@/lib/classification/prompt';
 import type {
   ClassificationRoute,
@@ -12,10 +14,49 @@ import { TimeAgo } from './TimeAgo';
 
 const ROUTES: ClassificationRoute[] = ['drop', 'local', 'cloud'];
 
+// Mirror lib/classification/preclass.ts extractAddress() client-side: pull the
+// bare address out of a "Name <addr>" header, else the trimmed whole, lowercased.
+// Used for the reclassify control's confirm copy; the server re-normalizes the
+// value it receives, so this only needs to be good enough to show the operator.
+function bareEmail(addr: string | null): string | null {
+  if (!addr) return null;
+  const angle = addr.match(/<([^>]+)>/);
+  const out = (angle ? angle[1] : addr).trim().toLowerCase();
+  return out.includes('@') ? out : null;
+}
+
 export function ClassificationsClient({ initialRows }: { initialRows: ClassificationRow[] }) {
+  const router = useRouter();
   const [categoryFilter, setCategoryFilter] = useState<Category | null>(null);
   const [routeFilter, setRouteFilter] = useState<ClassificationRoute | null>(null);
   const [confidenceFilter, setConfidenceFilter] = useState<'low' | 'mid' | 'high' | null>(null);
+  // Email of the sender whose reclassify request is in flight (disables that
+  // sender's control + shows a spinner-ish state). Null = idle.
+  const [busyEmail, setBusyEmail] = useState<string | null>(null);
+  const [reclassifyError, setReclassifyError] = useState<string | null>(null);
+
+  async function reclassifySender(email: string, category: Category) {
+    setReclassifyError(null);
+    setBusyEmail(email);
+    try {
+      const res = await fetch(apiUrl('/api/classifications/reclassify-sender'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, category }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.error ?? `reclassify failed (${res.status})`);
+      }
+      // Re-run the server component so every row from this sender reflects the
+      // new category (the relabel fans out across the whole table).
+      router.refresh();
+    } catch (err) {
+      setReclassifyError(err instanceof Error ? err.message : 'reclassify failed');
+    } finally {
+      setBusyEmail(null);
+    }
+  }
 
   const filtered = useMemo(() => {
     return initialRows.filter((r) => {
@@ -117,6 +158,12 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
         )}
       </div>
 
+      {reclassifyError && (
+        <div className="shrink-0 border-b border-accent-red/40 bg-accent-red/10 px-3 py-1.5 text-[11px] text-accent-red">
+          reclassify failed: {reclassifyError}
+        </div>
+      )}
+
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
@@ -136,6 +183,7 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
                 <Th>Outcome</Th>
                 <Th>Model</Th>
                 <Th className="text-right">Latency</Th>
+                <Th>Reclassify</Th>
               </tr>
             </thead>
             <tbody>
@@ -161,6 +209,14 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
                   <Td className="font-mono text-ink-dim">{row.model_version}</Td>
                   <Td className="text-right font-mono tabular-nums text-ink-dim">
                     {row.latency_ms != null ? `${row.latency_ms}ms` : '—'}
+                  </Td>
+                  <Td>
+                    <ReclassifyControl
+                      fromAddr={row.from_addr}
+                      currentCategory={row.category}
+                      busy={busyEmail != null}
+                      onPick={reclassifySender}
+                    />
                   </Td>
                 </tr>
               ))}
@@ -244,6 +300,54 @@ function OutcomePill({ status }: { status: DraftOutcome }) {
     failed: 'text-accent-red',
   };
   return <span className={`font-mono text-[10px] uppercase ${palette[status]}`}>{status}</span>;
+}
+
+// Per-row reclassify control. A compact category picker that, on selection,
+// confirms the blast radius (this relabels ALL mail from the sender + makes the
+// rule sticky for future inbound) then fires the reclassify-by-sender request.
+// The <select> is controlled to value="" so it always snaps back to the
+// "↻ reclassify" placeholder after an action.
+function ReclassifyControl({
+  fromAddr,
+  currentCategory,
+  busy,
+  onPick,
+}: {
+  fromAddr: string | null;
+  currentCategory: string;
+  busy: boolean;
+  onPick: (email: string, category: Category) => void;
+}) {
+  const email = bareEmail(fromAddr);
+  if (!email) {
+    return <span className="font-mono text-[10px] text-ink-dim">—</span>;
+  }
+  return (
+    <select
+      aria-label={`Reclassify all mail from ${email}`}
+      disabled={busy}
+      value=""
+      onChange={(e) => {
+        const next = e.target.value as Category;
+        if (!next) return;
+        const ok = window.confirm(
+          `Reclassify ALL mail from ${email} as "${next}"?\n\n` +
+            `This relabels every existing message from this sender ` +
+            `(currently shown as "${currentCategory}") and applies to all future ` +
+            `inbound from this address.`,
+        );
+        if (ok) onPick(email, next);
+      }}
+      className="rounded-sm border border-border bg-bg-panel px-1.5 py-0.5 font-mono text-[10px] text-ink-muted hover:text-ink disabled:opacity-50"
+    >
+      <option value="">↻ reclassify</option>
+      {CATEGORIES.map((cat) => (
+        <option key={cat} value={cat} disabled={cat === currentCategory}>
+          {cat}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function senderName(addr: string | null): string {

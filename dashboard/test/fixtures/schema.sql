@@ -1388,6 +1388,30 @@ ALTER TABLE mailbox.drafts ADD COLUMN IF NOT EXISTS provider_message_id text;
 -- Gmail rows leave it NULL. See dashboard/migrations/040-add-account-provider-secret-*.
 ALTER TABLE mailbox.accounts ADD COLUMN IF NOT EXISTS provider_secret_enc text;
 
+-- ── MBOX-368 (migration 041): sender-level classification override (sticky) ──
+-- Hand-applied to fixture pending next pg_dump refresh. One row per sender email
+-- the operator reclassified from /classifications; the classifier forces that
+-- category for all FUTURE inbound from the address (highest-precedence preclass).
+-- Created after the multi-account migrations, so it carries no account_id — the
+-- override is global (single live appliance / single operator). Per-account
+-- scoping is a follow-up if a 2nd inbox ever needs distinct overrides.
+-- See dashboard/migrations/041-create-sender-classification-overrides-v1.
+CREATE TABLE IF NOT EXISTS mailbox.sender_classification_overrides (
+  id          BIGSERIAL PRIMARY KEY,
+  email       TEXT NOT NULL,
+  category    TEXT NOT NULL,
+  reason      TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by  TEXT NOT NULL DEFAULT 'operator',
+  CONSTRAINT sender_classification_overrides_category_check
+    CHECK (category IN ('inquiry', 'reorder', 'scheduling', 'follow_up', 'internal', 'spam_marketing', 'escalate', 'unknown')),
+  CONSTRAINT sender_classification_overrides_email_not_blank
+    CHECK (length(trim(email)) > 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sender_classification_overrides_email_uidx
+  ON mailbox.sender_classification_overrides(email);
+
 --
 -- PostgreSQL database dump complete
 --
