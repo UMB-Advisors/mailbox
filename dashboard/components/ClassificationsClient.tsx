@@ -34,12 +34,15 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
   // sender's control + shows a spinner-ish state). Null = idle.
   const [busyEmail, setBusyEmail] = useState<string | null>(null);
   const [reclassifyError, setReclassifyError] = useState<string | null>(null);
+  const [reclassifyNote, setReclassifyNote] = useState<string | null>(null);
 
   // MBOX-370 — "reclassify automatically": take the sender off spam (never-spam
   // allowlist) and re-run the classifier on their existing mail. No category is
-  // sent; the model decides each email's real type.
+  // sent; the model decides each email's real type. The request returns fast (the
+  // re-classify runs in the background), so this only blocks briefly.
   async function reclassifySender(email: string) {
     setReclassifyError(null);
+    setReclassifyNote(null);
     setBusyEmail(email);
     try {
       const res = await fetch(apiUrl('/api/classifications/reclassify-sender'), {
@@ -47,12 +50,17 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.error ?? `reclassify failed (${res.status})`);
+        throw new Error(data.error ?? `reclassify failed (${res.status})`);
       }
-      // Re-run the server component so every row from this sender reflects its
-      // re-classified category (the fan-out updates the whole table).
+      const n = typeof data.queued === 'number' ? data.queued : 0;
+      setReclassifyNote(
+        `Added ${email} to never-spam — re-classifying ${n}${data.capped ? '+' : ''} existing ` +
+          `email${n === 1 ? '' : 's'} in the background. Refresh in a moment to see updates.`,
+      );
+      // Pull in any results that land quickly; the rest update as the background
+      // re-classify completes (refresh again if needed).
       router.refresh();
     } catch (err) {
       setReclassifyError(err instanceof Error ? err.message : 'reclassify failed');
@@ -166,6 +174,11 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
           reclassify failed: {reclassifyError}
         </div>
       )}
+      {reclassifyNote && (
+        <div className="shrink-0 border-b border-accent-green/40 bg-accent-green/10 px-3 py-1.5 text-[11px] text-accent-green">
+          {reclassifyNote}
+        </div>
+      )}
 
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
@@ -217,7 +230,7 @@ export function ClassificationsClient({ initialRows }: { initialRows: Classifica
                     <ReclassifyControl
                       fromAddr={row.from_addr}
                       category={row.category}
-                      busy={busyEmail != null}
+                      busyEmail={busyEmail}
                       onReclassify={reclassifySender}
                     />
                   </Td>
@@ -312,18 +325,21 @@ function OutcomePill({ status }: { status: DraftOutcome }) {
 function ReclassifyControl({
   fromAddr,
   category,
-  busy,
+  busyEmail,
   onReclassify,
 }: {
   fromAddr: string | null;
   category: string;
-  busy: boolean;
+  busyEmail: string | null;
   onReclassify: (email: string) => void;
 }) {
   const email = bareEmail(fromAddr);
   if (!email) {
     return <span className="font-mono text-[10px] text-ink-dim">—</span>;
   }
+  // Only THIS sender's control disables while its own request is in flight —
+  // other rows stay usable (the prior global flag greyed the whole table).
+  const busy = busyEmail === email;
   return (
     <button
       type="button"

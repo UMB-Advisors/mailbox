@@ -9,64 +9,97 @@ import { isHeuristicSpamDrop, neverSpamSurface } from './classification/sender-a
 
 // MBOX-370 — never-spam allowlist write path + "reclassify automatically" action.
 //
-// reclassifyBySender():
-//   1. upserts the sender into mailbox.sender_never_spam (the future rule — the
-//      classify-time guard in classification-normalize then surfaces, never
-//      drops, this sender).
-//   2. re-runs the REAL classifier (classifyOne — same chain as MailBOX-Classify)
-//      on the sender's existing emails so they get their correct category and
-//      leave the spam bucket. Because the sender is now allowlisted, any
-//      spam_marketing verdict (model or noreply heuristic) is surfaced to
-//      unknown→cloud here too — mirroring the live guard.
+// Split into instant vs slow halves (MBOX-370 follow-up fix):
+//   - upsertNeverSpam()  — the FUTURE rule. Instant single upsert. This is the
+//     part that actually matters (the classify-time guard surfaces, never drops,
+//     this sender going forward).
+//   - reclassifySenderEmails() — the PAST re-run. Up to RECLASSIFY_CAP local LLM
+//     calls (classifyOne), one per email. SLOW (seconds each). The route fires
+//     this in the BACKGROUND so the HTTP response returns immediately — re-running
+//     50 emails synchronously held the request open for minutes and greyed the UI.
 //
 // Relabel only — NO drafts are generated for historical mail (operator decision
-// 2026-05-30; auto-drafting weeks-old mail is what classify-backfill deliberately
-// avoids). Future inbound from the sender drafts normally via the live pipeline.
+// 2026-05-30). Future inbound from the sender drafts normally via the live pipeline.
 //
 // Each email gets a classification_log row (the audit record) AND an explicit
 // inbox_messages denorm update ({classification,confidence,classified_at,model}).
 // On the live appliance the migration-021 trigger ALSO syncs inbox_messages off
-// the log insert, but we write it explicitly too — matching the MBOX-123
-// precedent ("correct even if the trigger is ever disabled") and so it works in
-// test/codegen fixtures that don't carry the trigger.
+// the log insert, but we write it explicitly too — matching the MBOX-123 precedent
+// ("correct even if the trigger is ever disabled") and so it works in test/codegen
+// fixtures that don't carry the trigger.
 
-// Cap the synchronous re-classify fan-out: each email is one local LLM call
-// (~1-3s on the Jetson). 50 newest keeps the request bounded; older mail past
-// the cap is reported via `truncated` and stays as-is (still un-spammed for the
-// future via the allowlist).
+// Cap the re-classify fan-out per sender. Each email is one local LLM call; the
+// loop runs in the background so this just bounds total work + duplicate effort.
 const RECLASSIFY_CAP = 50;
+
+// Per-email classify timeout. Guards the BACKGROUND loop from wedging on a single
+// hung Ollama call — on timeout we skip that email and move on (it keeps its
+// current label; the sender is already allowlisted for the future).
+const PER_CLASSIFY_TIMEOUT_MS = 30_000;
 
 // Bare-address extraction in SQL, mirroring lib/classification/preclass.ts
 // extractAddress(): angle-bracket address if present, else the trimmed whole,
 // lowercased. Keeps the match aligned with the stored allowlist email.
 const BARE_ADDR_SQL = sql<string>`lower(coalesce(substring(from_addr from '<([^>]+)>'), trim(from_addr)))`;
 
-export interface ReclassifySenderResult {
-  email: string;
-  allowlisted: boolean;
-  reclassified: number;
-  // How many of the re-classified rows were spam verdicts surfaced to unknown
-  // by the never-spam guard (vs. the model naturally returning a non-spam type).
-  surfaced: number;
-  truncated: boolean;
-}
-
-export async function reclassifyBySender(input: {
-  email: string;
-  reason: string | null;
-  deps?: ClassifyOneDeps;
-}): Promise<ReclassifySenderResult> {
-  const { email, reason, deps } = input;
-  const db = getKysely();
-
-  // 1. Upsert the never-spam allowlist row (idempotent on the unique email).
-  await db
+/** Upsert the sender onto the never-spam allowlist (idempotent on unique email). */
+export async function upsertNeverSpam(email: string, reason: string | null): Promise<void> {
+  await getKysely()
     .insertInto('sender_never_spam')
     .values({ email, reason, created_by: 'operator' })
     .onConflict((oc) => oc.column('email').doUpdateSet({ reason, updated_at: sql<string>`NOW()` }))
     .execute();
+}
 
-  // 2. Pull the sender's existing emails (newest first, capped).
+/** Count how many existing emails from this sender would be re-classified. */
+export async function countSenderEmails(
+  email: string,
+): Promise<{ count: number; capped: boolean }> {
+  const rows = await getKysely()
+    .selectFrom('inbox_messages')
+    .select('id')
+    .where(sql<boolean>`${BARE_ADDR_SQL} = ${email}`)
+    .orderBy('id', 'desc')
+    .limit(RECLASSIFY_CAP + 1)
+    .execute();
+  const capped = rows.length > RECLASSIFY_CAP;
+  return { count: capped ? RECLASSIFY_CAP : rows.length, capped };
+}
+
+async function classifyWithTimeout(row: InboxRowForClassify, deps?: ClassifyOneDeps) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`classifyOne timeout after ${PER_CLASSIFY_TIMEOUT_MS}ms`)),
+      PER_CLASSIFY_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([classifyOne(row, deps), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export interface ReclassifyEmailsResult {
+  reclassified: number;
+  // How many re-classified rows were spam verdicts surfaced to unknown by the
+  // never-spam guard (vs. the model naturally returning a non-spam type).
+  surfaced: number;
+  truncated: boolean;
+}
+
+/**
+ * Re-run the classifier on the sender's existing emails (newest first, capped).
+ * SLOW — intended to run in the background. Not transactional: each log insert +
+ * denorm update is atomic per email; one email's failure skips just that email.
+ */
+export async function reclassifySenderEmails(
+  email: string,
+  deps?: ClassifyOneDeps,
+): Promise<ReclassifyEmailsResult> {
+  const db = getKysely();
+
   const rows = await db
     .selectFrom('inbox_messages')
     .select(['id', 'from_addr', 'to_addr', 'subject', 'body', 'snippet'])
@@ -81,10 +114,6 @@ export async function reclassifyBySender(input: {
   let reclassified = 0;
   let surfaced = 0;
 
-  // Re-run the classifier per email. NOT wrapped in a single transaction — each
-  // email is a slow LLM call, and holding a txn open across all of them would
-  // pin a connection for many seconds. Each log insert is atomic on its own and
-  // the trigger keeps inbox_messages in sync.
   for (const row of batch) {
     const inboxRow: InboxRowForClassify = {
       id: row.id,
@@ -103,7 +132,7 @@ export async function reclassifyBySender(input: {
     let jsonParseOk = false;
     let thinkStripped = false;
     try {
-      const r = await classifyOne(inboxRow, deps);
+      const r = await classifyWithTimeout(inboxRow, deps);
       category = r.category;
       confidence = r.confidence;
       modelVersion = r.model_version;
@@ -120,10 +149,10 @@ export async function reclassifyBySender(input: {
         surfaced += 1;
       }
     } catch (error) {
-      // One email's LLM failure shouldn't abort the whole sender. Skip it —
-      // it keeps its current (spam) label but the sender is already allowlisted
-      // for the future. Logged for the operator.
-      console.error(`[reclassify] classifyOne failed for inbox ${row.id} — skipping:`, error);
+      console.error(
+        `[reclassify] classifyOne failed/timed out for inbox ${row.id} — skipping:`,
+        error,
+      );
       continue;
     }
 
@@ -156,7 +185,27 @@ export async function reclassifyBySender(input: {
     reclassified += 1;
   }
 
-  return { email, allowlisted: true, reclassified, surfaced, truncated };
+  return { reclassified, surfaced, truncated };
+}
+
+export interface ReclassifySenderResult extends ReclassifyEmailsResult {
+  email: string;
+  allowlisted: boolean;
+}
+
+/**
+ * Synchronous full flow (upsert + re-classify), awaiting everything. Used by the
+ * tests and any caller that wants to block. The ROUTE does NOT use this — it
+ * upserts, then backgrounds reclassifySenderEmails so the response is instant.
+ */
+export async function reclassifyBySender(input: {
+  email: string;
+  reason: string | null;
+  deps?: ClassifyOneDeps;
+}): Promise<ReclassifySenderResult> {
+  await upsertNeverSpam(input.email, input.reason);
+  const r = await reclassifySenderEmails(input.email, input.deps);
+  return { email: input.email, allowlisted: true, ...r };
 }
 
 export interface NeverSpamRow {
