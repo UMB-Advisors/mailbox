@@ -2,6 +2,7 @@
 
 import { type DraftWithMessage, URGENCY_SIGNAL_LABELS, type UrgencySignal } from '@/lib/types';
 import { FreshnessChip } from './FreshnessChip';
+import { RowActions } from './RowActions';
 import { TimeAgo } from './TimeAgo';
 
 // MBOX-134 signal → chip color. escalate is the loudest (red); the rest step
@@ -24,6 +25,11 @@ export function DraftCard({
   mode = 'pending',
   showAccount = false,
   onSelect,
+  actionsBusy = false,
+  onArchive,
+  onDelete,
+  onMarkRead,
+  onSnooze,
 }: {
   draft: DraftWithMessage;
   isSelected: boolean;
@@ -32,6 +38,14 @@ export function DraftCard({
   // view). Off elsewhere so the single-account queue stays uncluttered.
   showAccount?: boolean;
   onSelect: () => void;
+  // MBOX-369 — Gmail-style per-row actions. Rendered (in 'pending' mode only)
+  // as a hover overlay when all four handlers are supplied; the active queue
+  // wires them, read-only folders (sent/rejected) leave them undefined.
+  actionsBusy?: boolean;
+  onArchive?: () => void;
+  onDelete?: () => void;
+  onMarkRead?: () => void;
+  onSnooze?: (untilISO: string) => void;
 }) {
   const m = draft.message;
   const fromName =
@@ -42,6 +56,9 @@ export function DraftCard({
 
   const accountLabel = draft.account?.display_label || draft.account?.email_address || null;
   const signals = draft.urgency?.signals ?? [];
+  const showActions =
+    mode === 'pending' && !!onArchive && !!onDelete && !!onMarkRead && !!onSnooze;
+  const isRead = m.is_read;
 
   const indicator =
     mode === 'sent'
@@ -52,11 +69,12 @@ export function DraftCard({
   const sentTimestamp = draft.sent_at ?? draft.updated_at ?? draft.created_at;
 
   return (
+    <div className="group relative">
     <button
       type="button"
       onClick={onSelect}
       aria-current={isSelected}
-      className={`group flex h-14 w-full items-center gap-2 border-l-2 px-3 text-left transition-colors duration-100 ${
+      className={`flex h-14 w-full items-center gap-2 border-l-2 px-3 text-left transition-colors duration-100 ${
         isSelected
           ? 'border-l-accent-orange bg-bg-panel'
           : 'border-l-transparent hover:bg-bg-panel/60'
@@ -79,7 +97,13 @@ export function DraftCard({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="min-w-0 truncate text-sm font-medium text-ink">{fromName}</span>
+          <span
+            className={`min-w-0 truncate text-sm ${
+              mode === 'pending' && isRead ? 'font-normal text-ink-muted' : 'font-semibold text-ink'
+            }`}
+          >
+            {fromName}
+          </span>
           {showAccount && accountLabel && (
             <span
               className="shrink-0 truncate rounded-sm border border-border bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] text-ink-dim"
@@ -128,6 +152,25 @@ export function DraftCard({
         </div>
       </div>
     </button>
+      {/* MBOX-369 — Gmail-style hover action cluster, overlaid outside the
+          row <button> (nesting buttons is invalid HTML). pointer-events-none on
+          the positioner lets row hover pass through; the inner wrapper re-enables
+          pointer events for the icons. */}
+      {showActions && onArchive && onDelete && onMarkRead && onSnooze && (
+        <div className="pointer-events-none absolute right-2 top-1/2 z-10 -translate-y-1/2 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="pointer-events-auto">
+            <RowActions
+              isRead={isRead}
+              busy={actionsBusy}
+              onArchive={onArchive}
+              onDelete={onDelete}
+              onMarkRead={onMarkRead}
+              onSnooze={onSnooze}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
