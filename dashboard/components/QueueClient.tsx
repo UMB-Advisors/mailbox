@@ -758,6 +758,13 @@ export function QueueClient({
               </option>
             ))}
           </select>
+          {/* MBOX-366 (MBOX-162 V5) — in-context link to the registry. */}
+          <a
+            href={apiUrl('/settings/accounts')}
+            className="shrink-0 text-ink-muted underline underline-offset-2 hover:text-ink"
+          >
+            Manage
+          </a>
         </div>
       )}
 
