@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, CheckSquare, Link2, Unlink } from 'lucide-react';
+import { Calendar, CheckSquare, Link2, Unlink, Users } from 'lucide-react';
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
 import { TimeAgo } from '@/components/TimeAgo';
@@ -17,20 +17,26 @@ import type { OAuthConnection, OAuthProvider } from '@/lib/oauth/google';
 type ToastMsg = { kind: 'success' | 'error'; text: string } | null;
 
 const META: Record<
-  Extract<OAuthProvider, 'google_calendar' | 'google_tasks'>,
+  Extract<OAuthProvider, 'google_calendar' | 'google_tasks' | 'google_contacts'>,
   { title: string; blurb: string; Icon: typeof Calendar }
 > = {
   google_calendar: {
     title: 'Google Calendar',
     blurb:
-      'Read-only. Scheduling drafts pre-read your calendar so the box can propose concrete open times instead of "let me check my calendar."',
+      'Read-only. Scheduling drafts pre-read your calendar so the box can propose concrete open times instead of "let me check my calendar." Also powers the Calendar panel in the right-side rail.',
     Icon: Calendar,
   },
   google_tasks: {
     title: 'Google Tasks',
     blurb:
-      'Push extracted action items to your Google Tasks list with one click from the draft detail view.',
+      'Push extracted action items to your Google Tasks list with one click, and view your tasks in the right-side rail.',
     Icon: CheckSquare,
+  },
+  google_contacts: {
+    title: 'Google Contacts',
+    blurb:
+      'Read-only. Powers the Contacts panel in the right-side rail so you can look up a counterparty without leaving the queue.',
+    Icon: Users,
   },
 };
 
@@ -48,15 +54,18 @@ function fallback(provider: OAuthProvider): OAuthConnection {
 export function GoogleIntegrations({
   calendar,
   tasks,
+  contacts,
   loadError,
 }: {
   calendar: OAuthConnection | null;
   tasks: OAuthConnection | null;
+  contacts: OAuthConnection | null;
   loadError: string | null;
 }) {
   const [conns, setConns] = useState<Record<string, OAuthConnection>>({
     google_calendar: calendar ?? fallback('google_calendar'),
     google_tasks: tasks ?? fallback('google_tasks'),
+    google_contacts: contacts ?? fallback('google_contacts'),
   });
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
   const [toast, setToast] = useState<ToastMsg>(null);
@@ -84,7 +93,11 @@ export function GoogleIntegrations({
     }
   }
 
-  const providers: Array<keyof typeof META> = ['google_calendar', 'google_tasks'];
+  const providers: Array<keyof typeof META> = [
+    'google_calendar',
+    'google_tasks',
+    'google_contacts',
+  ];
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>

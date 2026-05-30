@@ -13,16 +13,20 @@ export const dynamic = 'force-dynamic';
 export default async function IntegrationsSettingsPage() {
   let calendar: OAuthConnection | null = null;
   let tasks: OAuthConnection | null = null;
+  let contacts: OAuthConnection | null = null;
   let error: string | null = null;
 
   try {
-    [calendar, tasks] = await Promise.all([
+    [calendar, tasks, contacts] = await Promise.all([
       getConnection('google_calendar'),
       getConnection('google_tasks'),
+      getConnection('google_contacts'),
     ]);
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to load integrations';
   }
 
-  return <GoogleIntegrations calendar={calendar} tasks={tasks} loadError={error} />;
+  return (
+    <GoogleIntegrations calendar={calendar} tasks={tasks} contacts={contacts} loadError={error} />
+  );
 }
