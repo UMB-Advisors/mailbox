@@ -169,3 +169,214 @@ export async function getDraftProviderContext(
   if (!row) return null;
   return { account_id: row.account_id, provider: row.provider as MailProviderKind };
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// MBOX-366 (MBOX-162 V5) — account registry CRUD for /settings/accounts.
+//
+// V1–V3 made `account_id` a first-class dimension but left no way to create
+// account #2 short of a raw `psql INSERT`. These helpers back the operator UI.
+// No migration — the `accounts` table (033) + `provider`/`provider_config`
+// (037) already exist. Per the honest bound on the V5 issue: creating a row
+// here lights up the V3 selector/badge + V2 per-account persona/RAG scoping;
+// it does NOT wire the account's Gmail OAuth / n8n ingestion (operator work,
+// tracked under multi-provider MBOX-355/356).
+// ──────────────────────────────────────────────────────────────────────────
+
+// Richer view than AccountRow (which the V3 selector keeps lean). Includes the
+// transport provider + created_at for the management list.
+export interface AccountDetail {
+  id: number;
+  email_address: string;
+  display_label: string | null;
+  is_default: boolean;
+  provider: MailProviderKind;
+  created_at: string;
+}
+
+const ACCOUNT_DETAIL_COLUMNS = [
+  'id',
+  'email_address',
+  'display_label',
+  'is_default',
+  'provider',
+  'created_at',
+] as const;
+
+export type AccountMutationErrorCode =
+  | 'duplicate_email'
+  | 'not_found'
+  | 'cannot_delete_default'
+  | 'account_has_data';
+
+// Typed failures the route layer maps to specific HTTP codes (409/404) instead
+// of a blanket 500. Anything else (a real DB fault) propagates as a raw Error.
+export class AccountMutationError extends Error {
+  constructor(
+    public readonly code: AccountMutationErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AccountMutationError';
+  }
+}
+
+// pg unique-violation. The accounts.email_address UNIQUE constraint (033) is
+// the only one that can fire on insert here.
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+}
+
+export async function listAccountsDetailed(): Promise<AccountDetail[]> {
+  const db = getKysely();
+  const rows = await db
+    .selectFrom('accounts')
+    .select(ACCOUNT_DETAIL_COLUMNS)
+    .orderBy('is_default', 'desc')
+    .orderBy('id')
+    .execute();
+  return rows as AccountDetail[];
+}
+
+export async function createAccount(input: {
+  email_address: string;
+  display_label: string | null;
+  provider: MailProviderKind;
+  provider_config?: Record<string, unknown>;
+}): Promise<AccountDetail> {
+  const db = getKysely();
+  try {
+    const row = await db
+      .insertInto('accounts')
+      .values({
+        email_address: input.email_address,
+        display_label: input.display_label,
+        provider: input.provider,
+        // jsonb write convention: ${JSON.stringify(obj)}::jsonb (mirrors
+        // queries-persona / queries-kb). is_default + created_at use DB
+        // defaults — a new account is never the default (set-default is an
+        // explicit, separate action so the swap is intentional).
+        provider_config: sql`${JSON.stringify(input.provider_config ?? {})}::jsonb`,
+      })
+      .returning(ACCOUNT_DETAIL_COLUMNS)
+      .executeTakeFirstOrThrow();
+    return row as AccountDetail;
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new AccountMutationError(
+        'duplicate_email',
+        `an inbox with address ${input.email_address} is already connected`,
+      );
+    }
+    throw err;
+  }
+}
+
+// Edit label / provider in place. email_address is immutable — it's the stable
+// fan-out key (resolveIngestAccountId) and the RAG point-UUID salt; renaming it
+// would orphan a connected inbox's history. Returns null when the id is gone.
+export async function updateAccount(
+  id: number,
+  patch: { display_label?: string | null; provider?: MailProviderKind },
+): Promise<AccountDetail | null> {
+  const db = getKysely();
+  const set: Record<string, unknown> = {};
+  if (patch.display_label !== undefined) set.display_label = patch.display_label;
+  if (patch.provider !== undefined) set.provider = patch.provider;
+  if (Object.keys(set).length === 0) {
+    // Nothing to change — return the current row so the caller still gets state.
+    const row = await db
+      .selectFrom('accounts')
+      .select(ACCOUNT_DETAIL_COLUMNS)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return (row as AccountDetail) ?? null;
+  }
+  const row = await db
+    .updateTable('accounts')
+    .set(set)
+    .where('id', '=', id)
+    .returning(ACCOUNT_DETAIL_COLUMNS)
+    .executeTakeFirst();
+  return (row as AccountDetail) ?? null;
+}
+
+// Re-point the default inbox. The partial unique index `accounts_one_default`
+// (033) permits at most one is_default=true row, so this MUST clear the old
+// default before setting the new one — done in a single transaction so a
+// concurrent reader never sees zero (or two) defaults. Throws not_found when
+// the target id doesn't exist.
+export async function setDefaultAccount(id: number): Promise<AccountDetail> {
+  const db = getKysely();
+  return db.transaction().execute(async (trx) => {
+    const target = await trx
+      .selectFrom('accounts')
+      .select('id')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!target) {
+      throw new AccountMutationError('not_found', `no account with id ${id}`);
+    }
+    // Clear first (satisfies the partial unique index), then set the new one.
+    await trx
+      .updateTable('accounts')
+      .set({ is_default: false })
+      .where('is_default', '=', true)
+      .execute();
+    const row = await trx
+      .updateTable('accounts')
+      .set({ is_default: true })
+      .where('id', '=', id)
+      .returning(ACCOUNT_DETAIL_COLUMNS)
+      .executeTakeFirstOrThrow();
+    return row as AccountDetail;
+  });
+}
+
+// True when any account-scoped row references this account. Guards delete: a
+// connected inbox with mail/draft history must not be dropped (it would orphan
+// inbox_messages / drafts / sent_history rows whose account_id FK points here).
+export async function accountHasData(id: number): Promise<boolean> {
+  const db = getKysely();
+  const row = await db
+    .selectNoFrom((eb) => [
+      eb
+        .exists(eb.selectFrom('inbox_messages').select('id').where('account_id', '=', id).limit(1))
+        .as('has_inbox'),
+      eb
+        .exists(eb.selectFrom('drafts').select('id').where('account_id', '=', id).limit(1))
+        .as('has_drafts'),
+      eb
+        .exists(eb.selectFrom('sent_history').select('id').where('account_id', '=', id).limit(1))
+        .as('has_sent'),
+    ])
+    .executeTakeFirst();
+  return Boolean(row?.has_inbox || row?.has_drafts || row?.has_sent);
+}
+
+// Delete a connected inbox. Refuses the default (would leave the appliance with
+// no default → breaks getDefaultAccountId and every column DEFAULT) and refuses
+// any account that already has mail/draft history. Returns true on delete,
+// throws AccountMutationError for the guarded cases, false when the id is gone.
+export async function deleteAccount(id: number): Promise<boolean> {
+  const db = getKysely();
+  const acct = await db
+    .selectFrom('accounts')
+    .select(['id', 'is_default'])
+    .where('id', '=', id)
+    .executeTakeFirst();
+  if (!acct) return false;
+  if (acct.is_default) {
+    throw new AccountMutationError(
+      'cannot_delete_default',
+      'cannot delete the default inbox — set another inbox as default first',
+    );
+  }
+  if (await accountHasData(id)) {
+    throw new AccountMutationError(
+      'account_has_data',
+      'this inbox has mail or draft history and cannot be deleted',
+    );
+  }
+  const res = await db.deleteFrom('accounts').where('id', '=', id).executeTakeFirst();
+  return Number(res.numDeletedRows ?? 0) > 0;
+}
