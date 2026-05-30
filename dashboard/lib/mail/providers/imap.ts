@@ -12,6 +12,8 @@
 // header chain. See normalizeThreadId.
 
 import { createHash } from 'node:crypto';
+import { ImapFlow } from 'imapflow';
+import { simpleParser } from 'mailparser';
 import type {
   BackfillOptions,
   CanonicalMessage,
@@ -43,6 +45,23 @@ const DEFAULT_THROTTLE_COOLDOWN_MS = 15 * 60 * 1000;
 // available, 450/451 mailbox busy / local error) + common textual hints.
 const THROTTLE_RE =
   /\b(421|45[01])\b|too many|throttl|rate limit|try again later|\[LIMIT\]|\[THROTTLED\]/i;
+
+// Default lookback for backfillSent when the orchestrator passes nothing — kept
+// in lib/mail/imap-voice-backfill.ts (90 days); this is a transport-level guard
+// only. Maximum messages pulled per Sent backfill (tail of the uid list = the
+// most recent N) when opts.maxMessages is unset.
+const DEFAULT_BACKFILL_MAX_MESSAGES = 500;
+
+// Case-insensitive name fallbacks when the server doesn't flag the Sent mailbox
+// with the RFC 6154 \Sent special-use attribute. Covers Gmail-IMAP, Outlook/
+// Exchange ("Sent Items"), and the bare RFC convention.
+const SENT_MAILBOX_NAMES = [
+  'Sent',
+  'Sent Mail',
+  '[Gmail]/Sent Mail',
+  'Sent Items',
+  'Sent Messages',
+];
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
@@ -84,6 +103,41 @@ function referencesRoot(references: unknown): string | null {
   if (!raw) return null;
   const first = raw.split(/\s+/).find((t) => t.trim().length > 0);
   return first ? bareMsgId(first) : null;
+}
+
+// Parse a raw RFC822 message (the IMAP `source` of a Sent item) into a
+// CanonicalMessage. Pure + independently unit-testable from a fixture .eml —
+// no IMAP connection required. `direction` is always 'outbound' (this only
+// ever runs over the Sent mailbox). thread_id is synthesized via the same
+// header-chain logic the inbound path uses (normalizeThreadId).
+export async function parseSentRfc822(source: Buffer | string): Promise<CanonicalMessage> {
+  const parsed = await simpleParser(source);
+
+  const fromAddr = parsed.from?.value?.[0]?.address ?? '';
+  // `to` may be an AddressObject or AddressObject[] depending on header count.
+  const to = Array.isArray(parsed.to) ? parsed.to[0] : parsed.to;
+  const toAddr = to?.value?.[0]?.address ?? to?.text ?? '';
+  // Prefer plaintext; fall back to a crude tag-strip of the HTML part.
+  const body = parsed.text ?? (parsed.html ? parsed.html.replace(/<[^>]*>/g, ' ') : '');
+  // mailparser normalizes `references` to string | string[] | undefined.
+  const references = Array.isArray(parsed.references)
+    ? parsed.references.join(' ')
+    : (parsed.references ?? null);
+
+  const msg: CanonicalMessage = {
+    provider_message_id: bareMsgId(parsed.messageId),
+    thread_id: null, // set below once the chain fields are populated
+    from_addr: fromAddr.toLowerCase(),
+    to_addr: toAddr.toLowerCase(),
+    subject: parsed.subject ?? '',
+    body,
+    in_reply_to: strOrNullId(parsed.inReplyTo),
+    references: references && references.trim().length > 0 ? references : null,
+    received_at: parsed.date?.toISOString() ?? new Date().toISOString(),
+    direction: 'outbound',
+  };
+  msg.thread_id = new ImapSmtpProvider().normalizeThreadId(msg);
+  return msg;
 }
 
 export class ImapSmtpProvider implements MailProvider {
@@ -152,7 +206,67 @@ export class ImapSmtpProvider implements MailProvider {
     throw new NotImplementedYet('send');
   }
 
-  backfillSent(_account: MailAccount, _opts: BackfillOptions): AsyncIterable<CanonicalMessage> {
-    throw new NotImplementedYet('backfillSent');
+  // Stream the account's Sent mailbox as CanonicalMessages over the lookback
+  // window (MBOX-373 / MBOX-162 V6 P2 — historical-voice backfill). Transport-
+  // pure: the decrypted app-password is injected by the orchestrator at call
+  // time as account.provider_config.password (this layer never touches the DB
+  // or decryptToken). An AsyncGenerator satisfies the AsyncIterable contract.
+  async *backfillSent(
+    account: MailAccount,
+    opts: BackfillOptions,
+  ): AsyncGenerator<CanonicalMessage> {
+    const cfg = account.provider_config;
+    const host = str(cfg.imap_host);
+    const port = typeof cfg.imap_port === 'number' ? cfg.imap_port : 993;
+    const user = str(cfg.username);
+    const pass = str(cfg.password);
+
+    const client = new ImapFlow({
+      host,
+      port,
+      secure: true,
+      auth: { user, pass },
+      logger: false,
+    });
+    await client.connect();
+
+    try {
+      // Locate the Sent mailbox: prefer the RFC 6154 \Sent special-use flag,
+      // else a case-insensitive name match against the known conventions.
+      const boxes = await client.list();
+      const wanted = new Set(SENT_MAILBOX_NAMES.map((n) => n.toLowerCase()));
+      const sent =
+        boxes.find((b) => b.specialUse === '\\Sent') ??
+        boxes.find((b) => wanted.has(b.path.toLowerCase())) ??
+        boxes.find((b) => wanted.has(b.name?.toLowerCase() ?? ''));
+      if (!sent) return; // no Sent mailbox → nothing to learn from
+
+      const lock = await client.getMailboxLock(sent.path);
+      try {
+        const since = new Date(Date.now() - opts.lookbackHours * 3600_000);
+        const found = await client.search({ since }, { uid: true });
+        const uids = found || [];
+        if (uids.length === 0) return;
+
+        // Tail = the most recent N (uids come back ascending).
+        const cap = opts.maxMessages ?? DEFAULT_BACKFILL_MAX_MESSAGES;
+        const slice = uids.length > cap ? uids.slice(-cap) : uids;
+
+        for await (const m of client.fetch(slice, { uid: true, source: true }, { uid: true })) {
+          if (!m.source) continue;
+          try {
+            yield await parseSentRfc822(m.source);
+          } catch (err) {
+            // One malformed MIME message must never abort the whole backfill.
+            // Log the uid only — never body content (privacy).
+            console.error(`parseSentRfc822 skipped uid=${m.uid}:`, asText(err));
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await client.logout();
+    }
   }
 }

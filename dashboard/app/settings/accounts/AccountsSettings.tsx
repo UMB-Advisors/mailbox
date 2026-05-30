@@ -172,23 +172,38 @@ export function AccountsSettings({
     }
   }
 
-  // MBOX-373 (MBOX-162 V6 P1) — extract this inbox's voice from its own Sent
-  // history (account-scoped persona refresh). 409 = no Sent history yet (the
-  // account hasn't approved any drafts / hasn't been backfilled) — surfaced as
-  // an informational message, not a hard failure.
+  // MBOX-373 (MBOX-162 V6 P1/P2) — extract this inbox's voice from its own Sent
+  // history. For IMAP (P2) we hit the voice-backfill route, which first pulls
+  // the inbox's Sent mailbox into sent_history and THEN extracts — so a fresh
+  // IMAP inbox with no approved drafts can still learn its voice cold-start.
+  // For Gmail/Microsoft we keep the P1 account-scoped persona refresh (their
+  // Sent history comes from the onboarding Gmail backfill / approved drafts).
+  // 409 = still no Sent history — surfaced as an informational message, not a
+  // hard failure.
   async function onLearnVoice(a: AccountDetail) {
     setRowBusyId(a.id);
+    const isImap = a.provider === 'imap';
     try {
-      const res = await fetch(apiUrl('/api/persona/refresh'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: a.id }),
-      });
+      const res = isImap
+        ? await fetch(apiUrl(`/api/accounts/${a.id}/voice-backfill`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          })
+        : await fetch(apiUrl('/api/persona/refresh'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: a.id }),
+          });
       const data = await res.json().catch(() => null);
       if (res.status === 409) {
         setToast({
           kind: 'error',
-          text: data?.error ?? 'No Sent history for this inbox yet — approve a draft first.',
+          text:
+            data?.error ??
+            (isImap
+              ? 'No Sent history found for this inbox.'
+              : 'No Sent history for this inbox yet — approve a draft first.'),
         });
         return;
       }
@@ -196,7 +211,9 @@ export function AccountsSettings({
       const n = (data?.source_email_count as number | undefined) ?? 0;
       setToast({
         kind: 'success',
-        text: `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'}`,
+        text: isImap
+          ? `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'} (pulled from Sent history)`
+          : `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'}`,
       });
     } catch (err) {
       setToast({ kind: 'error', text: err instanceof Error ? err.message : 'Learn voice failed' });
