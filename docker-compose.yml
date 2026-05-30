@@ -242,6 +242,29 @@ services:
       # dashboard container env was empty; only local route ever worked.
       OLLAMA_CLOUD_API_KEY: ${OLLAMA_CLOUD_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # MBOX-398 — Google OAuth for the right-rail Calendar/Contacts/Tasks panels
+      # (and the MBOX-130 calendar pre-read + MBOX-129 tasks handoff). Read by
+      # lib/oauth/google.ts. Like the cloud LLM creds above, the dashboard service
+      # enumerates env explicitly (no env_file) — a value in .env alone is a no-op
+      # until it's listed HERE (MBOX-306 lesson). All default empty so an appliance
+      # without Google OAuth provisioned is unchanged; the Connect button returns a
+      # clear "not set" error rather than redirecting. To enable: create a Google
+      # OAuth 2.0 Web client (reuse the appliance's existing GCP project), add the
+      # redirect URI ${MAILBOX_PUBLIC_BASE_URL}${NEXT_PUBLIC_BASE_PATH}/api/oauth/google/callback,
+      # then set these in .env and `docker compose up -d mailbox-dashboard`.
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # AES-256-GCM key (32-byte hex) for refresh-token-at-rest + the connect-flow
+      # state HMAC. Separate secrets (key separation). Generate each with
+      # `openssl rand -hex 32`.
+      MAILBOX_OAUTH_TOKEN_KEY: ${MAILBOX_OAUTH_TOKEN_KEY:-}
+      MAILBOX_OAUTH_STATE_SECRET: ${MAILBOX_OAUTH_STATE_SECRET:-}
+      # Public https origin of the appliance (e.g. https://mailbox.heronlabsinc.com)
+      # — builds the OAuth callback URL. NEXT_PUBLIC_BASE_PATH is also read at
+      # RUNTIME by callbackUrl() (the client bundle bakes it at build, but the
+      # server route needs it here too); default /dashboard matches Caddy's mount.
+      MAILBOX_PUBLIC_BASE_URL: ${MAILBOX_PUBLIC_BASE_URL:-}
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/dashboard}
       # STAQPRO-221 — operator email for H2 voice-priming. Empty/unset = the
       # dashboard logs a once-per-30-min warning and falls back to inbound-only
       # retrieval (the existing pre-221 path). All other RAG_RETRIEVE_TOP_K_*
