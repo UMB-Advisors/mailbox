@@ -2,6 +2,7 @@
 
 import { Check, Pencil, Sparkles, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { GraphConnectForm } from '@/app/onboarding/email-connect/GraphConnectForm';
 import { ImapConnectForm } from '@/app/onboarding/email-connect/ImapConnectForm';
 import { AppShell } from '@/components/AppShell';
 import { TimeAgo } from '@/components/TimeAgo';
@@ -260,9 +261,11 @@ export function AccountsSettings({
 
           {/* Add form. Provider picker is always shown; IMAP/SMTP swaps in the
               full connect form (MBOX-357 — host/port/credentials + a live
-              test-connection probe, persisted via /api/accounts/imap). Gmail and
-              Microsoft register a bare row (POST /api/accounts) — their live I/O
-              is operator/OAuth or P2 work. */}
+              test-connection probe, persisted via /api/accounts/imap), and
+              Microsoft 365 swaps in the Graph connect form (MBOX-358 — BYO Azure
+              app-reg credentials + a live token/inbox probe, persisted via
+              /api/accounts/microsoft). Gmail registers a bare row (POST
+              /api/accounts) — its live I/O is operator/OAuth work. */}
           <div className="space-y-3 rounded-sm border border-border bg-bg-panel p-4">
             <label className="flex flex-col gap-1">
               <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
@@ -284,6 +287,15 @@ export function AccountsSettings({
             {provider === 'imap' ? (
               <ImapConnectForm
                 endpoint="/api/accounts/imap"
+                showNextPrompt={false}
+                onSaved={() => {
+                  void refresh();
+                  setToast({ kind: 'success', text: 'Mailbox connected' });
+                }}
+              />
+            ) : provider === 'microsoft' ? (
+              <GraphConnectForm
+                endpoint="/api/accounts/microsoft"
                 showNextPrompt={false}
                 onSaved={() => {
                   void refresh();

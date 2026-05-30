@@ -156,6 +156,62 @@ export async function createImapAccount(
   return { id: row.id, adopted: false };
 }
 
+// MBOX-358 (P2) — Microsoft 365 / Graph account create-or-adopt. Structurally
+// identical to createImapAccount (same fresh-appliance sentinel-adoption rule),
+// differing only in provider='microsoft'. provider_config holds the non-secret
+// BYO Azure app-reg params {tenant_id, client_id, mailbox, auth}; secret_enc is
+// the AES-256-GCM-encrypted client secret (migration 040, the column IMAP's
+// app-password also uses).
+export interface CreateMicrosoftAccountInput {
+  email: string;
+  display_label: string | null;
+  provider_config: Record<string, unknown>;
+  secret_enc: string;
+}
+
+export async function createMicrosoftAccount(
+  input: CreateMicrosoftAccountInput,
+): Promise<{ id: number; adopted: boolean }> {
+  const db = getKysely();
+  const cfgJson = JSON.stringify(input.provider_config);
+
+  const def = await db
+    .selectFrom('accounts')
+    .select(['id', 'email_address'])
+    .where('is_default', '=', true)
+    .executeTakeFirst();
+
+  if (def && def.email_address === SENTINEL_DEFAULT_EMAIL) {
+    const row = await db
+      .updateTable('accounts')
+      .set({
+        email_address: input.email,
+        display_label: input.display_label,
+        provider: 'microsoft',
+        provider_config: sql`${cfgJson}::jsonb`,
+        provider_secret_enc: input.secret_enc,
+      })
+      .where('id', '=', def.id)
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    return { id: row.id, adopted: true };
+  }
+
+  const row = await db
+    .insertInto('accounts')
+    .values({
+      email_address: input.email,
+      display_label: input.display_label,
+      is_default: false,
+      provider: 'microsoft',
+      provider_config: sql`${cfgJson}::jsonb`,
+      provider_secret_enc: input.secret_enc,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return { id: row.id, adopted: false };
+}
+
 export async function getDraftProviderContext(
   draftId: number,
 ): Promise<DraftProviderContext | null> {

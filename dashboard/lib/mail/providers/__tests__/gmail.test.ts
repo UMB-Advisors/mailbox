@@ -107,8 +107,11 @@ describe('providerFor factory', () => {
     expect(providerForKind('gmail')).toBeInstanceOf(GmailProvider);
   });
 
-  it('throws for the not-yet-implemented provider (microsoft / P2)', () => {
-    // imap is implemented as of P1 (MBOX-357) — covered in imap.test.ts.
-    expect(() => providerForKind('microsoft')).toThrow(/P2 \/ MBOX-358/);
+  it('resolves every MAIL_PROVIDERS kind to a provider instance', () => {
+    // imap implemented in P1 (MBOX-357), microsoft in P2 (MBOX-358) — each
+    // arm has its own provider tests; here we just assert the factory no longer
+    // throws for any declared kind (the exhaustiveness guard stays for new ones).
+    expect(providerForKind('imap').kind).toBe('imap');
+    expect(providerForKind('microsoft').kind).toBe('microsoft');
   });
 });
