@@ -120,3 +120,83 @@ function toInt(v: string | null): number {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : 0;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// MBOX-367 (MBOX-162 V4) — cross-account intelligence.
+//
+// The structural moat a multi-tenant cloud SaaS can't match: surface, for one
+// counterparty, the inboxes *other than the current one* they've also reached
+// ("emailed your consulting address last month and your founder address
+// today"). All account-scoped tables carry account_id since migration 033, so
+// this is pure query — no migration. Inert on a single-account appliance (there
+// are no "other" accounts), so the route short-circuits before this runs.
+//
+// Longer default window than getSenderHistory (90d vs 30d): the value of
+// cross-account recall is the *long-memory* link across identities, not the
+// recent-acceptance signal the per-sender panel already covers.
+// ──────────────────────────────────────────────────────────────────────────
+
+const CROSS_ACCOUNT_LOOKBACK_DAYS = 90;
+
+export interface CrossAccountSenderRow {
+  account_id: number;
+  account_email: string;
+  account_label: string | null;
+  total_emails: number;
+  drafts_sent: number;
+  last_seen_at: string | null;
+}
+
+export async function getSenderAcrossAccounts(
+  senderRaw: string,
+  excludeAccountId: number,
+  lookbackDays: number = CROSS_ACCOUNT_LOOKBACK_DAYS,
+): Promise<CrossAccountSenderRow[]> {
+  const sender = normalizeSender(senderRaw);
+  if (!sender) return [];
+
+  const db = getKysely();
+  const days = Math.max(1, Math.min(365, Math.trunc(lookbackDays) || CROSS_ACCOUNT_LOOKBACK_DAYS));
+
+  // One round-trip: group this counterparty's inbound by owning account,
+  // excluding the draft's own account. drafts_sent joins through the
+  // inbox_messages.draft_id denorm (migration 021) like getSenderHistory.
+  const res = await sql<{
+    account_id: number;
+    account_email: string;
+    account_label: string | null;
+    total_emails: string;
+    drafts_sent: string;
+    last_seen_at: string | null;
+  }>`
+    WITH window_msgs AS (
+      SELECT m.id, m.account_id, m.draft_id,
+             COALESCE(m.received_at, m.created_at) AS seen_at
+      FROM mailbox.inbox_messages m
+      WHERE LOWER(m.from_addr) LIKE ${`%${sender}%`}
+        AND m.created_at >= NOW() - (${days}::int * INTERVAL '1 day')
+        AND m.account_id <> ${excludeAccountId}
+    )
+    SELECT
+      a.id AS account_id,
+      a.email_address AS account_email,
+      a.display_label AS account_label,
+      COUNT(wm.id)::text AS total_emails,
+      COUNT(d.id) FILTER (WHERE d.status = 'sent')::text AS drafts_sent,
+      MAX(wm.seen_at)::text AS last_seen_at
+    FROM window_msgs wm
+    JOIN mailbox.accounts a ON a.id = wm.account_id
+    LEFT JOIN mailbox.drafts d ON d.id = wm.draft_id
+    GROUP BY a.id, a.email_address, a.display_label
+    ORDER BY MAX(wm.seen_at) DESC
+  `.execute(db);
+
+  return res.rows.map((r) => ({
+    account_id: r.account_id,
+    account_email: r.account_email,
+    account_label: r.account_label,
+    total_emails: toInt(r.total_emails),
+    drafts_sent: toInt(r.drafts_sent),
+    last_seen_at: r.last_seen_at,
+  }));
+}

@@ -7,6 +7,7 @@ import type { ActionItem, DraftWithMessage } from '@/lib/types';
 import { ActionButtons, type ActionKind } from './ActionButtons';
 import { ActionItemsPanel } from './ActionItemsPanel';
 import { ClassificationOverride } from './ClassificationOverride';
+import { CrossAccountPanel } from './CrossAccountPanel';
 import { EditDiff } from './EditDiff';
 import { EmailContext } from './EmailContext';
 import { InlineDraftEditor } from './InlineDraftEditor';
@@ -224,6 +225,13 @@ export function DraftDetail({
             lazy-fetch state without an explicit effect. */}
         <div className="mt-2">
           <SenderHistoryPanel key={draft.id} draftId={draft.id} />
+        </div>
+        {/* MBOX-367 (MBOX-162 V4) — cross-account intelligence. Self-hiding:
+            renders nothing unless this counterparty has reached another inbox
+            on this appliance (inert on single-account boxes). key={draft.id}
+            remounts the lazy fetch when the operator switches drafts. */}
+        <div className="mt-2">
+          <CrossAccountPanel key={draft.id} draftId={draft.id} />
         </div>
       </div>
       <div className="border-t border-border px-5 py-3">
