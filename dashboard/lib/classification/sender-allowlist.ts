@@ -3,61 +3,25 @@
 // When the operator picks "reclassify automatically" for a sender on
 // /classifications, a row is upserted into mailbox.sender_never_spam (email).
 // This is NOT a force-to-category rule (that was MBOX-368, reverted by migration
-// 042) — it only means "never let this sender be dropped as spam." The classifier
-// still decides the real category per email; we only override a spam_marketing
-// verdict so a sender the operator cares about is never silently dropped again.
+// 043) — it only means "never let this sender be dropped as spam."
 //
-// Two consult points share this module:
-//   1. app/api/internal/classification-normalize/route.ts (live n8n classify) —
-//      async lookup, only when the verdict is a spam drop.
-//   2. lib/queries-sender-allowlist.ts:reclassifyBySender (re-run on existing
-//      mail) — the sender is allowlisted by construction, so it applies the
-//      override directly without a second lookup.
+// The behaviour lives in normalize (the `neverSpam` PreclassContext flag): for an
+// allowlisted sender the heuristic suppressions (noreply + self-loop) are skipped
+// so the real category stands (operator-domain → internal, or the model's
+// verdict), and a genuine model spam_marketing verdict is surfaced to `unknown`.
+// This module only answers "is this sender allowlisted?":
+//   1. app/api/internal/classification-normalize/route.ts (live n8n classify).
+//   2. lib/queries-sender-allowlist.ts:reclassifySenderEmails passes neverSpam=true
+//      by construction (the sender it's processing was just allowlisted).
 //
 // Exact-email match, normalized via extractAddress (same as the heuristic
 // preclass). Kill switch SENDER_NEVER_SPAM_DISABLE=1.
 
 import { getKysely } from '@/lib/db';
 import { extractAddress } from './preclass';
-import { type Category, type Route, routeFor } from './prompt';
-
-// What an allowlisted spam verdict is rewritten to. 'unknown' is a CLOUD
-// category → routeFor sends it to cloud → it surfaces as a draft for the
-// operator instead of being dropped. The model still picks a real non-spam
-// category for non-spam mail; this only catches the spam-drop case.
-export const NEVER_SPAM_SURFACED_CATEGORY: Category = 'unknown';
 
 function neverSpamEnabled(): boolean {
   return process.env.SENDER_NEVER_SPAM_DISABLE !== '1';
-}
-
-/**
- * True when a `spam_marketing` verdict came from the model or the noreply
- * heuristic (the cases a never-spam sender should override), and NOT from a
- * deliberate thread-level suppression (self-loop / owns-thread), which are
- * about the conversation, not the sender being junk.
- */
-export function isHeuristicSpamDrop(category: Category, preclassSource: string | null): boolean {
-  return (
-    category === 'spam_marketing' &&
-    preclassSource !== 'operator-self-loop' &&
-    preclassSource !== 'operator-owns-thread'
-  );
-}
-
-export interface NeverSpamSurface {
-  category: Category;
-  route: Route;
-  preclass_source: 'sender-never-spam';
-}
-
-/** The category/route/source a surfaced (un-dropped) verdict takes. */
-export function neverSpamSurface(confidence: number): NeverSpamSurface {
-  return {
-    category: NEVER_SPAM_SURFACED_CATEGORY,
-    route: routeFor(NEVER_SPAM_SURFACED_CATEGORY, confidence),
-    preclass_source: 'sender-never-spam',
-  };
 }
 
 /**
