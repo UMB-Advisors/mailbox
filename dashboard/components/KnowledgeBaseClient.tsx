@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from '@/lib/api';
-import type { KbDocStatus, KbDocument } from '@/lib/types';
+import type { AccountRef, KbDocStatus, KbDocument } from '@/lib/types';
 import { AppShell } from './AppShell';
 
 // STAQPRO-148 — operator-facing KB management UI.
@@ -34,22 +34,40 @@ function nextFeedbackId(): string {
   return `fb-${Date.now()}-${feedbackIdCounter}`;
 }
 
-export function KnowledgeBaseClient({ initialRows }: { initialRows: KbDocument[] }) {
+export function KnowledgeBaseClient({
+  initialRows,
+  accounts = [],
+  selectedAccountId = null,
+}: {
+  initialRows: KbDocument[];
+  // MBOX-400 (MBOX-162 V7) — connected inboxes + the SSR-resolved active inbox
+  // (?account=). Defaulted so existing callers/tests that pass only initialRows
+  // keep working; single-account boxes hide the picker and scope to default.
+  accounts?: AccountRef[];
+  selectedAccountId?: number | null;
+}) {
   const [rows, setRows] = useState<KbDocument[]>(initialRows);
   const [feedback, setFeedback] = useState<UploadFeedback[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const showAccount = accounts.length > 1;
+  // Scope the polling fetch to the active inbox so it matches the SSR-seeded
+  // list (the picker navigates with ?account= for a reload-safe choice).
+  const listAccountParam = selectedAccountId != null ? `?account_id=${selectedAccountId}` : '';
+
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl('/api/kb-documents'), { cache: 'no-store' });
+      const res = await fetch(apiUrl(`/api/kb-documents${listAccountParam}`), {
+        cache: 'no-store',
+      });
       if (!res.ok) return;
       const json = (await res.json()) as { documents: KbDocument[] };
       setRows(json.documents);
     } catch {
       // Best-effort polling — silent on transient network errors.
     }
-  }, []);
+  }, [listAccountParam]);
 
   // Poll while anything is processing.
   const hasProcessing = useMemo(() => rows.some((r) => r.status === 'processing'), [rows]);
@@ -80,6 +98,8 @@ export function KnowledgeBaseClient({ initialRows }: { initialRows: KbDocument[]
         const entryId = newEntries[i].id;
         const fd = new FormData();
         fd.set('file', file);
+        // MBOX-400 — upload into the active inbox's KB (omitted → default account).
+        if (selectedAccountId != null) fd.set('account_id', String(selectedAccountId));
         try {
           const res = await fetch(apiUrl('/api/kb-documents'), { method: 'POST', body: fd });
           const json = (await res.json()) as {
@@ -120,7 +140,7 @@ export function KnowledgeBaseClient({ initialRows }: { initialRows: KbDocument[]
 
       await refresh();
     },
-    [refresh],
+    [refresh, selectedAccountId],
   );
 
   const handleDelete = useCallback(
@@ -170,6 +190,26 @@ export function KnowledgeBaseClient({ initialRows }: { initialRows: KbDocument[]
             {rows.length} {rows.length === 1 ? 'doc' : 'docs'}
           </span>
         </div>
+        {/* MBOX-400 — per-inbox KB (multi-account only). Navigates with ?account=
+            so the SSR list, upload target, and polling all scope to one inbox. */}
+        {showAccount && (
+          <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+            Inbox
+            <select
+              value={selectedAccountId ?? ''}
+              onChange={(e) => {
+                window.location.assign(apiUrl(`/knowledge-base?account=${e.target.value}`));
+              }}
+              className="rounded border border-border bg-bg-deep px-2 py-1 font-sans text-xs normal-case tracking-normal text-ink"
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.display_label?.trim() || a.email_address}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </header>
 
       <section className="px-4 pt-4">

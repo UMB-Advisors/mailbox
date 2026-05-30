@@ -1,5 +1,6 @@
 import { AppShell } from '@/components/AppShell';
 import { apiUrl } from '@/lib/api';
+import { type AccountRow, listAccounts } from '@/lib/queries-accounts';
 import { listKbDocuments } from '@/lib/queries-kb';
 import { getTopEditRateCategories, type TopEditRateCategory } from '@/lib/queries-status';
 import { reconcileOnce } from '@/lib/rag/kb-reconciler';
@@ -27,28 +28,59 @@ export const dynamic = 'force-dynamic';
 const MIN_SAMPLE_PER_CATEGORY = 5;
 const MIN_TOTAL_FOR_SIGNAL = 20;
 
-export default async function SettingsKbPage() {
+interface SettingsKbPageProps {
+  searchParams?: { account?: string | string[] };
+}
+
+function parseAccountId(raw: string | string[] | undefined): number | null {
+  if (Array.isArray(raw)) return parseAccountId(raw[0]);
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export default async function SettingsKbPage({ searchParams }: SettingsKbPageProps) {
   // Lazy reconciler boot hook — same pattern as /knowledge-base. Catches
   // stuck 'processing' rows from dashboard restarts.
   await reconcileOnce();
 
+  const accountParam = parseAccountId(searchParams?.account);
+
   let topCategories: ReadonlyArray<TopEditRateCategory> = [];
   let docs: KbDocument[] = [];
+  let accounts: AccountRow[] = [];
   let topErr: string | null = null;
   let docsErr: string | null = null;
+
+  // MBOX-400 — connected inboxes for the per-account scope. Fails closed to an
+  // empty list (→ no selector, all docs) so a transient error never blanks KB.
+  try {
+    accounts = await listAccounts();
+  } catch {
+    accounts = [];
+  }
+  const selectedAccountId =
+    accountParam && accounts.some((a) => a.id === accountParam)
+      ? accountParam
+      : (accounts.find((a) => a.is_default)?.id ?? accounts[0]?.id ?? null);
 
   // Pull metrics + docs in parallel. Each fails closed independently so a
   // transient v_override_rate error doesn't blank the docs list and vice
   // versa.
   const [topResult, docsResult] = await Promise.allSettled([
     getTopEditRateCategories(3, MIN_SAMPLE_PER_CATEGORY),
-    listKbDocuments({ limit: 200 }),
+    listKbDocuments({
+      limit: 200,
+      ...(selectedAccountId !== null ? { account_id: selectedAccountId } : {}),
+    }),
   ]);
   if (topResult.status === 'fulfilled') topCategories = topResult.value;
   else
     topErr = topResult.reason instanceof Error ? topResult.reason.message : 'metrics unavailable';
   if (docsResult.status === 'fulfilled') docs = docsResult.value;
   else docsErr = docsResult.reason instanceof Error ? docsResult.reason.message : 'kb unavailable';
+
+  const showAccount = accounts.length > 1;
 
   const totalDisposed = topCategories.reduce((acc, c) => acc + c.disposed, 0);
   const insufficientSignal = topCategories.length === 0 || totalDisposed < MIN_TOTAL_FOR_SIGNAL;
@@ -66,6 +98,29 @@ export default async function SettingsKbPage() {
             snippet is ever shown to the LLM.
           </p>
         </section>
+
+        {/* MBOX-400 — per-inbox KB scope (multi-account only). Server-side links
+            keep this page free of client JS. */}
+        {showAccount && (
+          <section className="mb-6 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+              Inbox
+            </span>
+            {accounts.map((a) => (
+              <a
+                key={a.id}
+                href={apiUrl(`/settings/kb?account=${a.id}`)}
+                className={`rounded-sm border px-2 py-1 font-sans text-xs ${
+                  a.id === selectedAccountId
+                    ? 'border-border bg-bg-deep text-ink'
+                    : 'border-border-subtle text-ink-muted hover:bg-bg-deep hover:text-ink'
+                }`}
+              >
+                {a.display_label?.trim() || a.email_address}
+              </a>
+            ))}
+          </section>
+        )}
 
         {topErr && (
           <div className="mb-4 rounded-sm border border-accent-orange/40 bg-accent-orange/10 p-3 text-xs text-accent-orange">

@@ -1,9 +1,21 @@
 import { KnowledgeBaseClient } from '@/components/KnowledgeBaseClient';
+import { type AccountRow, listAccounts } from '@/lib/queries-accounts';
 import { listKbDocuments } from '@/lib/queries-kb';
 import { reconcileOnce } from '@/lib/rag/kb-reconciler';
 import type { KbDocument } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+
+interface KnowledgeBasePageProps {
+  searchParams?: { account?: string | string[] };
+}
+
+function parseAccountId(raw: string | string[] | undefined): number | null {
+  if (Array.isArray(raw)) return parseAccountId(raw[0]);
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 
 // STAQPRO-148 — operator-facing KB page. Server-renders the initial doc
 // list then hands off to the client component for upload + polling.
@@ -13,13 +25,27 @@ export const dynamic = 'force-dynamic';
 // once-per-process latch) and means the first page render after a
 // dashboard restart catches stuck rows immediately.
 
-export default async function KnowledgeBasePage() {
+export default async function KnowledgeBasePage({ searchParams }: KnowledgeBasePageProps) {
   await reconcileOnce();
 
+  const accountParam = parseAccountId(searchParams?.account);
+
   let initialRows: KbDocument[] = [];
+  let accounts: AccountRow[] = [];
+  let selectedAccountId: number | null = null;
   let error: string | null = null;
   try {
-    initialRows = await listKbDocuments({ limit: 200 });
+    accounts = await listAccounts();
+    // MBOX-400 — scope the corpus to the chosen inbox (?account=), else the
+    // default account so the picker and SSR list always agree.
+    selectedAccountId =
+      accountParam && accounts.some((a) => a.id === accountParam)
+        ? accountParam
+        : (accounts.find((a) => a.is_default)?.id ?? accounts[0]?.id ?? null);
+    initialRows = await listKbDocuments({
+      limit: 200,
+      ...(selectedAccountId !== null ? { account_id: selectedAccountId } : {}),
+    });
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to load knowledge base';
   }
@@ -38,5 +64,11 @@ export default async function KnowledgeBasePage() {
     );
   }
 
-  return <KnowledgeBaseClient initialRows={initialRows} />;
+  return (
+    <KnowledgeBaseClient
+      initialRows={initialRows}
+      accounts={accounts}
+      selectedAccountId={selectedAccountId}
+    />
+  );
 }
