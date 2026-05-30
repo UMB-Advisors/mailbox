@@ -80,4 +80,86 @@ dbDescribe('persona route handlers — real Postgres', () => {
     expect(r.rows[0].statistical_markers).toEqual(stat);
     expect(r.rows[0].category_exemplars).toEqual(exem);
   });
+
+  // MBOX-373 (MBOX-162 V6 P1) — account-scoped voice learning.
+  describe('POST /api/persona/refresh — account-scoped (MBOX-373)', () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    it("extracts a specific account's persona from ONLY its own sent_history", async () => {
+      const pool = getTestPool();
+      const acct = await pool.query<{ id: number }>(
+        `INSERT INTO mailbox.accounts (email_address, display_label, is_default, provider)
+         VALUES ($1, 'Founder', false, 'gmail') RETURNING id`,
+        [`v6-${stamp}@example.test`],
+      );
+      const accountId = acct.rows[0].id;
+      try {
+        for (let i = 0; i < 3; i++) {
+          await pool.query(
+            `INSERT INTO mailbox.sent_history
+               (from_addr, to_addr, subject, body_text, draft_sent, draft_source,
+                classification_category, classification_confidence, sent_at, account_id)
+             VALUES ($1, 'customer@example.com', 'Re: your order', 'inbound body',
+                     $2, 'local', 'reorder', 0.9, NOW(), $3)`,
+            [
+              `v6-${stamp}@example.test`,
+              'Hi there,\n\nThanks so much for reaching out — happy to help with your reorder. Best,\nDustin',
+              accountId,
+            ],
+          );
+        }
+
+        const { POST } = await import('@/app/api/persona/refresh/route');
+        const res = await POST(fakeRequest({ body: { account_id: accountId } }));
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { source_email_count: number };
+        expect(body.source_email_count).toBe(3);
+
+        // The new account's persona row was written...
+        const p = await pool.query<{ source_email_count: number }>(
+          `SELECT source_email_count FROM mailbox.persona WHERE account_id = $1 AND customer_key = 'default'`,
+          [accountId],
+        );
+        expect(Number(p.rows[0].source_email_count)).toBe(3);
+
+        // ...and the DEFAULT account's persona was left untouched (still the
+        // empty row seeded in beforeAll — proves account isolation).
+        const def = await pool.query<{ source_email_count: number; account_id: number }>(
+          `SELECT source_email_count, account_id FROM mailbox.persona
+             WHERE customer_key = 'default' AND account_id <> $1`,
+          [accountId],
+        );
+        expect(Number(def.rows[0].source_email_count)).toBe(0);
+      } finally {
+        await pool.query('DELETE FROM mailbox.persona WHERE account_id = $1', [accountId]);
+        await pool.query('DELETE FROM mailbox.sent_history WHERE account_id = $1', [accountId]);
+        await pool.query('DELETE FROM mailbox.accounts WHERE id = $1', [accountId]);
+      }
+    });
+
+    it('returns 409 for an account with no sent_history yet', async () => {
+      const pool = getTestPool();
+      const acct = await pool.query<{ id: number }>(
+        `INSERT INTO mailbox.accounts (email_address, is_default, provider)
+         VALUES ($1, false, 'imap') RETURNING id`,
+        [`v6-empty-${stamp}@example.test`],
+      );
+      const accountId = acct.rows[0].id;
+      try {
+        const { POST } = await import('@/app/api/persona/refresh/route');
+        const res = await POST(fakeRequest({ body: { account_id: accountId } }));
+        expect(res.status).toBe(409);
+        const body = (await res.json()) as { account_id: number };
+        expect(body.account_id).toBe(accountId);
+      } finally {
+        await pool.query('DELETE FROM mailbox.accounts WHERE id = $1', [accountId]);
+      }
+    });
+
+    it('rejects a non-positive account_id with 400', async () => {
+      const { POST } = await import('@/app/api/persona/refresh/route');
+      const res = await POST(fakeRequest({ body: { account_id: -1 } }));
+      expect(res.status).toBe(400);
+    });
+  });
 });
