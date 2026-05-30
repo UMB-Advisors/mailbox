@@ -1,6 +1,7 @@
 import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import { getKysely } from '@/lib/db';
+import { providerForKind } from '@/lib/mail/providers';
 import { parseJson } from '@/lib/middleware/validate';
 import { resolveIngestAccountId } from '@/lib/queries-accounts';
 import { embedText } from '@/lib/rag/embed';
@@ -34,7 +35,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, inboxMessageInsertBodySchema);
   if (!b.ok) return b.response;
-  const { message_id, received_at, account_id, account_email, ...rest } = b.data;
+  const { provider, message_id, received_at, account_id, account_email, ...rest } = b.data;
 
   // MBOX-348 — resolve the target mailbox. Omitted by the legacy single-account
   // path (→ default account); set explicitly by the multi-account fan-out. An
@@ -46,17 +47,61 @@ export async function POST(req: NextRequest) {
   }
   const resolvedAccountId = acct.account_id;
 
+  // MBOX-357 (P1 T5) — non-Gmail transports (IMAP today) send raw header fields
+  // and the dashboard normalizes server-side via the MailProvider seam. The
+  // load-bearing transform is thread_id SYNTHESIS: IMAP has no native thread id,
+  // so providerForKind('imap').normalize() hashes the References/In-Reply-To
+  // chain root into a stable key (FR-MP-1). Gmail (the default + un-changed
+  // path) already arrives with mapped columns + a native threadId, so it skips
+  // normalization entirely — the locked STAQPRO-135 contract is preserved.
+  const norm =
+    provider === 'gmail'
+      ? null
+      : providerForKind(provider).normalize({
+          message_id,
+          from_addr: rest.from_addr,
+          to_addr: rest.to_addr,
+          subject: rest.subject,
+          body: rest.body,
+          in_reply_to: rest.in_reply_to,
+          references: rest.references,
+          received_at,
+          direction: 'inbound',
+        });
+
+  const msgId = norm ? norm.provider_message_id || message_id : message_id;
+  const threadId = norm ? (norm.thread_id ?? '') : rest.thread_id;
+  const fromAddr = norm ? norm.from_addr : rest.from_addr;
+  const toAddr = norm ? norm.to_addr : rest.to_addr;
+  const subject = norm ? norm.subject : rest.subject;
+  const snippet = norm ? norm.body.slice(0, 200) : rest.snippet;
+  const body = norm ? norm.body : rest.body;
+  const inReplyTo = norm ? (norm.in_reply_to ?? '') : rest.in_reply_to;
+  const references = norm ? (norm.references ?? '') : rest.references;
+  // received_at is optional; empty/blank → omit the column so it lands NULL
+  // rather than crashing the TIMESTAMPTZ insert (mirror the Gmail-path guard).
+  const effectiveReceivedAt = norm
+    ? norm.received_at.trim()
+      ? norm.received_at
+      : undefined
+    : received_at;
+
   try {
     const db = getKysely();
     const row = await db
       .insertInto('inbox_messages')
       .values({
-        message_id,
+        message_id: msgId,
         account_id: resolvedAccountId,
-        ...rest,
-        // received_at is optional in the body; only include when provided so
-        // missing values land as NULL rather than 'undefined' string.
-        ...(received_at !== undefined ? { received_at } : {}),
+        thread_id: threadId,
+        from_addr: fromAddr,
+        to_addr: toAddr,
+        subject,
+        snippet,
+        body,
+        in_reply_to: inReplyTo,
+        references,
+        ...(effectiveReceivedAt !== undefined ? { received_at: effectiveReceivedAt } : {}),
       })
       // MBOX-348 — dedup is per (account_id, message_id): the same Gmail message
       // can legitimately land in two connected inboxes. xmax=0 still discriminates
@@ -81,12 +126,12 @@ export async function POST(req: NextRequest) {
       void embedAndUpsertInbound({
         message_id: row.message_id,
         account_id: resolvedAccountId,
-        thread_id: rest.thread_id ?? null,
-        sender: rest.from_addr ?? '',
-        recipient: rest.to_addr ?? '',
-        subject: rest.subject ?? null,
-        body: rest.body ?? '',
-        sent_at: received_at ?? new Date().toISOString(),
+        thread_id: threadId || null,
+        sender: fromAddr,
+        recipient: toAddr,
+        subject: subject || null,
+        body,
+        sent_at: effectiveReceivedAt ?? new Date().toISOString(),
       });
     }
 

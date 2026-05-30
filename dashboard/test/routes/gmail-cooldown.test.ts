@@ -7,7 +7,12 @@
 // re-asserted here.
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { clearGmailCooldown, setGmailCooldown } from '@/lib/queries-system-state';
+import {
+  clearGmailCooldown,
+  getGmailCooldown,
+  getMailCooldown,
+  setGmailCooldown,
+} from '@/lib/queries-system-state';
 import { closeTestPool, getTestPool, HAS_DB } from '../helpers/db';
 
 const dbDescribe = HAS_DB ? describe : describe.skip;
@@ -94,5 +99,55 @@ dbDescribe('Gmail cooldown force-resume — real Postgres', () => {
       expect(body.cleared).toBe(false);
       expect(body.previous_until).toBeNull();
     });
+  });
+});
+
+// MBOX-357 (P1 T5) — provider-generic getMailCooldown over mail_cooldowns. The
+// load-bearing invariant: an IMAP cooldown is isolated from the Gmail bucket so
+// a Gmail 429 can't pause an IMAP send (DR-57 / migration 039). The send gate
+// in transitions.ts depends on exactly this.
+dbDescribe('getMailCooldown — per-(account, provider) isolation', () => {
+  let defaultAccountId: number;
+
+  afterAll(async () => {
+    await closeTestPool();
+  });
+
+  beforeEach(async () => {
+    const pool = getTestPool();
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM mailbox.accounts WHERE is_default`,
+    );
+    defaultAccountId = rows[0].id;
+    // Reset both transports' buckets for the default account to baseline.
+    await pool.query(
+      `DELETE FROM mailbox.mail_cooldowns WHERE account_id = $1 AND provider IN ('gmail', 'imap')`,
+      [defaultAccountId],
+    );
+  });
+
+  it('returns the inactive shape when the (account, provider) row is absent', async () => {
+    const cd = await getMailCooldown(defaultAccountId, 'imap');
+    expect(cd.isActive).toBe(false);
+    expect(cd.until).toBeNull();
+  });
+
+  it('reports an active imap cooldown without touching the gmail bucket', async () => {
+    const pool = getTestPool();
+    const future = new Date(Date.now() + 30 * 60 * 1000); // +30 min
+    await pool.query(
+      `INSERT INTO mailbox.mail_cooldowns (account_id, provider, until, set_at)
+       VALUES ($1, 'imap', $2::timestamptz, NOW())`,
+      [defaultAccountId, future.toISOString()],
+    );
+
+    const imap = await getMailCooldown(defaultAccountId, 'imap');
+    expect(imap.isActive).toBe(true);
+    expect(imap.until?.toISOString()).toBe(future.toISOString());
+
+    // The gmail bucket is untouched — proving a Gmail 429 and an IMAP throttle
+    // are independent (the whole point of migration 039).
+    expect((await getMailCooldown(defaultAccountId, 'gmail')).isActive).toBe(false);
+    expect((await getGmailCooldown()).isActive).toBe(false);
   });
 });

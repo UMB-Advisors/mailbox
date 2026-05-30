@@ -14,6 +14,8 @@
     environment:
       POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       N8N_WEBHOOK_URL: http://n8n:5678/webhook/mailbox-send
+      # MBOX-357 (P1 T5) — IMAP accounts route here; Gmail keeps N8N_WEBHOOK_URL.
+      N8N_IMAP_WEBHOOK_URL: ${N8N_IMAP_WEBHOOK_URL:-http://n8n:5678/webhook/mailbox-imap-send}
       NODE_ENV: production
       PORT: "3001"
     depends_on:

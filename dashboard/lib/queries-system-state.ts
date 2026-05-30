@@ -7,6 +7,7 @@
 
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
+import type { MailProviderKind } from '@/lib/types';
 
 export interface GmailCooldown {
   until: Date | null;
@@ -55,6 +56,35 @@ export async function getGmailCooldown(): Promise<GmailCooldown> {
     recommended_safe_at,
     isActive,
   };
+}
+
+// MBOX-357 (P1 T5) — provider-generic cooldown read over mail_cooldowns, keyed
+// (account_id, provider). getGmailCooldown above is the default-account 'gmail'
+// special case kept verbatim for its existing callers (the operator banner +
+// the n8n gmail-cooldown gate); THIS is the form the provider-aware send gate
+// (transitions.ts) and future IMAP/Graph sweepers use. Same SAFE_BUFFER_MS /
+// isActive semantics so an IMAP draft is gated on the IMAP bucket only — a
+// Gmail 429 must never pause an IMAP send (DR-57 / migration 039 rationale).
+// Returns the inactive shape when the (account, provider) row is absent.
+export async function getMailCooldown(
+  accountId: number,
+  provider: MailProviderKind,
+): Promise<GmailCooldown> {
+  const db = getKysely();
+  const row = await sql<{
+    until: string | null;
+    set_at: string | null;
+  }>`
+    SELECT until, set_at
+      FROM mailbox.mail_cooldowns
+     WHERE account_id = ${accountId} AND provider = ${provider}
+  `.execute(db);
+  const r = row.rows[0];
+  const until = r?.until ? new Date(r.until) : null;
+  const set_at = r?.set_at ? new Date(r.set_at) : null;
+  const recommended_safe_at = until ? new Date(until.getTime() + SAFE_BUFFER_MS) : null;
+  const isActive = recommended_safe_at !== null && recommended_safe_at.getTime() > Date.now();
+  return { until, set_at, recommended_safe_at, isActive };
 }
 
 // Idempotent: only advances the cooldown forward — never retreats it. A

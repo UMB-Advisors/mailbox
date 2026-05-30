@@ -2,7 +2,8 @@ import { sql } from 'kysely';
 import { NextResponse } from 'next/server';
 import { getKysely } from '@/lib/db';
 import { triggerSendWebhook } from '@/lib/n8n';
-import { getGmailCooldown } from '@/lib/queries-system-state';
+import { getDraftProviderContext } from '@/lib/queries-accounts';
+import { getGmailCooldown, getMailCooldown } from '@/lib/queries-system-state';
 import type { DraftStatus } from '@/lib/types';
 
 // Shared helper for approve/retry, which both transition a draft to
@@ -51,12 +52,25 @@ export async function transitionToApprovedAndSend(
   // gmail-ratelimit-sweeper had already populated for an active cooldown.
   // Each in-cooldown send extends the penalty (Google's per-user probation),
   // so blocking the call early is the only safe move.
-  const sysCooldown = await getGmailCooldown();
+  // MBOX-357 (P1 T5) — resolve the draft's transport so the cooldown gate and
+  // the send webhook are provider-correct: a Gmail 429 must not pause an IMAP
+  // send and vice-versa (DR-57 / migration 039). Gmail keeps the EXACT prior
+  // gate (getGmailCooldown reads the default-account gmail bucket the
+  // ratelimit-sweeper writes); IMAP gates on its own (account, provider) bucket.
+  // Null ctx (draft id missing) → Gmail default; the status flip below then
+  // returns the not-found 409, so no extra branch is needed here.
+  const ctx = await getDraftProviderContext(id);
+  const provider = ctx?.provider ?? 'gmail';
+  const sysCooldown =
+    ctx && ctx.provider !== 'gmail'
+      ? await getMailCooldown(ctx.account_id, ctx.provider)
+      : await getGmailCooldown();
   if (sysCooldown.isActive && sysCooldown.until) {
     return NextResponse.json(
       {
-        error: 'gmail_rate_limit_active',
-        message: 'Gmail is rate-limiting this account. Send paused.',
+        error: provider === 'gmail' ? 'gmail_rate_limit_active' : 'mail_rate_limit_active',
+        message: `${provider === 'imap' ? 'IMAP/SMTP host' : 'Gmail'} is rate-limiting this account. Send paused.`,
+        provider,
         next_retry_at: sysCooldown.until.toISOString(),
       },
       { status: 429 },
@@ -101,8 +115,9 @@ export async function transitionToApprovedAndSend(
     );
   }
 
-  // Step 2: fire the n8n webhook.
-  const webhookResult = await triggerSendWebhook(id);
+  // Step 2: fire the n8n webhook (provider-routed — gmail → mailbox-send,
+  // imap → mailbox-imap-send).
+  const webhookResult = await triggerSendWebhook(id, provider);
   if (!webhookResult.success) {
     console.error(
       `POST /api/drafts/${id}/${opts.routeName} (webhook) failed:`,
