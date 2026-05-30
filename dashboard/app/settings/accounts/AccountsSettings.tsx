@@ -172,31 +172,42 @@ export function AccountsSettings({
     }
   }
 
-  // MBOX-373 (MBOX-162 V6 P1) — extract this inbox's voice from its own Sent
-  // history (account-scoped persona refresh). 409 = no Sent history yet (the
-  // account hasn't approved any drafts / hasn't been backfilled) — surfaced as
-  // an informational message, not a hard failure.
+  // MBOX-373 (MBOX-162 V6) — learn this inbox's voice. For an IMAP inbox (P2) we
+  // pull its historical Sent mail first, then extract (one round-trip via
+  // /voice-backfill). For any other inbox (P1) we extract from whatever Sent
+  // history it has already accumulated. 409 = nothing to learn from yet —
+  // surfaced informationally, not as a hard failure.
   async function onLearnVoice(a: AccountDetail) {
     setRowBusyId(a.id);
+    const isImap = a.provider === 'imap';
     try {
-      const res = await fetch(apiUrl('/api/persona/refresh'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: a.id }),
-      });
+      const res = isImap
+        ? await fetch(apiUrl(`/api/accounts/${a.id}/voice-backfill`), { method: 'POST' })
+        : await fetch(apiUrl('/api/persona/refresh'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: a.id }),
+          });
       const data = await res.json().catch(() => null);
       if (res.status === 409) {
         setToast({
           kind: 'error',
-          text: data?.error ?? 'No Sent history for this inbox yet — approve a draft first.',
+          text:
+            data?.message ??
+            data?.error ??
+            'No Sent mail for this inbox yet — approve a draft first.',
         });
         return;
       }
       if (!res.ok) throw new Error(data?.message ?? data?.error ?? `Failed (${res.status})`);
       const n = (data?.source_email_count as number | undefined) ?? 0;
+      const pulled =
+        isImap && typeof data?.inserted === 'number' && data.inserted > 0
+          ? ` (pulled ${data.inserted} from its Sent folder)`
+          : '';
       setToast({
         kind: 'success',
-        text: `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'}`,
+        text: `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'}${pulled}`,
       });
     } catch (err) {
       setToast({ kind: 'error', text: err instanceof Error ? err.message : 'Learn voice failed' });
