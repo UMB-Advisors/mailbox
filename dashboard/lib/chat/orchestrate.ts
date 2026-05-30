@@ -41,6 +41,7 @@ import {
 import { assembleChatMessages, buildSystemPrompt } from '@/lib/chat/assemble';
 import {
   appendMessage as appendMessageImpl,
+  getConversationAccountId as getConversationAccountIdImpl,
   getConversationMessages as getConversationMessagesImpl,
 } from '@/lib/queries-chat';
 import {
@@ -110,8 +111,12 @@ export interface ChatSendInput {
 // disconnected browser tear down the upstream stream.
 export interface ChatSendDeps {
   signal?: AbortSignal;
-  retrieveForChat?: (query: string) => Promise<ChatRetrievalResult>;
+  retrieveForChat?: (query: string, accountId?: number) => Promise<ChatRetrievalResult>;
   getConversationMessages?: (conversationId: number) => Promise<ChatMessage[]>;
+  // MBOX-400 (MBOX-162 V7) — resolves the conversation's inbox so retrieval is
+  // scoped to that account's history (no cross-inbox leak on a multi-account
+  // box). Defaults to the real query; tests inject a fixed account id.
+  getConversationAccountId?: (conversationId: number) => Promise<number | null>;
   appendMessage?: typeof appendMessageImpl;
   // MBOX-307 — live appliance stats injected into the chat context for
   // operational/aggregate questions. Defaults to the real aggregate query;
@@ -147,6 +152,7 @@ export async function* runChatTurn(
   deps: ChatSendDeps = {},
 ): AsyncGenerator<ChatTurnEvent, void, unknown> {
   const retrieveForChat = deps.retrieveForChat ?? retrieveForChatImpl;
+  const getConversationAccountId = deps.getConversationAccountId ?? getConversationAccountIdImpl;
   const getConversationMessages = deps.getConversationMessages ?? getConversationMessagesImpl;
   const appendMessage = deps.appendMessage ?? appendMessageImpl;
   const getApplianceStats = deps.getApplianceStats ?? getApplianceStatsContextImpl;
@@ -167,9 +173,15 @@ export async function* runChatTurn(
     });
   }
 
-  // 2. Retrieve corpus context. retrieveForChat never throws — a non-'ok'
-  //    reason degrades to plain chat (SM-74), it does not abort the turn.
-  const retrieval = await retrieveForChat(content);
+  // 2. Retrieve corpus context, hard-scoped to this conversation's inbox so a
+  //    multi-account box never bleeds one inbox's history into another's answer
+  //    (MBOX-400). account_id is NOT NULL on chat_conversations, so null only
+  //    means "conversation missing" — fall back to corpus-wide rather than
+  //    aborting (the model call would fail on a bad id downstream anyway).
+  //    retrieveForChat never throws — a non-'ok' reason degrades to plain chat
+  //    (SM-74), it does not abort the turn.
+  const accountId = await getConversationAccountId(input.conversationId);
+  const retrieval = await retrieveForChat(content, accountId ?? undefined);
 
   // 2b. Compute the live appliance-stats block (MBOX-307) so operational/
   //     aggregate questions are answered from real numbers. A failure here is

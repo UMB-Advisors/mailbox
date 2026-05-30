@@ -8,7 +8,7 @@ import type { ChatConversation, ChatMessage, ChatMessageRole } from '@/lib/types
 // (Qdrant point UUIDs) mirroring the drafts/sent_history pattern so MBOX-287
 // can show which corpus messages informed an augmented answer.
 
-const CONVERSATION_COLS = ['id', 'title', 'created_at', 'updated_at'] as const;
+const CONVERSATION_COLS = ['id', 'account_id', 'title', 'created_at', 'updated_at'] as const;
 
 const MESSAGE_COLS = [
   'id',
@@ -24,11 +24,18 @@ const MESSAGE_COLS = [
 ] as const;
 
 // Creates a chat session. title is optional (NULL until the route sets one).
-export async function createConversation(title: string | null = null): Promise<ChatConversation> {
+// MBOX-400 (MBOX-162 V7): accountId stamps which inbox this session is asking
+// about — it scopes the Ask-the-KB retrieval. Omitted → the column DEFAULT (the
+// default account, migration 033) applies, so single-account callers are
+// unchanged.
+export async function createConversation(
+  title: string | null = null,
+  accountId?: number,
+): Promise<ChatConversation> {
   const db = getKysely();
   const row = await db
     .insertInto('chat_conversations')
-    .values({ title })
+    .values(accountId !== undefined ? { title, account_id: accountId } : { title })
     .returning(CONVERSATION_COLS)
     .executeTakeFirstOrThrow();
   return row as ChatConversation;
@@ -36,14 +43,27 @@ export async function createConversation(title: string | null = null): Promise<C
 
 // Lists conversations most-recently-updated first — the chat sidebar's read
 // pattern. No pagination in v1 (single-operator appliance, low volume).
-export async function listConversations(): Promise<ChatConversation[]> {
+// MBOX-400: accountId optionally scopes the sidebar to one inbox; omitted lists
+// every account's sessions (single-account default + the "all inboxes" view).
+export async function listConversations(accountId?: number): Promise<ChatConversation[]> {
   const db = getKysely();
-  const rows = await db
-    .selectFrom('chat_conversations')
-    .select(CONVERSATION_COLS)
-    .orderBy('updated_at', 'desc')
-    .execute();
+  let q = db.selectFrom('chat_conversations').select(CONVERSATION_COLS);
+  if (accountId !== undefined) q = q.where('account_id', '=', accountId);
+  const rows = await q.orderBy('updated_at', 'desc').execute();
   return rows as ChatConversation[];
+}
+
+// MBOX-400 (MBOX-162 V7) — resolve the account a chat session belongs to, so
+// runChatTurn can hard-filter Ask-the-KB retrieval to that inbox. Returns null
+// only when the conversation id doesn't exist (account_id is NOT NULL).
+export async function getConversationAccountId(conversationId: number): Promise<number | null> {
+  const db = getKysely();
+  const row = await db
+    .selectFrom('chat_conversations')
+    .select('account_id')
+    .where('id', '=', conversationId)
+    .executeTakeFirst();
+  return row ? row.account_id : null;
 }
 
 export interface AppendMessageInput {

@@ -104,6 +104,29 @@ describe('retrieveForChat — MBOX-283', () => {
     expect(body?.limit).toBe(4);
   });
 
+  it('account-scoped query sends the account_id hard filter (MBOX-400 isolation)', async () => {
+    const captured: { value: unknown } = { value: null };
+    mockEmbedAndSearch({ hits: [], capturedSearchBody: captured });
+
+    await retrieveForChat('what did we agree on?', 7);
+
+    const body = captured.value as {
+      filter?: { must?: Array<{ key: string; match: { value: number } }> };
+    } | null;
+    // The ONLY must-clause is the account filter — no sender/persona/thread
+    // filters leak in (chat stays query-scoped within the inbox).
+    expect(body?.filter?.must).toEqual([{ key: 'account_id', match: { value: 7 } }]);
+  });
+
+  it('omitted accountId stays corpus-wide (back-compat for eval/harness callers)', async () => {
+    const captured: { value: unknown } = { value: null };
+    mockEmbedAndSearch({ hits: [], capturedSearchBody: captured });
+
+    await retrieveForChat('corpus-wide question');
+
+    expect((captured.value as { filter?: unknown } | null)?.filter).toBeUndefined();
+  });
+
   it("rich corpus → ranked above-floor refs with reason 'ok'", async () => {
     mockEmbedAndSearch({
       hits: [hit('a', 0.91), hit('b', 0.78), hit('c', 0.7)],
