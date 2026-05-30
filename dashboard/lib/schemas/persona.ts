@@ -11,3 +11,14 @@ export const personaUpdateSchema = z.object({
 });
 
 export type PersonaUpdate = z.infer<typeof personaUpdateSchema>;
+
+// MBOX-373 (MBOX-162 V6 P1): POST /api/persona/refresh body. `account_id` is
+// optional — omitted = the default account (the legacy single-account behavior
+// the PersonaSettings button relies on); supplied = extract + write THAT
+// account's persona row (the per-account "Learn voice" trigger from
+// /settings/accounts). The body may be empty ({} → account_id undefined).
+export const personaRefreshSchema = z.object({
+  account_id: z.coerce.number().int().positive('account_id must be a positive integer').optional(),
+});
+
+export type PersonaRefresh = z.infer<typeof personaRefreshSchema>;

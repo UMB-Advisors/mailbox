@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Pencil, Star, Trash2 } from 'lucide-react';
+import { Check, Pencil, Sparkles, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { ImapConnectForm } from '@/app/onboarding/email-connect/ImapConnectForm';
 import { AppShell } from '@/components/AppShell';
@@ -167,6 +167,39 @@ export function AccountsSettings({
       setToast({ kind: 'success', text: 'Label updated' });
     } catch (err) {
       setToast({ kind: 'error', text: err instanceof Error ? err.message : 'Failed' });
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
+  // MBOX-373 (MBOX-162 V6 P1) — extract this inbox's voice from its own Sent
+  // history (account-scoped persona refresh). 409 = no Sent history yet (the
+  // account hasn't approved any drafts / hasn't been backfilled) — surfaced as
+  // an informational message, not a hard failure.
+  async function onLearnVoice(a: AccountDetail) {
+    setRowBusyId(a.id);
+    try {
+      const res = await fetch(apiUrl('/api/persona/refresh'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: a.id }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 409) {
+        setToast({
+          kind: 'error',
+          text: data?.error ?? 'No Sent history for this inbox yet — approve a draft first.',
+        });
+        return;
+      }
+      if (!res.ok) throw new Error(data?.message ?? data?.error ?? `Failed (${res.status})`);
+      const n = (data?.source_email_count as number | undefined) ?? 0;
+      setToast({
+        kind: 'success',
+        text: `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'}`,
+      });
+    } catch (err) {
+      setToast({ kind: 'error', text: err instanceof Error ? err.message : 'Learn voice failed' });
     } finally {
       setRowBusyId(null);
     }
@@ -359,6 +392,19 @@ export function AccountsSettings({
 
                     {editingId !== a.id && (
                       <div className="flex shrink-0 items-center gap-1">
+                        {/* MBOX-373 (V6 P1) — extract this inbox's voice from its
+                            own Sent history. Available for every account. */}
+                        <button
+                          type="button"
+                          onClick={() => onLearnVoice(a)}
+                          disabled={rowBusyId === a.id}
+                          aria-label={`Learn ${labelFor(a)}'s voice from its sent mail`}
+                          title="Extract this inbox's writing voice from its sent mail"
+                          className="inline-flex items-center gap-1 rounded-sm border border-border-subtle px-2 py-1 font-mono text-[11px] text-ink-muted transition-colors hover:border-accent-orange/60 hover:text-accent-orange disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Sparkles size={12} />
+                          Learn voice
+                        </button>
                         {!a.is_default && (
                           <button
                             type="button"
