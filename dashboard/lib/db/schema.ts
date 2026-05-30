@@ -175,20 +175,25 @@ export interface Drafts {
 
 export interface InboxMessages {
   account_id: Generated<number>;
+  archived_at: string | null;
   body: string | null;
   classification: string | null;
   classified_at: string | null;
   confidence: Numeric | null;
   created_at: Generated<string | null>;
+  deleted_at: string | null;
   draft_id: number | null;
   from_addr: string | null;
+  gmail_action_state: string | null;
   id: Generated<number>;
   in_reply_to: string | null;
+  is_read: Generated<boolean>;
   message_id: string;
   model: string | null;
   received_at: string | null;
   references: string | null;
   snippet: string | null;
+  snooze_until: string | null;
   subject: string | null;
   thread_id: string | null;
   to_addr: string | null;
