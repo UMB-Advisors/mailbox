@@ -69,6 +69,13 @@ export interface ClassifyOneDeps {
    * appliance.
    */
   llmBaseUrl?: string;
+  /**
+   * MBOX-370 — sender is on the never-spam allowlist. Forwarded into the
+   * normalize ctx so the heuristic suppressions (noreply / self-loop) are
+   * skipped and the real category stands. Used by the reclassify-by-sender
+   * re-run (where the sender is allowlisted by construction).
+   */
+  neverSpam?: boolean;
 }
 
 // Mirror of the live `MailBOX-Classify > Call Ollama` body. Kept here as a
@@ -167,6 +174,7 @@ export async function classifyOne(
   const normalized = normalizeClassifierOutput(rawOutput, {
     from: row.from_addr ?? undefined,
     to: row.to_addr ?? undefined,
+    neverSpam: deps.neverSpam,
   });
 
   return {

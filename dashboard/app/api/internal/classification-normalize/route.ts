@@ -1,10 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { normalizeClassifierOutput } from '@/lib/classification/normalize';
-import {
-  isHeuristicSpamDrop,
-  isNeverSpamSender,
-  neverSpamSurface,
-} from '@/lib/classification/sender-allowlist';
+import { isNeverSpamSender } from '@/lib/classification/sender-allowlist';
 import { operatorOwnsThread } from '@/lib/classification/thread-ownership';
 import { parseJson } from '@/lib/middleware/validate';
 import { classificationNormalizeBodySchema } from '@/lib/schemas/internal';
@@ -27,13 +23,14 @@ export const dynamic = 'force-dynamic';
 // n8n Normalize node jsonBody needs a `thread_id` line for this to fire in
 // production (see deploy note in SUMMARY).
 //
-// MBOX-370 — never-spam allowlist. After the sync verdict, if it's a heuristic
-// spam drop (model or noreply heuristic — NOT a self-loop / owns-thread, which
-// are about the conversation) AND the operator allowlisted this sender via
-// /classifications, surface it (unknown→cloud) instead of dropping, so a sender
-// they care about is never silently binned. The DB lookup runs ONLY on the
-// spam path, so the common non-spam classify stays query-free. raw_output (the
-// model's original JSON) is preserved for forensics.
+// MBOX-370 — never-spam allowlist. If the verdict would otherwise be suppressed
+// (a spam_marketing drop from the model/noreply/self-loop, OR a non-drop that the
+// owns-thread guard could still suppress) AND the operator allowlisted this sender
+// via /classifications, RE-RUN normalize with `neverSpam` (heuristic suppressions
+// disabled → operator-domain `internal` / the model's real category; a genuine
+// model spam verdict surfaced to `unknown`) and SKIP the owns-thread guard. The DB
+// lookup is gated to the could-be-suppressed path, so a normal non-spam classify
+// (no thread_id, non-spam) stays query-free.
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, classificationNormalizeBodySchema);
   if (!b.ok) return b.response;
@@ -42,20 +39,12 @@ export async function POST(req: NextRequest) {
   try {
     const result = normalizeClassifierOutput(raw, { from, to });
 
-    // MBOX-370: never-spam surface. Gate the DB lookup behind the spam-drop
-    // check so non-spam classifies pay nothing; isNeverSpamSender fails open.
-    if (
-      isHeuristicSpamDrop(result.category, result.preclass_source) &&
-      (await isNeverSpamSender(from))
-    ) {
-      const surfaced = {
-        ...result,
-        ...neverSpamSurface(result.confidence),
-        preclass_applied: true,
-        suppression_reason: null,
-      };
+    const couldSuppress =
+      result.category === 'spam_marketing' || (result.route !== 'drop' && Boolean(thread_id));
+    if (couldSuppress && (await isNeverSpamSender(from))) {
+      const surfaced = normalizeClassifierOutput(raw, { from, to, neverSpam: true });
       console.log(
-        `[classify] never-spam surfaced from=${from ?? ''} was=spam_marketing -> ${surfaced.category}/${surfaced.route}`,
+        `[classify] never-spam from=${from ?? ''} -> ${surfaced.category}/${surfaced.route} (owns-thread skipped)`,
       );
       return NextResponse.json(surfaced);
     }

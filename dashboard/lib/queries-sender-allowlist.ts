@@ -5,7 +5,6 @@ import {
   classifyOne,
   type InboxRowForClassify,
 } from './classification/classify-one';
-import { isHeuristicSpamDrop, neverSpamSurface } from './classification/sender-allowlist';
 
 // MBOX-370 — never-spam allowlist write path + "reclassify automatically" action.
 //
@@ -132,7 +131,12 @@ export async function reclassifySenderEmails(
     let jsonParseOk = false;
     let thinkStripped = false;
     try {
-      const r = await classifyWithTimeout(inboxRow, deps);
+      // Sender is allowlisted by construction here → neverSpam disables the
+      // heuristic suppressions inside normalize: operator-domain mail resolves to
+      // `internal`, the model's real category stands otherwise, and a genuine
+      // model spam_marketing verdict is surfaced to `unknown` (preclass_source
+      // 'sender-never-spam'). Mirrors the live classification-normalize path.
+      const r = await classifyWithTimeout(inboxRow, { ...deps, neverSpam: true });
       category = r.category;
       confidence = r.confidence;
       modelVersion = r.model_version;
@@ -140,14 +144,7 @@ export async function reclassifySenderEmails(
       rawOutput = r.raw_output;
       jsonParseOk = r.json_parse_ok;
       thinkStripped = r.think_stripped;
-
-      // Never-spam guard: sender is allowlisted by construction here, so a
-      // heuristic spam drop is surfaced to unknown→cloud, mirroring the live
-      // classification-normalize guard.
-      if (isHeuristicSpamDrop(r.category, r.preclass_source)) {
-        category = neverSpamSurface(r.confidence).category;
-        surfaced += 1;
-      }
+      if (r.preclass_source === 'sender-never-spam') surfaced += 1;
     } catch (error) {
       console.error(
         `[reclassify] classifyOne failed/timed out for inbox ${row.id} — skipping:`,

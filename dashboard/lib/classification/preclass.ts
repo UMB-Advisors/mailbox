@@ -48,6 +48,12 @@ export const OPERATOR_INBOX_EXCEPTIONS: ReadonlyArray<string> = splitEnv(
 export interface PreclassContext {
   from?: string;
   to?: string;
+  // MBOX-370 — sender is on the never-spam allowlist. When true, normalize SKIPS
+  // the heuristic suppressions (noreply + self-loop) so the real classification
+  // stands (operator-domain → internal, or the model's verdict); a genuine model
+  // `spam_marketing` verdict is surfaced to `unknown` rather than dropped. The
+  // operator explicitly said "never drop this sender."
+  neverSpam?: boolean;
 }
 
 export interface PreclassResult {
