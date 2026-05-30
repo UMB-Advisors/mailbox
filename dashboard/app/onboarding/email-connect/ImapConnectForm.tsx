@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import { apiUrl } from '@/lib/api';
 
-// MBOX-357 (P1 T6 / FR-MP-6) — IMAP/SMTP connect form for the onboarding
-// email-connect step. "Test connection" and "Save & connect" hit the same
-// /api/internal/onboarding/imap-connect route (mode test|save) so the save runs
-// the identical raw-socket probe; bad credentials never persist. After a
-// successful save the operator advances with the wizard's existing Next button.
+// MBOX-357 (P1 T6 / FR-MP-6) — IMAP/SMTP connect form. "Test connection" and
+// "Save & connect" hit the same endpoint (mode test|save) so the save runs the
+// identical raw-socket probe; bad credentials never persist. Reused in two
+// places (MBOX-357 settings "Add mailbox"):
+//   onboarding wizard → endpoint /api/internal/onboarding/imap-connect,
+//     showNextPrompt (the wizard's Next button advances the stage).
+//   settings Mailboxes → endpoint /api/accounts/imap, onSaved() to refresh the
+//     account list. NO wizard nav.
 
 interface LegResult {
   ok: boolean;
@@ -21,11 +24,24 @@ interface ProbeResponse {
   error?: string;
 }
 
+interface ImapConnectFormProps {
+  // Defaults to the onboarding route so existing wizard usage is unchanged.
+  endpoint?: string;
+  // true → "click Next to finish" (wizard). false → "Mailbox added" (settings).
+  showNextPrompt?: boolean;
+  // Called after a successful save (settings → refresh the account list).
+  onSaved?: (accountId: number | undefined) => void;
+}
+
 const inputCls =
   'w-full rounded-lg border border-border bg-bg-panel px-3 py-2 text-sm text-ink placeholder:text-ink-muted/60 focus:border-accent-orange focus:outline-none';
 const labelCls = 'block text-xs font-medium text-ink-muted';
 
-export function ImapConnectForm() {
+export function ImapConnectForm({
+  endpoint = '/api/internal/onboarding/imap-connect',
+  showNextPrompt = true,
+  onSaved,
+}: ImapConnectFormProps = {}) {
   const [email, setEmail] = useState('');
   const [displayLabel, setDisplayLabel] = useState('');
   const [imapHost, setImapHost] = useState('');
@@ -45,7 +61,7 @@ export function ImapConnectForm() {
     setError(null);
     setResult(null);
     try {
-      const res = await fetch(apiUrl('/api/internal/onboarding/imap-connect'), {
+      const res = await fetch(apiUrl(endpoint), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -68,7 +84,10 @@ export function ImapConnectForm() {
         return;
       }
       setResult(payload);
-      if (res.ok && payload.ok && mode === 'save') setSaved(true);
+      if (res.ok && payload.ok && mode === 'save') {
+        setSaved(true);
+        onSaved?.(payload.account_id);
+      }
       if (!res.ok && payload.error) setError(payload.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'network error');
@@ -200,7 +219,14 @@ export function ImapConnectForm() {
           <LegRow label="SMTP (send)" leg={result.smtp} />
           {saved ? (
             <p className="pt-1 font-medium text-accent-green">
-              Mailbox connected. Click <span className="font-semibold">Next</span> to finish setup.
+              {showNextPrompt ? (
+                <>
+                  Mailbox connected. Click <span className="font-semibold">Next</span> to finish
+                  setup.
+                </>
+              ) : (
+                <>Mailbox added.</>
+              )}
             </p>
           ) : result.ok && !saved ? (
             <p className="pt-1 text-ink-muted">

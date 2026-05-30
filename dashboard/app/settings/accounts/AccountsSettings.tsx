@@ -2,6 +2,7 @@
 
 import { Check, Pencil, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { ImapConnectForm } from '@/app/onboarding/email-connect/ImapConnectForm';
 import { AppShell } from '@/components/AppShell';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Toast } from '@/components/Toast';
@@ -107,6 +108,25 @@ export function AccountsSettings({
     }
   }
 
+  // MBOX-357 — after the IMAP connect form saves (its own probe + encrypted
+  // credential flow via /api/accounts/imap), re-pull the detailed list so the
+  // new inbox appears with its provider/default badges. Non-fatal on failure.
+  async function refresh() {
+    try {
+      const res = await fetch(apiUrl('/api/accounts?detail=1'));
+      const data = await res.json().catch(() => null);
+      if (res.ok && Array.isArray(data?.accounts)) {
+        setAccounts(
+          (data.accounts as AccountDetail[]).sort(
+            (a, b) => Number(b.is_default) - Number(a.is_default) || a.id - b.id,
+          ),
+        );
+      }
+    } catch {
+      // best-effort — the row will show on the next page load
+    }
+  }
+
   async function onMakeDefault(a: AccountDetail) {
     if (a.is_default) return;
     setRowBusyId(a.id);
@@ -170,7 +190,7 @@ export function AccountsSettings({
   }
 
   return (
-    <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+    <AppShell active={{ kind: 'surface', surface: 'inboxes' }}>
       <header className="flex h-12 shrink-0 items-center border-b border-border-subtle bg-bg-panel px-4">
         <span className="font-mono text-[11px] text-ink-dim">Inboxes</span>
       </header>
@@ -190,11 +210,11 @@ export function AccountsSettings({
           <div className="rounded-sm border border-accent-orange/40 bg-accent-orange/10 p-3 text-xs text-ink-muted">
             <p className="mb-1 font-medium text-ink">Connecting an inbox is a two-step process</p>
             <p>
-              Adding an inbox here registers it so the queue selector, per-account voice, and
-              history scoping engage. It does <span className="font-semibold">not</span> connect the
-              inbox’s Gmail account — your operator wires the Gmail OAuth credential and ingestion
-              separately (white-glove setup). Until that’s done a new inbox simply has no mail
-              flowing to it.
+              Adding an inbox registers it so the queue selector, per-account voice, and history
+              scoping engage. For <span className="font-semibold">IMAP/SMTP</span> your credentials
+              are tested and stored here; for Gmail your operator wires the OAuth credential
+              separately. Either way, live mail flow (n8n ingestion) is completed during operator
+              setup — until then a new inbox simply has no mail flowing to it.
             </p>
           </div>
 
@@ -205,61 +225,74 @@ export function AccountsSettings({
             </div>
           )}
 
-          {/* Add form */}
-          <form
-            onSubmit={onAdd}
-            className="space-y-3 rounded-sm border border-border bg-bg-panel p-4"
-          >
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="flex min-w-[16rem] flex-1 flex-col gap-1">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
-                  Email address
-                </span>
-                <input
-                  type="text"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="founder@startup.com"
-                  className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-dim"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
-                  Provider
-                </span>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as MailProviderKind)}
-                  className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink"
-                >
-                  {MAIL_PROVIDERS.map((p) => (
-                    <option key={p} value={p}>
-                      {PROVIDER_LABELS[p]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+          {/* Add form. Provider picker is always shown; IMAP/SMTP swaps in the
+              full connect form (MBOX-357 — host/port/credentials + a live
+              test-connection probe, persisted via /api/accounts/imap). Gmail and
+              Microsoft register a bare row (POST /api/accounts) — their live I/O
+              is operator/OAuth or P2 work. */}
+          <div className="space-y-3 rounded-sm border border-border bg-bg-panel p-4">
             <label className="flex flex-col gap-1">
               <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
-                Label (optional)
+                Provider
               </span>
-              <input
-                type="text"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="Consulting, Founder, Support, …"
-                className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-dim"
-              />
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as MailProviderKind)}
+                className="w-fit rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink"
+              >
+                {MAIL_PROVIDERS.map((p) => (
+                  <option key={p} value={p}>
+                    {PROVIDER_LABELS[p]}
+                  </option>
+                ))}
+              </select>
             </label>
-            <button
-              type="submit"
-              disabled={busy || email.trim().length === 0}
-              className="inline-flex items-center gap-1.5 rounded-sm bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? 'Connecting…' : 'Connect inbox'}
-            </button>
-          </form>
+
+            {provider === 'imap' ? (
+              <ImapConnectForm
+                endpoint="/api/accounts/imap"
+                showNextPrompt={false}
+                onSaved={() => {
+                  void refresh();
+                  setToast({ kind: 'success', text: 'Mailbox connected' });
+                }}
+              />
+            ) : (
+              <form onSubmit={onAdd} className="space-y-3">
+                <label className="flex min-w-[16rem] flex-col gap-1">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
+                    Email address
+                  </span>
+                  <input
+                    type="text"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="founder@startup.com"
+                    className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-dim"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
+                    Label (optional)
+                  </span>
+                  <input
+                    type="text"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    placeholder="Consulting, Founder, Support, …"
+                    className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-ink placeholder:text-ink-dim"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={busy || email.trim().length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-sm bg-accent-orange px-4 py-2 font-sans text-sm font-semibold text-bg-deep transition-colors hover:bg-accent-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy ? 'Connecting…' : 'Register inbox'}
+                </button>
+              </form>
+            )}
+          </div>
 
           {/* List */}
           <section>

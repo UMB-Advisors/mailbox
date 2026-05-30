@@ -22,6 +22,7 @@ import {
   Flame,
   Inbox,
   type LucideIcon,
+  Mailbox,
   MessageSquare,
   Send,
   Settings as SettingsIcon,
@@ -32,7 +33,13 @@ import {
 import { apiUrl } from '@/lib/api';
 
 export type FolderKey = 'queue' | 'priority' | 'approved' | 'sent' | 'rejected' | 'all';
-export type SurfaceSlug = 'chat' | 'classifications' | 'knowledge-base' | 'status' | 'settings';
+export type SurfaceSlug =
+  | 'chat'
+  | 'classifications'
+  | 'knowledge-base'
+  | 'inboxes'
+  | 'status'
+  | 'settings';
 export type SidebarActive =
   | { kind: 'folder'; folder: FolderKey }
   | { kind: 'surface'; surface: SurfaceSlug };
@@ -64,6 +71,8 @@ const SURFACES: SurfaceEntry[] = [
   { slug: 'chat', href: '/chat', label: 'Chat', icon: MessageSquare },
   { slug: 'classifications', href: '/classifications', label: 'Classifications', icon: Tags },
   { slug: 'knowledge-base', href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
+  // MBOX-366 registry + MBOX-357 IMAP connect. (No nav entry shipped with #199.)
+  { slug: 'inboxes', href: '/settings/accounts', label: 'Inboxes', icon: Mailbox },
   { slug: 'status', href: '/status', label: 'Status', icon: Wrench },
   { slug: 'settings', href: '/settings/persona', label: 'Settings', icon: SettingsIcon },
 ];
