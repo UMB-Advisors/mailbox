@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { type NextRequest, NextResponse } from 'next/server';
 import { parseQuery } from '@/lib/middleware/validate';
+import { getDefaultAccountId } from '@/lib/queries-accounts';
 import { getKbDocumentBySha256, insertKbDocument, listKbDocuments } from '@/lib/queries-kb';
 import { embedAndUpsertChunks, writeKbFile } from '@/lib/rag/kb-ingest';
 import { reconcileOnce } from '@/lib/rag/kb-reconciler';
@@ -102,10 +103,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const sha256 = createHash('sha256').update(buffer).digest('hex');
 
   try {
+    // MBOX-400 (MBOX-162 V7) — which inbox this document belongs to. Optional
+    // multipart field; falls back to the default account so single-account
+    // uploads (and the current UI, which doesn't yet send it) are unchanged.
+    // The account picker (KB-3 UI) will start sending it.
+    const accountIdRaw = form.get('account_id');
+    const parsedAccountId = accountIdRaw != null ? Number(accountIdRaw) : Number.NaN;
+    const accountId =
+      Number.isInteger(parsedAccountId) && parsedAccountId > 0
+        ? parsedAccountId
+        : await getDefaultAccountId();
+
     // Idempotency-by-content: re-upload of the same bytes returns the
-    // existing row. Operator-facing 200 with duplicate:true (not a 409 —
+    // existing row. Per-account (MBOX-400) — the same file can live in two
+    // inboxes. Operator-facing 200 with duplicate:true (not a 409 —
     // duplicate uploads are a normal "I clicked twice" UX, not an error).
-    const existing = await getKbDocumentBySha256(sha256);
+    const existing = await getKbDocumentBySha256(sha256, accountId);
     if (existing) {
       return NextResponse.json({
         ok: true,
@@ -121,6 +134,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const titleFromForm = (form.get('title') as string | null)?.trim();
     const doc = await insertKbDocument({
+      account_id: accountId,
       title: titleFromForm && titleFromForm.length > 0 ? titleFromForm : filename,
       filename,
       mime_type,

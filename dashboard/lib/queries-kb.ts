@@ -11,6 +11,7 @@ import type { KbDocStatus, KbDocument } from '@/lib/types';
 function toKbDocument(row: Record<string, unknown>): KbDocument {
   return {
     id: Number(row.id),
+    account_id: Number(row.account_id),
     title: String(row.title),
     filename: String(row.filename),
     mime_type: String(row.mime_type),
@@ -29,6 +30,9 @@ function toKbDocument(row: Record<string, unknown>): KbDocument {
 export interface ListKbOpts {
   status?: KbDocStatus;
   limit?: number;
+  // MBOX-400 (MBOX-162 V7) — scope the corpus listing to one inbox. Omitted →
+  // every account's documents (single-account default + the "all inboxes" view).
+  account_id?: number;
 }
 
 export async function listKbDocuments(opts: ListKbOpts = {}): Promise<KbDocument[]> {
@@ -37,6 +41,7 @@ export async function listKbDocuments(opts: ListKbOpts = {}): Promise<KbDocument
     .selectFrom('kb_documents')
     .select([
       'id',
+      'account_id',
       'title',
       'filename',
       'mime_type',
@@ -56,6 +61,9 @@ export async function listKbDocuments(opts: ListKbOpts = {}): Promise<KbDocument
   if (opts.status) {
     q = q.where('status', '=', opts.status);
   }
+  if (opts.account_id !== undefined) {
+    q = q.where('account_id', '=', opts.account_id);
+  }
 
   const rows = await q.execute();
   return rows.map(toKbDocument);
@@ -71,17 +79,30 @@ export async function getKbDocument(id: number): Promise<KbDocument | null> {
   return row ? toKbDocument(row as Record<string, unknown>) : null;
 }
 
-export async function getKbDocumentBySha256(sha256: string): Promise<KbDocument | null> {
+// MBOX-400 (MBOX-162 V7) — dedup is per-account. Migration 036 reshaped the
+// unique key from (sha256) to (account_id, sha256) so two inboxes can each hold
+// the same file; a global lookup would falsely report account B's upload as a
+// duplicate of account A's and skip inserting B's row. accountId scopes it.
+export async function getKbDocumentBySha256(
+  sha256: string,
+  accountId: number,
+): Promise<KbDocument | null> {
   const db = getKysely();
   const row = await db
     .selectFrom('kb_documents')
     .selectAll()
     .where('sha256', '=', sha256)
+    .where('account_id', '=', accountId)
     .executeTakeFirst();
   return row ? toKbDocument(row as Record<string, unknown>) : null;
 }
 
 export interface InsertKbDocumentInput {
+  // MBOX-400 (MBOX-162 V7) — which inbox owns this document. Written explicitly
+  // rather than leaning on the column DEFAULT so a 2nd account's uploads aren't
+  // silently misattributed to the default account; kb-ingest reads it back off
+  // the row to tag the chunk payloads (lib/rag/kb-ingest.ts).
+  account_id: number;
   title: string;
   filename: string;
   mime_type: string;
@@ -96,6 +117,7 @@ export async function insertKbDocument(input: InsertKbDocumentInput): Promise<Kb
   const row = await db
     .insertInto('kb_documents')
     .values({
+      account_id: input.account_id,
       title: input.title,
       filename: input.filename,
       mime_type: input.mime_type,

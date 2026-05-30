@@ -365,6 +365,9 @@ export interface SentHistory {
 
 export interface KbDocument {
   id: number;
+  // MBOX-400 (MBOX-162 V7) — owning inbox (mailbox.accounts.id). Lets the KB
+  // management UI group/scope documents per account on a multi-account box.
+  account_id: number;
   title: string;
   filename: string;
   mime_type: string;

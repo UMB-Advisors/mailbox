@@ -29,6 +29,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
+import { getDefaultAccountId } from '@/lib/queries-accounts';
 import {
   deleteKbDocument,
   getKbDocument,
@@ -120,6 +121,7 @@ async function main(): Promise<void> {
     check('writeKbFile creates the sha256-keyed file', exists, filePath);
 
     const doc = await insertKbDocument({
+      account_id: await getDefaultAccountId(),
       title: 'kb-smoke Returns Policy',
       filename: FIXTURE_FILENAME,
       mime_type: FIXTURE_MIME,
