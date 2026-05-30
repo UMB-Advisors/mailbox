@@ -33,6 +33,7 @@ export interface Accounts {
   is_default: Generated<boolean>;
   provider: Generated<string>;
   provider_config: Generated<Json>;
+  provider_secret_enc: string | null;
 }
 
 export interface AlertSends {

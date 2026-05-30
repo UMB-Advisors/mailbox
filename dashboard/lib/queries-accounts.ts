@@ -92,6 +92,70 @@ export interface DraftProviderContext {
   provider: MailProviderKind;
 }
 
+// MBOX-357 (P1 T6) — the migration-033 seed sentinel for an un-onboarded
+// appliance's default account. While the default account still carries this
+// placeholder, the IMAP connect ADOPTS it (claims the default) so the new IMAP
+// account becomes the one every account_id-defaulted pipeline row resolves to.
+const SENTINEL_DEFAULT_EMAIL = 'primary@appliance.local';
+
+export interface CreateImapAccountInput {
+  email: string;
+  display_label: string | null;
+  // Non-secret connection params persisted to accounts.provider_config.
+  provider_config: Record<string, unknown>;
+  // AES-256-GCM-encrypted app-password (lib/oauth/google.ts:encryptToken).
+  secret_enc: string;
+}
+
+// Create (or adopt) the IMAP account. On a fresh appliance the migration-033
+// default account is still the 'primary@appliance.local' sentinel — we claim it
+// in place (stays is_default) so ingest/queue/persona resolve to it. Once a real
+// account exists, a second IMAP account is inserted non-default (multi-account).
+export async function createImapAccount(
+  input: CreateImapAccountInput,
+): Promise<{ id: number; adopted: boolean }> {
+  const db = getKysely();
+  // jsonb write idiom used across the codebase (queries-persona, draft-prompt):
+  // bind JSON text + cast ::jsonb inline in the set/values clause.
+  const cfgJson = JSON.stringify(input.provider_config);
+
+  const def = await db
+    .selectFrom('accounts')
+    .select(['id', 'email_address'])
+    .where('is_default', '=', true)
+    .executeTakeFirst();
+
+  if (def && def.email_address === SENTINEL_DEFAULT_EMAIL) {
+    const row = await db
+      .updateTable('accounts')
+      .set({
+        email_address: input.email,
+        display_label: input.display_label,
+        provider: 'imap',
+        provider_config: sql`${cfgJson}::jsonb`,
+        provider_secret_enc: input.secret_enc,
+      })
+      .where('id', '=', def.id)
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    return { id: row.id, adopted: true };
+  }
+
+  const row = await db
+    .insertInto('accounts')
+    .values({
+      email_address: input.email,
+      display_label: input.display_label,
+      is_default: false,
+      provider: 'imap',
+      provider_config: sql`${cfgJson}::jsonb`,
+      provider_secret_enc: input.secret_enc,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return { id: row.id, adopted: false };
+}
+
 export async function getDraftProviderContext(
   draftId: number,
 ): Promise<DraftProviderContext | null> {

@@ -1381,6 +1381,13 @@ CREATE TABLE IF NOT EXISTS mailbox.mail_cooldowns (
 );
 ALTER TABLE mailbox.drafts ADD COLUMN IF NOT EXISTS provider_message_id text;
 
+-- ── MBOX-357 (migration 040): IMAP/SMTP credential at rest ──────────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Nullable; holds the
+-- AES-256-GCM-encrypted IMAP/SMTP app-password (iv.tag.ciphertext via
+-- lib/oauth/google.ts:encryptToken). Non-secret params live in provider_config.
+-- Gmail rows leave it NULL. See dashboard/migrations/040-add-account-provider-secret-*.
+ALTER TABLE mailbox.accounts ADD COLUMN IF NOT EXISTS provider_secret_enc text;
+
 --
 -- PostgreSQL database dump complete
 --
