@@ -218,6 +218,11 @@ services:
       # provider; Gmail accounts keep using N8N_WEBHOOK_URL. Only consumed when
       # an IMAP account exists — harmless on a Gmail-only appliance.
       N8N_IMAP_WEBHOOK_URL: ${N8N_IMAP_WEBHOOK_URL:-http://n8n:5678/webhook/mailbox-imap-send}
+      # MBOX-369 — per-row Gmail queue actions (archive/delete/mark-read) fan out
+      # to the MailBOX-MsgAction workflow. Snooze is local-only (no Gmail snooze
+      # API) and does NOT use this. lib/n8n.ts:triggerMsgActionWebhook falls back
+      # to this same default if unset; pinned here for parity with N8N_WEBHOOK_URL.
+      N8N_MSG_ACTION_URL: ${N8N_MSG_ACTION_URL:-http://n8n:5678/webhook/mailbox-msg-action}
       NODE_ENV: production
       PORT: "3001"
       # STAQPRO-148 — KB upload original-bytes storage. Sha256-keyed file

@@ -6,6 +6,65 @@ export interface WebhookResult {
   error?: string;
 }
 
+// MBOX-369 — the three Gmail write-through row actions (snooze is local-only,
+// never fans out to Gmail). Mirrors the Gmail API mapping in the MBOX-369 PRD:
+//   archive   → messages.modify removeLabelIds [INBOX]
+//   delete    → messages.trash (recoverable, NOT permanent delete)
+//   mark_read → messages.modify removeLabelIds [UNREAD]
+export type GmailMsgAction = 'archive' | 'delete' | 'mark_read';
+
+// Fire the MailBOX-MsgAction n8n workflow for a single inbox message. Account-
+// scoped (MBOX-162): n8n resolves the owning account's Gmail credential from
+// account_id. Same empty-/non-JSON-body tolerance as triggerSendWebhook — an
+// n8n node that throws can return an empty 200, which we must not treat as JSON.
+// NOTE: Gmail-only today (the n8n MailBOX-MsgAction workflow calls the Gmail
+// REST API). IMAP accounts (MBOX-357) have no equivalent label/trash op yet — a
+// per-provider msg-action follow-up; callers should gate on the account being
+// gmail until then.
+export async function triggerMsgActionWebhook(
+  action: GmailMsgAction,
+  accountId: number,
+  messageId: string,
+): Promise<WebhookResult> {
+  const url = process.env.N8N_MSG_ACTION_URL ?? 'http://n8n:5678/webhook/mailbox-msg-action';
+  if (!url) {
+    return { success: false, error: 'N8N_MSG_ACTION_URL not configured' };
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, account_id: accountId, message_id: messageId }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      return { success: false, error: `Webhook returned ${res.status}: ${await res.text()}` };
+    }
+    const text = await res.text();
+    if (!text) {
+      return {
+        success: false,
+        error:
+          'n8n msg-action webhook returned empty body — likely an upstream Gmail ' +
+          'modify/trash failure. Check the latest errored MailBOX-MsgAction execution_data.',
+      };
+    }
+    try {
+      return { success: true, response: JSON.parse(text) };
+    } catch {
+      return {
+        success: false,
+        error: `n8n msg-action webhook returned non-JSON body (truncated): ${text.slice(0, 200)}`,
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Webhook call failed',
+    };
+  }
+}
+
 // MBOX-357 (P1 T5) — per-provider send webhooks (DR-56 Option A: one n8n
 // workflow per transport). Gmail → MailBOX-Send (N8N_WEBHOOK_URL, unchanged);
 // IMAP → MailBOX-Imap-Send (N8N_IMAP_WEBHOOK_URL). The provider comes from the

@@ -266,6 +266,15 @@ export interface InboxMessage {
   model: string | null;
   created_at: string;
   draft_id: number | null;
+  // MBOX-369 — per-row Gmail action disposition. archived_at/deleted_at/
+  // snooze_until exclude the row from the active queue (snooze resurfaces when
+  // it passes); is_read clears the unread dot but keeps the row; gmail_action_state
+  // tracks the archive/delete/mark-read write-through to Gmail ('pending'|'ok'|'failed').
+  archived_at: string | null;
+  deleted_at: string | null;
+  snooze_until: string | null;
+  is_read: boolean;
+  gmail_action_state: string | null;
 }
 
 // ── Thread history types (conversation context in DraftDetail) ──────────────

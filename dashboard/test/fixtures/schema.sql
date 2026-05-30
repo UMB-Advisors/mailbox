@@ -1412,6 +1412,25 @@ CREATE TABLE IF NOT EXISTS mailbox.sender_classification_overrides (
 CREATE UNIQUE INDEX IF NOT EXISTS sender_classification_overrides_email_uidx
   ON mailbox.sender_classification_overrides(email);
 
+-- ── MBOX-369 (migration 042): per-row Gmail queue actions ───────────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Disposition state on
+-- inbox_messages backing archive / delete / mark-read / snooze row actions.
+-- See dashboard/migrations/042-add-inbox-message-actions-v1.
+ALTER TABLE mailbox.inbox_messages
+  ADD COLUMN IF NOT EXISTS archived_at        TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS deleted_at         TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS snooze_until       TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS is_read            BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS gmail_action_state TEXT NULL;
+ALTER TABLE mailbox.inbox_messages
+  DROP CONSTRAINT IF EXISTS inbox_messages_gmail_action_state_check;
+ALTER TABLE mailbox.inbox_messages
+  ADD CONSTRAINT inbox_messages_gmail_action_state_check
+  CHECK (gmail_action_state IS NULL OR gmail_action_state IN ('pending', 'ok', 'failed'));
+CREATE INDEX IF NOT EXISTS inbox_messages_snooze_until_idx
+  ON mailbox.inbox_messages (snooze_until)
+  WHERE snooze_until IS NOT NULL;
+
 --
 -- PostgreSQL database dump complete
 --

@@ -36,6 +36,8 @@ export async function listDrafts(
     .innerJoin('accounts as a', 'a.id', 'd.account_id')
     .where('d.status', 'in', statuses)
     .$if(accountId !== undefined, (qb) => qb.where('d.account_id', '=', accountId as number))
+    // MBOX-369 — exclude rows disposed of by a per-row Gmail action.
+    .where((eb) => eb(activeQueuePredicate(), '=', true))
     .selectAll('d')
     .select((eb) =>
       jsonBuildObject({
@@ -54,6 +56,11 @@ export async function listDrafts(
         model: eb.ref('m.model'),
         created_at: eb.ref('m.created_at'),
         draft_id: eb.ref('m.draft_id'),
+        archived_at: eb.ref('m.archived_at'),
+        deleted_at: eb.ref('m.deleted_at'),
+        snooze_until: eb.ref('m.snooze_until'),
+        is_read: eb.ref('m.is_read'),
+        gmail_action_state: eb.ref('m.gmail_action_state'),
       }).as('message'),
     )
     .select((eb) =>
@@ -103,6 +110,11 @@ export async function getDraft(id: number): Promise<DraftWithMessage | null> {
         model: eb.ref('m.model'),
         created_at: eb.ref('m.created_at'),
         draft_id: eb.ref('m.draft_id'),
+        archived_at: eb.ref('m.archived_at'),
+        deleted_at: eb.ref('m.deleted_at'),
+        snooze_until: eb.ref('m.snooze_until'),
+        is_read: eb.ref('m.is_read'),
+        gmail_action_state: eb.ref('m.gmail_action_state'),
       }).as('message'),
     )
     .executeTakeFirst();
@@ -155,6 +167,20 @@ function vipMatchExpr(): RawBuilder<SqlBool> {
       v.kind = 'domain'
       AND lower(split_part(d.from_addr, '@', 2)) = v.email_or_domain
     )
+  )`;
+}
+
+// MBOX-369 — boolean SQL fragment: is this row still "live" in the queue, i.e.
+// NOT disposed of by a per-row Gmail action? Archived or trashed rows are
+// hard-hidden; a snoozed row is hidden until snooze_until passes (then it
+// resurfaces). is_read is deliberately NOT a filter here — marking read clears
+// the unread dot but keeps the row in the queue (per MBOX-369 decision). Joined
+// alias `m` (inbox_messages) must be in scope at the call site.
+function activeQueuePredicate(): RawBuilder<SqlBool> {
+  return sql<SqlBool>`(
+    m.archived_at IS NULL
+    AND m.deleted_at IS NULL
+    AND (m.snooze_until IS NULL OR m.snooze_until <= NOW())
   )`;
 }
 
@@ -233,6 +259,8 @@ export async function getQueueWithUrgency(
   if (accountId !== undefined) {
     query = query.where('d.account_id', '=', accountId);
   }
+  // MBOX-369 — exclude disposed rows from the urgency / priority queue too.
+  query = query.where((eb) => eb(activeQueuePredicate(), '=', true));
   if (urgentOnly) {
     query = query.where((eb) =>
       eb.or([
@@ -269,6 +297,11 @@ export async function getQueueWithUrgency(
         model: eb.ref('m.model'),
         created_at: eb.ref('m.created_at'),
         draft_id: eb.ref('m.draft_id'),
+        archived_at: eb.ref('m.archived_at'),
+        deleted_at: eb.ref('m.deleted_at'),
+        snooze_until: eb.ref('m.snooze_until'),
+        is_read: eb.ref('m.is_read'),
+        gmail_action_state: eb.ref('m.gmail_action_state'),
       }).as('message'),
     )
     .select((eb) =>
@@ -332,7 +365,11 @@ export async function countUrgentDrafts(
   const db = getKysely();
   const row = await db
     .selectFrom('drafts as d')
+    // MBOX-369 — join inbox_messages so disposed rows (archived/trashed/snoozed)
+    // don't inflate the urgent badge count.
+    .innerJoin('inbox_messages as m', 'd.inbox_message_id', 'm.id')
     .where('d.status', 'in', statuses)
+    .where((eb) => eb(activeQueuePredicate(), '=', true))
     .where((eb) =>
       eb.or([
         eb(sql<boolean>`(d.classification_category = 'escalate')`, '=', true),

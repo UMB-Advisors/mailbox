@@ -95,6 +95,10 @@ export function QueueClient({
   const [cooldown, setCooldown] = useState<CooldownState>(initialCooldown);
   const [removed, setRemoved] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<Busy>(null);
+  // MBOX-369 — per-row inbox action (archive/delete/mark-read/snooze) in flight,
+  // keyed on draft.id. Separate from `busy` (which tracks approve/edit/reject)
+  // so a row action doesn't disable the detail-pane ActionButtons and vice versa.
+  const [rowBusyId, setRowBusyId] = useState<number | null>(null);
   // P2 (MBOX-162) — inline edit mode for the selected draft (replaces the
   // EditModal overlay). Controlled here so the `e` keyboard shortcut can
   // toggle it; reset whenever the selected draft changes (see effect below).
@@ -352,6 +356,64 @@ export function QueueClient({
       });
     } finally {
       setBusy(null);
+    }
+  }
+
+  // MBOX-369 — per-row Gmail action. Keyed on the INBOX MESSAGE id
+  // (draft.message.id), not draft.id — the routes live under
+  // /api/inbox-messages/[id]/*. archive/delete/snooze remove the row from the
+  // queue (optimistic + auto-advance, mirroring fireAction); mark-read keeps the
+  // row and just clears the unread state locally. A soft `gmail_synced:false`
+  // from the server (local applied, Gmail mirror failed) surfaces as a warning,
+  // not an error — the row already left the queue.
+  async function fireInboxAction(
+    kind: 'archive' | 'delete' | 'mark-read' | 'snooze',
+    draft: DraftWithMessage,
+    body?: object,
+  ) {
+    setRowBusyId(draft.id);
+    try {
+      const res = await fetch(apiUrl(`/api/inbox-messages/${draft.message.id}/${kind}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body ?? {}),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `${kind} failed (${res.status})`);
+      const syncWarn = data?.gmail_synced === false ? ' (Gmail sync pending)' : '';
+
+      if (kind === 'mark-read') {
+        setDrafts((list) =>
+          list.map((d) =>
+            d.id === draft.id ? { ...d, message: { ...d.message, is_read: true } } : d,
+          ),
+        );
+        setToast({ kind: 'success', text: `Marked read${syncWarn}` });
+      } else {
+        // Optimistic remove + auto-advance — same snapshot dance as fireAction.
+        const oldVisible = mode === 'active' ? drafts.filter((d) => !removed.has(d.id)) : drafts;
+        const idx = oldVisible.findIndex((d) => d.id === draft.id);
+        setRemoved((s) => {
+          const next = new Set(s);
+          next.add(draft.id);
+          return next;
+        });
+        if (selectedId === draft.id) {
+          const newVisible = oldVisible.filter((_, i) => i !== idx);
+          const next = newVisible[idx] ?? newVisible[idx - 1] ?? null;
+          setSelectedId(next?.id ?? null);
+        }
+        const label = kind === 'archive' ? 'Archived' : kind === 'delete' ? 'Deleted' : 'Snoozed';
+        setToast({ kind: 'success', text: `${label}${syncWarn}` });
+      }
+      fetchData(true);
+    } catch (err) {
+      setToast({
+        kind: 'error',
+        text: err instanceof Error ? err.message : `${kind} failed`,
+      });
+    } finally {
+      setRowBusyId(null);
     }
   }
 
@@ -835,6 +897,16 @@ export function QueueClient({
                     setSelectedId(draft.id);
                     setMobileDetailOpen(true);
                   }}
+                  {...(mode === 'active'
+                    ? {
+                        actionsBusy: rowBusyId === draft.id,
+                        onArchive: () => fireInboxAction('archive', draft),
+                        onDelete: () => fireInboxAction('delete', draft),
+                        onMarkRead: () => fireInboxAction('mark-read', draft),
+                        onSnooze: (untilISO: string) =>
+                          fireInboxAction('snooze', draft, { until: untilISO }),
+                      }
+                    : {})}
                 />
               </li>
             ))}
