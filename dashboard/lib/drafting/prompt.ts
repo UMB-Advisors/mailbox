@@ -59,6 +59,13 @@ export interface DraftPromptInput {
   // lines reach here they've already passed the gate, so this is a pure render
   // slot. Empty → no calendar block (graceful degrade to no-calendar prompt).
   calendar_snapshot?: ReadonlyArray<string>;
+  // MBOX-162 P4 follow-up — operator self-serve scheduling URL from
+  // mailbox.operator_settings.booking_link. When set, the drafter offers it
+  // verbatim on scheduling asks (see bookingLinkSystemBlock). Empty/undefined →
+  // no scheduling-link instruction (every non-scheduling draft is unaffected).
+  // It's a public booking page, intended to be shared, so it's egress-safe on
+  // the cloud route.
+  booking_link?: string;
 }
 
 // D-45 egress allowlist: when the assembled prompt is sent to a non-local
@@ -272,11 +279,31 @@ export function buildUserPrompt(input: DraftPromptInput): string {
     .join('\n');
 }
 
+// MBOX-162 P4 follow-up — appended to the per-operator system prompt when a
+// booking link is configured. Behavioral rule (not per-message), so it lives in
+// the system message: it persists across the redraft loop too, since
+// assembleRedraftMessages reuses assemblePrompt. Empty/whitespace → '' (no
+// block) so a fresh appliance with no link set is byte-identical to before.
+export function bookingLinkSystemBlock(bookingLink?: string): string {
+  const url = (bookingLink ?? '').trim();
+  if (!url) return '';
+  return [
+    '',
+    'SCHEDULING LINK — the operator has a self-serve booking page. If (and only',
+    'if) the sender is asking to set up a call, demo, or meeting, offer this link',
+    `and paste the URL exactly as written, unmodified: ${url}`,
+    'Do not include it in replies that are not about scheduling.',
+  ].join('\n');
+}
+
 // Assemble the final messages payload. This is the function that crosses the
 // egress boundary (D-45) — its return type defines what's allowed to leave.
 export function assemblePrompt(input: DraftPromptInput): AssembledPrompt {
   const messages: ReadonlyArray<ChatMessage> = [
-    { role: 'system', content: buildSystemPrompt(input.persona) },
+    {
+      role: 'system',
+      content: buildSystemPrompt(input.persona) + bookingLinkSystemBlock(input.booking_link),
+    },
     { role: 'user', content: buildUserPrompt(input) },
   ];
   // MBOX-120 — attach a GBNF grammar only for constrained categories when the

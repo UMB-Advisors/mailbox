@@ -14,6 +14,7 @@ import { getPersonaContext } from '@/lib/drafting/persona';
 import { assembleRedraftMessages } from '@/lib/drafting/redraft';
 import { stripQuotedAndSignature } from '@/lib/drafting/strip-quoting';
 import { parseJson } from '@/lib/middleware/validate';
+import { getOperatorSettings } from '@/lib/queries-operator-settings';
 import { draftRedraftBodySchema } from '@/lib/schemas/internal';
 
 // POST /api/internal/draft-redraft — P3 (MBOX-162) operator redraft-with-prompt.
@@ -82,7 +83,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const persona = await getPersonaContext(row.account_id);
+  // MBOX-162 P4 follow-up — operator_settings (singleton) for the booking_link;
+  // read in parallel with persona so the redraft carries the same scheduling-link
+  // instruction the initial draft did.
+  const [persona, operatorSettings] = await Promise.all([
+    getPersonaContext(row.account_id),
+    getOperatorSettings(),
+  ]);
   const strippedInbound = stripQuotedAndSignature(row.body_text ?? '');
 
   const messages = assembleRedraftMessages({
@@ -94,6 +101,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       category,
       confidence: row.classification_confidence ?? 0,
       persona,
+      booking_link: operatorSettings.booking_link,
     },
     current_body,
     instruction,
