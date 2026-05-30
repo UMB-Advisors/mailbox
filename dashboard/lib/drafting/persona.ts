@@ -27,7 +27,37 @@ export interface PersonaContext {
    * fall back to a generic "small business operator" framing.
    */
   business_description: string;
+
+  // --- MBOX-162 P5a (Tuning · Style tab) ---
+  // Operator-tunable voice knobs, set via the /settings/tuning Style tab and
+  // stored as plain keys in persona.statistical_markers. Each is "unset" when
+  // empty ('' or []) and contributes NO system-prompt line in that case, so a
+  // fresh appliance — or one tuned only via the legacy persona JSON editor —
+  // produces a byte-identical prompt to pre-P5a. Consumed by buildSystemPrompt's
+  // voiceStyleLines (lib/drafting/prompt.ts), mirroring the bookingLinkSystemBlock
+  // append-when-set discipline.
+  //
+  // Optional on the type: resolvePersonaContext ALWAYS populates them (so the
+  // real drafting path is fully specified), but they stay `?` so the many
+  // hand-built PersonaContext fixtures predating P5a — and any other caller that
+  // doesn't care about voice knobs — remain valid without churn. Consumers treat
+  // absent === unset.
+
+  /** Preferred sentence length: '' (auto) | 'short' | 'medium' | 'long'. */
+  sentence_length_pref?: '' | 'short' | 'medium' | 'long';
+  /** Greeting template, e.g. "Hi {firstName}," — '' lets the model pick. */
+  greeting_pattern?: string;
+  /** Emoji policy: '' (auto) | 'never' | 'sparingly' | 'match_customer'. */
+  emoji_policy?: '' | 'never' | 'sparingly' | 'match_customer';
+  /** Domain terms the drafter may use verbatim. Empty = no allowlist line. */
+  jargon_allowlist?: string[];
 }
+
+// Whitelisted enum values for the two constrained Style markers. Anything not
+// in the set resolves to '' (unset) so a malformed marker can never inject a
+// junk prompt line.
+const SENTENCE_LENGTHS = ['short', 'medium', 'long'] as const;
+const EMOJI_POLICIES = ['never', 'sparingly', 'match_customer'] as const;
 
 // Industry-neutral hardcoded fallback (Phase 1 of the CPG-scrub, 2026-05-08).
 // Pre-2026-05-08 the FALLBACK was Heron Labs / small-batch CPG specific —
@@ -42,6 +72,11 @@ const FALLBACK: PersonaContext = {
   operator_first_name: 'the operator',
   operator_brand: "the operator's business",
   business_description: '',
+  // Style knobs default to "unset" — they add no prompt line until tuned.
+  sentence_length_pref: '',
+  greeting_pattern: '',
+  emoji_policy: '',
+  jargon_allowlist: [],
 };
 
 // MBOX-352 (MBOX-162 V2) — persona is now resolved per account. `accountId`
@@ -66,6 +101,12 @@ export function resolvePersonaContext(markers: Record<string, unknown>): Persona
     operator_first_name: stringOr(markers.operator_first_name, FALLBACK.operator_first_name),
     operator_brand: stringOr(markers.operator_brand, FALLBACK.operator_brand),
     business_description: stringOr(markers.business_description, FALLBACK.business_description),
+    // Style knobs (MBOX-162 P5a) — no extraction-derived fallback; they're pure
+    // operator overrides, so an absent/invalid marker resolves to '' / [] (unset).
+    sentence_length_pref: enumOr(markers.sentence_length_pref, SENTENCE_LENGTHS),
+    greeting_pattern: stringOr(markers.greeting_pattern, ''),
+    emoji_policy: enumOr(markers.emoji_policy, EMOJI_POLICIES),
+    jargon_allowlist: stringArrayOr(markers.jargon_allowlist),
   };
 }
 
@@ -95,4 +136,21 @@ function firstNonEmpty(v: unknown): string | null {
     if (typeof item === 'string' && item.trim().length > 0) return item;
   }
   return null;
+}
+
+// Resolve a marker against a whitelist of allowed values. Returns the matched
+// value, or '' (unset) for anything not in the set — so a malformed or stale
+// marker degrades to "no prompt line" rather than injecting junk.
+function enumOr<T extends string>(v: unknown, allowed: readonly T[]): T | '' {
+  return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : '';
+}
+
+// Resolve a marker to a clean string[] — trims, drops empties, ignores non-string
+// items. Returns [] (unset) for anything that isn't an array.
+function stringArrayOr(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }

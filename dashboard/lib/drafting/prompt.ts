@@ -112,6 +112,10 @@ export function buildSystemPrompt(persona: PersonaContext): string {
   return [
     `You are an email assistant for ${businessFraming}.`,
     `You draft replies in their voice: ${tone}.`,
+    // MBOX-162 P5a — operator-tuned Style knobs. Each line only appears when the
+    // operator set that knob in the /settings/tuning Style tab; an untuned
+    // persona spreads nothing here, so output stays byte-identical to pre-P5a.
+    ...voiceStyleLines(persona),
     `You are NOT a chatbot. The operator reviews every draft before it sends, so be specific, useful, and short.`,
     `Sign off with: ${signoff}`,
     `Never mention that you are an AI.`,
@@ -134,6 +138,55 @@ export function buildSystemPrompt(persona: PersonaContext): string {
     'If the customer gave you the fact in their email (e.g. "3-week lead time works for us"),',
     'restate it instead of using a placeholder — that is confirmation, not invention.',
   ].join('\n');
+}
+
+// MBOX-162 P5a (Tuning · Style tab) — translate the operator's voice knobs
+// (resolved into PersonaContext from persona.statistical_markers) into concrete
+// system-prompt directives. Returns one line per SET knob and nothing for unset
+// ones, so an untuned persona contributes zero lines and the prompt is
+// byte-identical to pre-P5a. Mirrors bookingLinkSystemBlock's append-when-set
+// discipline. The 4B local model follows concrete instructions far better than
+// abstract ones, so each line is imperative and specific.
+const SENTENCE_LENGTH_DIRECTIVE: Record<'short' | 'medium' | 'long', string> = {
+  short: 'Keep sentences short — roughly 5–12 words. Favor brevity over completeness.',
+  medium: 'Use medium-length sentences — roughly 12–22 words.',
+  long: 'Fuller sentences are fine — 22+ words when they read naturally.',
+};
+const EMOJI_DIRECTIVE: Record<'never' | 'sparingly' | 'match_customer', string> = {
+  never: 'Do not use emoji.',
+  sparingly: 'Use emoji sparingly — at most one, and only when it fits the tone.',
+  match_customer:
+    "Mirror the customer's emoji usage: use them only if they did, and keep it light.",
+};
+
+export function voiceStyleLines(persona: PersonaContext): string[] {
+  const lines: string[] = [];
+
+  if (persona.sentence_length_pref) {
+    lines.push(SENTENCE_LENGTH_DIRECTIVE[persona.sentence_length_pref]);
+  }
+
+  const greeting = persona.greeting_pattern?.trim();
+  if (greeting) {
+    // {firstName} is the sender's first name; tell the model how to fill it so
+    // it doesn't paste the literal placeholder.
+    lines.push(
+      `Open with a greeting in this style: "${greeting}" — replace {firstName} with the sender's first name, or drop it if unknown.`,
+    );
+  }
+
+  if (persona.emoji_policy) {
+    lines.push(EMOJI_DIRECTIVE[persona.emoji_policy]);
+  }
+
+  const jargon = (persona.jargon_allowlist ?? []).filter((t) => t.trim().length > 0);
+  if (jargon.length > 0) {
+    lines.push(
+      `These domain terms are part of the operator's vocabulary — use them naturally when relevant: ${jargon.join(', ')}.`,
+    );
+  }
+
+  return lines;
 }
 
 function categoryHint(category: Category, confidence: number): string {
