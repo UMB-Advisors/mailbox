@@ -1,7 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { normalizeClassifierOutput } from '@/lib/classification/normalize';
-import { routeFor } from '@/lib/classification/prompt';
-import { getSenderOverride } from '@/lib/classification/sender-override';
+import {
+  isHeuristicSpamDrop,
+  isNeverSpamSender,
+  neverSpamSurface,
+} from '@/lib/classification/sender-allowlist';
 import { operatorOwnsThread } from '@/lib/classification/thread-ownership';
 import { parseJson } from '@/lib/middleware/validate';
 import { classificationNormalizeBodySchema } from '@/lib/schemas/internal';
@@ -24,12 +27,13 @@ export const dynamic = 'force-dynamic';
 // n8n Normalize node jsonBody needs a `thread_id` line for this to fire in
 // production (see deploy note in SUMMARY).
 //
-// MBOX-368 — BEFORE any heuristic, consult the operator sender-override table
-// (mailbox.sender_classification_overrides). A sender the operator reclassified
-// from /classifications is authoritative: force its category and return
-// immediately, skipping the LLM verdict, the sync preclass chain (noreply /
-// self-loop / operator-domain), and the owns-thread guard. raw_output (the
-// model's original JSON) is preserved on the returned row for forensics.
+// MBOX-370 — never-spam allowlist. After the sync verdict, if it's a heuristic
+// spam drop (model or noreply heuristic — NOT a self-loop / owns-thread, which
+// are about the conversation) AND the operator allowlisted this sender via
+// /classifications, surface it (unknown→cloud) instead of dropping, so a sender
+// they care about is never silently binned. The DB lookup runs ONLY on the
+// spam path, so the common non-spam classify stays query-free. raw_output (the
+// model's original JSON) is preserved for forensics.
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, classificationNormalizeBodySchema);
   if (!b.ok) return b.response;
@@ -38,24 +42,22 @@ export async function POST(req: NextRequest) {
   try {
     const result = normalizeClassifierOutput(raw, { from, to });
 
-    // MBOX-368: operator sender-override wins over everything. One indexed
-    // lookup on the exact (lowercased) sender address; fail-open inside
-    // getSenderOverride so a DB hiccup degrades to the normal classify path.
-    const senderHit = await getSenderOverride(from);
-    if (senderHit) {
-      const forced = {
+    // MBOX-370: never-spam surface. Gate the DB lookup behind the spam-drop
+    // check so non-spam classifies pay nothing; isNeverSpamSender fails open.
+    if (
+      isHeuristicSpamDrop(result.category, result.preclass_source) &&
+      (await isNeverSpamSender(from))
+    ) {
+      const surfaced = {
         ...result,
-        category: senderHit.category,
-        confidence: 1,
+        ...neverSpamSurface(result.confidence),
         preclass_applied: true,
-        preclass_source: 'sender-override' as const,
         suppression_reason: null,
-        route: routeFor(senderHit.category, 1),
       };
       console.log(
-        `[classify] sender-override from=${from ?? ''} forced=${senderHit.category} route=${forced.route}`,
+        `[classify] never-spam surfaced from=${from ?? ''} was=spam_marketing -> ${surfaced.category}/${surfaced.route}`,
       );
-      return NextResponse.json(forced);
+      return NextResponse.json(surfaced);
     }
 
     // UMB-154: async thread-ownership check. Short-circuit if already dropped

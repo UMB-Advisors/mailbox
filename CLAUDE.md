@@ -197,12 +197,12 @@ De-dupe lives in the DB constraint (UNIQUE on `sent_on`, migration 029), not app
 - `LOCAL_CATEGORIES` (`reorder`, `scheduling`, `follow_up`, `internal`, `inquiry`) → local Qwen3
 - `CLOUD_CATEGORIES` (`escalate`, `unknown`) → Ollama Cloud (`gpt-oss:120b`; `OLLAMA_CLOUD_MODEL` env override)
 
-### Operator sender-override (MBOX-368, migration 041)
+### Operator never-spam allowlist / "reclassify automatically" (MBOX-370, migrations 041→042)
 
-`mailbox.sender_classification_overrides` (one row per sender email → forced category) is the operator's reclassify-by-sender rule, set from `/dashboard/classifications`. Two halves:
+`mailbox.sender_never_spam` (one row per sender email) is the operator's "this sender isn't spam" allowlist, set from `/dashboard/classifications` ("↻ reclassify" action). It is NOT a force-to-category rule — MBOX-368 shipped that (migration 041) and it was reverted by migration 042 after operator feedback: a sender wrongly dropped as spam can send any non-spam type later, so the classifier must decide per email. Two halves:
 
-- **Future** — highest-precedence preclass in `app/api/internal/classification-normalize/route.ts` (`getSenderOverride`, before noreply/self-loop/operator-domain and the owns-thread guard). An override forces the category for all future inbound from that exact (lowercased) address. Kill switch `SENDER_OVERRIDE_PRECLASS_DISABLE=1`; fail-open on DB error. **No n8n change** — the Normalize node already sends `from`.
-- **Past** — `POST /api/classifications/reclassify-sender` (`lib/queries-sender-overrides.ts:reclassifyBySender`) relabels every existing `inbox_messages` from the sender + appends a `classification_log` row per message (`model_version='operator-sender-override'`) + relabels existing drafts, all in one txn. **Relabel only — no drafts generated for historical dropped (spam) mail.** Extends MBOX-123's draft-id-keyed single-row override, which couldn't reach dropped `spam_marketing` rows.
+- **Future** — guard in `app/api/internal/classification-normalize/route.ts` (`lib/classification/sender-allowlist.ts`). When a verdict would be a heuristic `spam_marketing` drop (from the MODEL or the noreply preclass — NOT self-loop / owns-thread) AND the sender is allowlisted, it's surfaced to `unknown`→cloud (`preclass_source='sender-never-spam'`) instead of dropped. DB lookup runs only on the spam path; fail-open; kill switch `SENDER_NEVER_SPAM_DISABLE=1`. **No n8n change** — the Normalize node already sends `from`. Non-spam verdicts pass through to their real category and draft normally.
+- **Past** — `POST /api/classifications/reclassify-sender { email, reason? }` (`lib/queries-sender-allowlist.ts:reclassifyBySender`) upserts the allowlist row + re-runs the REAL classifier (`classifyOne`) on the sender's existing emails (cap 50 newest), writing one `classification_log` row per message (the migration-021 trigger syncs `inbox_messages`). The same never-spam guard surfaces any spam verdict to `unknown`. **Relabel only — NO drafts generated for historical dropped mail** (operator decision 2026-05-30; future inbound drafts normally via the live pipeline).
 
 ### RAG retrieval (STAQPRO-191)
 
