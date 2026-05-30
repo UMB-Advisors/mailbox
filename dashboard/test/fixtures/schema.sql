@@ -1388,16 +1388,16 @@ ALTER TABLE mailbox.drafts ADD COLUMN IF NOT EXISTS provider_message_id text;
 -- Gmail rows leave it NULL. See dashboard/migrations/040-add-account-provider-secret-*.
 ALTER TABLE mailbox.accounts ADD COLUMN IF NOT EXISTS provider_secret_enc text;
 
--- ── MBOX-370 (migrations 041→042): per-sender never-spam allowlist ──────────
+-- ── MBOX-370 (migrations 041→043): per-sender never-spam allowlist ──────────
 -- Hand-applied to fixture pending next pg_dump refresh. One row per sender email
 -- the operator chose to "reclassify automatically" from /classifications. It is
--- NOT a force-to-category rule (that was MBOX-368/041, reverted by 042) — it only
+-- NOT a force-to-category rule (that was MBOX-368/041, reverted by 043) — it only
 -- means "never let this sender be dropped as spam." The classifier
 -- (lib/classification/sender-allowlist.ts, consulted by the classification-
 -- normalize route + classifyOne) overrides a spam_marketing verdict (model or
 -- noreply heuristic) to unknown→cloud for these senders, surfacing instead of
 -- dropping. Global (no account_id) — single live appliance / single operator.
--- See migrations 041-create-sender-classification-overrides + 042-rename-*.
+-- See migrations 041-create-sender-classification-overrides + 043-rename-*.
 CREATE TABLE IF NOT EXISTS mailbox.sender_never_spam (
   id          BIGSERIAL PRIMARY KEY,
   email       TEXT NOT NULL,
