@@ -143,30 +143,41 @@ function applyPreclass(result: ResultWithoutRoute, ctx: PreclassContext): Classi
   // self-loop isn't silently promoted to `internal → local → draft`.
   //
   // operator-domain last: from=operator, to=operator → legit internal mail.
-  const noReplyHit = precheckNoReply(ctx);
-  if (noReplyHit) {
-    return {
-      ...result,
-      category: noReplyHit.category,
-      confidence: noReplyHit.confidence,
-      preclass_applied: true,
-      preclass_source: noReplyHit.source,
-      suppression_reason: null,
-      route: routeFor(noReplyHit.category, noReplyHit.confidence),
-    };
-  }
+  //
+  // MBOX-370 never-spam: when the sender is on the operator's never-spam
+  // allowlist, the heuristic SUPPRESSIONS (noreply + self-loop) are skipped — the
+  // operator explicitly said "never drop this sender", so we let the real
+  // classification stand. operator-domain still applies (a never-spam colleague
+  // on the operator domain → `internal`), and a genuine model `spam_marketing`
+  // verdict is surfaced to `unknown` (see passthrough) rather than dropped.
+  const neverSpam = ctx.neverSpam === true;
 
-  const selfLoopHit = precheckSelfLoop(ctx);
-  if (selfLoopHit) {
-    return {
-      ...result,
-      category: selfLoopHit.category,
-      confidence: selfLoopHit.confidence,
-      preclass_applied: true,
-      preclass_source: selfLoopHit.source,
-      suppression_reason: 'self_loop',
-      route: routeFor(selfLoopHit.category, selfLoopHit.confidence),
-    };
+  if (!neverSpam) {
+    const noReplyHit = precheckNoReply(ctx);
+    if (noReplyHit) {
+      return {
+        ...result,
+        category: noReplyHit.category,
+        confidence: noReplyHit.confidence,
+        preclass_applied: true,
+        preclass_source: noReplyHit.source,
+        suppression_reason: null,
+        route: routeFor(noReplyHit.category, noReplyHit.confidence),
+      };
+    }
+
+    const selfLoopHit = precheckSelfLoop(ctx);
+    if (selfLoopHit) {
+      return {
+        ...result,
+        category: selfLoopHit.category,
+        confidence: selfLoopHit.confidence,
+        preclass_applied: true,
+        preclass_source: selfLoopHit.source,
+        suppression_reason: 'self_loop',
+        route: routeFor(selfLoopHit.category, selfLoopHit.confidence),
+      };
+    }
   }
 
   const operatorHit = precheck(ctx);
@@ -182,7 +193,20 @@ function applyPreclass(result: ResultWithoutRoute, ctx: PreclassContext): Classi
     };
   }
 
-  // No preclass fired — pass through the parsed result unchanged.
+  // No preclass fired — pass through the parsed result. For a never-spam sender
+  // whose model verdict is still spam_marketing, surface to `unknown` (→ cloud,
+  // gets a draft for review) instead of letting it drop.
+  if (neverSpam && result.category === 'spam_marketing') {
+    return {
+      ...result,
+      category: 'unknown',
+      preclass_applied: true,
+      preclass_source: 'sender-never-spam',
+      suppression_reason: null,
+      route: routeFor('unknown', result.confidence),
+    };
+  }
+
   return {
     ...result,
     suppression_reason: null,
