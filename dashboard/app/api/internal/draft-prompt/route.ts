@@ -10,6 +10,7 @@ import { pickEndpoint } from '@/lib/drafting/router';
 import { stripQuotedAndSignature } from '@/lib/drafting/strip-quoting';
 import { getThreadHistory } from '@/lib/drafting/thread-history';
 import { parseJson } from '@/lib/middleware/validate';
+import { getOperatorSettings } from '@/lib/queries-operator-settings';
 import { retrieveForDraft } from '@/lib/rag/retrieve';
 import { draftPromptBodySchema } from '@/lib/schemas/internal';
 
@@ -82,7 +83,12 @@ export async function POST(req: NextRequest) {
     }
 
     // MBOX-352 (MBOX-162 V2) — resolve persona for the draft's owning account.
-    const persona = await getPersonaContext(row.account_id);
+    // MBOX-162 P4 follow-up — operator_settings (singleton) read in parallel for
+    // the booking_link injected into the prompt.
+    const [persona, operatorSettings] = await Promise.all([
+      getPersonaContext(row.account_id),
+      getOperatorSettings(),
+    ]);
     const confidence = row.classification_confidence ?? 0;
 
     // STAQPRO-191 — pick the endpoint BEFORE assembling the prompt because
@@ -165,6 +171,9 @@ export async function POST(req: NextRequest) {
       category: classification_category,
       confidence,
       persona,
+      // MBOX-162 P4 follow-up — operator scheduling link (empty unless set in
+      // /settings/workspace). prompt.ts only emits the instruction when non-empty.
+      booking_link: operatorSettings.booking_link,
       // assemblePrompt's rag_refs / kb_refs accept the {source, excerpt}
       // subset; retrieve.ts returns richer shapes but the extra fields are
       // dropped by structural typing.
