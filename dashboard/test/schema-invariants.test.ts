@@ -7,6 +7,7 @@ import {
   CHAT_MESSAGE_ROLES,
   KB_DOC_STATUSES,
   MAIL_PROVIDERS,
+  PROMPT_RULE_SCOPES,
   REJECT_REASON_CODES,
   VIP_SENDER_KINDS,
 } from '../lib/types';
@@ -191,6 +192,15 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
     async () => {
       const allowed = await getCheckValues(pool!, 'vip_senders', 'vip_senders_kind_check');
       const expected = [...VIP_SENDER_KINDS];
+      expect([...allowed].sort()).toEqual([...expected].sort());
+    },
+  );
+
+  it.skipIf(!DB_URL)(
+    'prompt_rules.scope CHECK matches PROMPT_RULE_SCOPES (MBOX-162 P5b, migration 044)',
+    async () => {
+      const allowed = await getCheckValues(pool!, 'prompt_rules', 'prompt_rules_scope_check');
+      const expected = [...PROMPT_RULE_SCOPES];
       expect([...allowed].sort()).toEqual([...expected].sort());
     },
   );

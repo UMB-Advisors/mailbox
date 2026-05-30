@@ -6,7 +6,7 @@ import {
   styleToMarkers,
 } from '@/lib/tuning/style';
 import { resolvePersonaContext } from './persona';
-import { buildSystemPrompt, voiceStyleLines } from './prompt';
+import { assemblePrompt, buildSystemPrompt, rulesSystemBlock, voiceStyleLines } from './prompt';
 
 // MBOX-162 P5a (Tuning · Style tab) — pure-logic coverage for the voice knobs:
 // resolver tolerance, prompt-line emission, the byte-identical-when-unset
@@ -131,5 +131,73 @@ describe('style <-> markers mapping', () => {
     expect(hasLiteralToneOverride({ tone: 'formal, deliberate' })).toBe(true);
     expect(hasLiteralToneOverride({ tone: '   ' })).toBe(false);
     expect(hasLiteralToneOverride({})).toBe(false);
+  });
+});
+
+// --- MBOX-162 P5b (Tuning · Guidelines tab) — rulesSystemBlock ---
+
+describe('rulesSystemBlock', () => {
+  it('returns empty for no rules', () => {
+    expect(rulesSystemBlock()).toBe('');
+    expect(rulesSystemBlock([])).toBe('');
+  });
+
+  it('returns empty when every rule is blank', () => {
+    expect(rulesSystemBlock([{ scope: 'always', rule: '   ' }])).toBe('');
+  });
+
+  it('maps each scope to its imperative verb and bullets the rule', () => {
+    const block = rulesSystemBlock([
+      { scope: 'always', rule: 'lead with the answer' },
+      { scope: 'prefer', rule: 'use the customer first name' },
+      { scope: 'avoid', rule: 'corporate hedging' },
+      { scope: 'never', rule: 'quote a price' },
+    ]);
+    expect(block).toContain('- Always: lead with the answer');
+    expect(block).toContain('- Prefer to: use the customer first name');
+    expect(block).toContain('- Avoid: corporate hedging');
+    expect(block).toContain('- Never: quote a price');
+    // Subordinated to the anti-hallucination rule.
+    expect(block).toContain('confirm with operator');
+  });
+
+  it('keeps the system prompt byte-identical when no rules are present', () => {
+    const persona = resolvePersonaContext({ operator_first_name: 'Dustin' });
+    const base = assemblePrompt({
+      from_addr: 'a@b.com',
+      to_addr: 'ops@x.com',
+      subject: 's',
+      body_text: 'hi',
+      category: 'inquiry',
+      confidence: 0.9,
+      persona,
+    });
+    const withEmptyRules = assemblePrompt({
+      from_addr: 'a@b.com',
+      to_addr: 'ops@x.com',
+      subject: 's',
+      body_text: 'hi',
+      category: 'inquiry',
+      confidence: 0.9,
+      persona,
+      prompt_rules: [],
+    });
+    expect(withEmptyRules.messages[0].content).toBe(base.messages[0].content);
+  });
+
+  it('injects the guidelines block into the assembled system message when set', () => {
+    const persona = resolvePersonaContext({ operator_first_name: 'Dustin' });
+    const assembled = assemblePrompt({
+      from_addr: 'a@b.com',
+      to_addr: 'ops@x.com',
+      subject: 's',
+      body_text: 'hi',
+      category: 'inquiry',
+      confidence: 0.9,
+      persona,
+      prompt_rules: [{ scope: 'never', rule: 'promise a ship date' }],
+    });
+    expect(assembled.messages[0].content).toContain('OPERATOR GUIDELINES');
+    expect(assembled.messages[0].content).toContain('- Never: promise a ship date');
   });
 });

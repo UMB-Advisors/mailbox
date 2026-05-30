@@ -11,6 +11,7 @@
 
 import type { Category } from '@/lib/classification/prompt';
 import { CATEGORY_DESCRIPTIONS } from '@/lib/classification/prompt';
+import type { PromptRuleScope } from '@/lib/types';
 import { grammarForCategory } from './grammar-dispatch';
 import type { PersonaContext } from './persona';
 
@@ -66,6 +67,11 @@ export interface DraftPromptInput {
   // It's a public booking page, intended to be shared, so it's egress-safe on
   // the cloud route.
   booking_link?: string;
+  // MBOX-162 P5b — operator drafting guidelines (enabled mailbox.prompt_rules
+  // for the draft's account). Rendered into the per-operator system prompt by
+  // rulesSystemBlock. Empty/undefined → no guidelines block (byte-identical to
+  // pre-P5b). Behavioral rules, so they persist across the redraft loop too.
+  prompt_rules?: ReadonlyArray<{ scope: PromptRuleScope; rule: string }>;
 }
 
 // D-45 egress allowlist: when the assembled prompt is sent to a non-local
@@ -349,13 +355,48 @@ export function bookingLinkSystemBlock(bookingLink?: string): string {
   ].join('\n');
 }
 
+// MBOX-162 P5b (Tuning · Guidelines tab) — render the operator's enabled
+// drafting rules into a clearly demarcated system-prompt block. One bullet per
+// rule, scope mapped to an imperative verb. Empty/undefined → '' so a box with
+// no rules is byte-identical to pre-P5b (same discipline as bookingLinkSystemBlock).
+//
+// The block explicitly subordinates the guidelines to the anti-hallucination
+// rule in buildSystemPrompt: operator rules tune voice/behavior, they never
+// license inventing facts.
+const RULE_SCOPE_VERB: Record<PromptRuleScope, string> = {
+  always: 'Always',
+  prefer: 'Prefer to',
+  avoid: 'Avoid',
+  never: 'Never',
+};
+
+export function rulesSystemBlock(
+  rules?: ReadonlyArray<{ scope: PromptRuleScope; rule: string }>,
+): string {
+  if (!rules || rules.length === 0) return '';
+  const bullets = rules
+    .filter((r) => r.rule.trim().length > 0)
+    .map((r) => `- ${RULE_SCOPE_VERB[r.scope]}: ${r.rule.trim()}`);
+  if (bullets.length === 0) return '';
+  return [
+    '',
+    'OPERATOR GUIDELINES — the operator set these drafting rules. Follow them, but',
+    'they do NOT override the rule above about not inventing facts (use the',
+    '[confirm with operator: …] placeholder when unsure, guideline or not):',
+    ...bullets,
+  ].join('\n');
+}
+
 // Assemble the final messages payload. This is the function that crosses the
 // egress boundary (D-45) — its return type defines what's allowed to leave.
 export function assemblePrompt(input: DraftPromptInput): AssembledPrompt {
   const messages: ReadonlyArray<ChatMessage> = [
     {
       role: 'system',
-      content: buildSystemPrompt(input.persona) + bookingLinkSystemBlock(input.booking_link),
+      content:
+        buildSystemPrompt(input.persona) +
+        bookingLinkSystemBlock(input.booking_link) +
+        rulesSystemBlock(input.prompt_rules),
     },
     { role: 'user', content: buildUserPrompt(input) },
   ];

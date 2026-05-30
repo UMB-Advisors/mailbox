@@ -1430,6 +1430,29 @@ CREATE INDEX IF NOT EXISTS inbox_messages_snooze_until_idx
   ON mailbox.inbox_messages (snooze_until)
   WHERE snooze_until IS NOT NULL;
 
+-- ── MBOX-162 P5b (migration 044): operator drafting guidelines (prompt_rules) ─
+-- Hand-applied to fixture pending next pg_dump refresh. Account-scoped operator
+-- rules rendered into the per-operator system prompt by rulesSystemBlock. New
+-- empty table → account_id is NOT NULL with no DEFAULT (the CRUD route supplies
+-- it). version bumps on content edits; toggling enabled does not.
+-- See dashboard/migrations/044-create-prompt-rules-v1-2026-05-30.sql.
+CREATE TABLE IF NOT EXISTS mailbox.prompt_rules (
+  id          SERIAL PRIMARY KEY,
+  account_id  INTEGER NOT NULL REFERENCES mailbox.accounts(id),
+  scope       TEXT NOT NULL,
+  rule        TEXT NOT NULL,
+  rationale   TEXT NOT NULL DEFAULT '',
+  enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+  version     INTEGER NOT NULL DEFAULT 1,
+  created_by  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT prompt_rules_scope_check CHECK (scope IN ('always', 'prefer', 'avoid', 'never')),
+  CONSTRAINT prompt_rules_rule_not_blank CHECK (length(trim(rule)) > 0)
+);
+CREATE INDEX IF NOT EXISTS prompt_rules_account_enabled_idx
+  ON mailbox.prompt_rules (account_id, enabled);
+
 --
 -- PostgreSQL database dump complete
 --

@@ -11,6 +11,7 @@ import { stripQuotedAndSignature } from '@/lib/drafting/strip-quoting';
 import { getThreadHistory } from '@/lib/drafting/thread-history';
 import { parseJson } from '@/lib/middleware/validate';
 import { getOperatorSettings } from '@/lib/queries-operator-settings';
+import { listEnabledPromptRules } from '@/lib/queries-prompt-rules';
 import { retrieveForDraft } from '@/lib/rag/retrieve';
 import { draftPromptBodySchema } from '@/lib/schemas/internal';
 
@@ -85,9 +86,13 @@ export async function POST(req: NextRequest) {
     // MBOX-352 (MBOX-162 V2) — resolve persona for the draft's owning account.
     // MBOX-162 P4 follow-up — operator_settings (singleton) read in parallel for
     // the booking_link injected into the prompt.
-    const [persona, operatorSettings] = await Promise.all([
+    // MBOX-162 P5b — enabled operator guidelines for this account, rendered into
+    // the system prompt by rulesSystemBlock. Read in parallel with persona +
+    // settings; empty list → no guidelines block (byte-identical to pre-P5b).
+    const [persona, operatorSettings, promptRules] = await Promise.all([
       getPersonaContext(row.account_id),
       getOperatorSettings(),
+      listEnabledPromptRules(row.account_id),
     ]);
     const confidence = row.classification_confidence ?? 0;
 
@@ -174,6 +179,9 @@ export async function POST(req: NextRequest) {
       // MBOX-162 P4 follow-up — operator scheduling link (empty unless set in
       // /settings/workspace). prompt.ts only emits the instruction when non-empty.
       booking_link: operatorSettings.booking_link,
+      // MBOX-162 P5b — enabled operator guidelines (empty unless set in
+      // /settings/tuning Guidelines tab). prompt.ts only emits the block when non-empty.
+      prompt_rules: promptRules.map((r) => ({ scope: r.scope, rule: r.rule })),
       // assemblePrompt's rag_refs / kb_refs accept the {source, excerpt}
       // subset; retrieve.ts returns richer shapes but the extra fields are
       // dropped by structural typing.

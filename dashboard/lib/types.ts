@@ -135,6 +135,15 @@ export const VIP_SENDER_KINDS = ['email', 'domain'] as const;
 
 export type VipSenderKind = (typeof VIP_SENDER_KINDS)[number];
 
+// MBOX-162 P5b — drafting-guideline scopes. SoT for the
+// mailbox.prompt_rules.scope CHECK constraint (migration 044); the
+// schema-invariants test asserts they stay in sync.
+//   always — hard requirement · prefer — soft preference
+//   avoid  — soft prohibition · never  — hard prohibition
+export const PROMPT_RULE_SCOPES = ['always', 'prefer', 'avoid', 'never'] as const;
+
+export type PromptRuleScope = (typeof PROMPT_RULE_SCOPES)[number];
+
 // Mail transport providers (MBOX-356 / DR-55, DR-57). SoT for the
 // mailbox.accounts.provider CHECK constraint (migration 037) and the
 // providerFor() factory in lib/mail/providers. NOTE: distinct from

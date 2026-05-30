@@ -298,6 +298,19 @@ export interface Persona {
   updated_at: Generated<string>;
 }
 
+export interface PromptRules {
+  account_id: number;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  rationale: Generated<string>;
+  rule: string;
+  scope: string;
+  updated_at: Generated<string>;
+  version: Generated<number>;
+}
+
 export interface RejectedHistory {
   account_id: Generated<number>;
   classification_category: string;
@@ -424,6 +437,7 @@ export interface DB {
   operator_settings: OperatorSettings;
   ota_update_attempts: OtaUpdateAttempts;
   persona: Persona;
+  prompt_rules: PromptRules;
   rejected_history: RejectedHistory;
   sender_never_spam: SenderNeverSpam;
   sent_history: SentHistory;
