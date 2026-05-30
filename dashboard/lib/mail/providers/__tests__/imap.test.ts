@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ImapSmtpProvider, NotImplementedYet, providerFor, providerForKind } from '..';
+import { parseSentRfc822 } from '../imap';
 
 const imap = new ImapSmtpProvider();
 
@@ -108,7 +109,7 @@ describe('ImapSmtpProvider capabilities + boundaries', () => {
     });
   });
 
-  it('transport I/O throws NotImplementedYet (P1 T5, pending DR-56)', () => {
+  it('listNew/send still throw NotImplementedYet (P1 T5, pending DR-56)', () => {
     const acct = { id: 1, provider: 'imap' as const, provider_config: {} };
     expect(() => imap.listNew(acct, null)).toThrow(NotImplementedYet);
     expect(() =>
@@ -120,7 +121,9 @@ describe('ImapSmtpProvider capabilities + boundaries', () => {
         body: 'b',
       }),
     ).toThrow(NotImplementedYet);
-    expect(() => imap.backfillSent(acct, { lookbackHours: 24 })).toThrow(NotImplementedYet);
+    // backfillSent is now implemented (MBOX-373 P2) — it's an async generator,
+    // so it no longer throws synchronously. Its behavior is covered by the
+    // parseSentRfc822 fixture tests below + the DB-backed orchestrator suite.
   });
 });
 
@@ -128,5 +131,63 @@ describe('providerFor factory — imap arm (P1)', () => {
   it('returns an ImapSmtpProvider for imap', () => {
     expect(providerForKind('imap')).toBeInstanceOf(ImapSmtpProvider);
     expect(providerFor({ provider: 'imap' }).kind).toBe('imap');
+  });
+});
+
+// MBOX-373 (MBOX-162 V6 P2) — parseSentRfc822: pure RFC822 → CanonicalMessage.
+// No IMAP connection; runs unconditionally off fixture .eml strings.
+describe('parseSentRfc822 (MBOX-373 P2 Sent-backfill MIME parse)', () => {
+  const FULL_EML = [
+    'Message-ID: <sent-123@mail.example.com>',
+    'In-Reply-To: <inbound-1@customer.com>',
+    'References: <root-0@customer.com> <inbound-1@customer.com>',
+    'Date: Fri, 29 May 2026 12:00:00 +0000',
+    'From: Operator <OPERATOR@Example.com>',
+    'To: Customer <Customer@Buyer.COM>',
+    'Subject: Re: your order',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Thanks for the order — shipping today.',
+    '',
+  ].join('\r\n');
+
+  it('maps headers → CanonicalMessage, lowercases addresses, strips <> off Message-ID', async () => {
+    const msg = await parseSentRfc822(FULL_EML);
+    expect(msg.provider_message_id).toBe('sent-123@mail.example.com');
+    expect(msg.from_addr).toBe('operator@example.com');
+    expect(msg.to_addr).toBe('customer@buyer.com');
+    expect(msg.subject).toBe('Re: your order');
+    expect(msg.body).toContain('shipping today');
+    expect(msg.in_reply_to).toBe('inbound-1@customer.com');
+    // References array is joined with a single space, oldest→newest preserved.
+    expect(msg.references).toBe('<root-0@customer.com> <inbound-1@customer.com>');
+    expect(msg.received_at).toBe('2026-05-29T12:00:00.000Z');
+    expect(msg.direction).toBe('outbound');
+  });
+
+  it('synthesizes an imap- thread_id from the References root', async () => {
+    const msg = await parseSentRfc822(FULL_EML);
+    expect(msg.thread_id).toMatch(/^imap-[0-9a-f]{32}$/);
+    // Same root → same thread_id as the inbound normalize path (shared synthesis).
+    const sibling = new ImapSmtpProvider().normalize({
+      message_id: '<root-0@customer.com>',
+    });
+    expect(msg.thread_id).toBe(sibling.thread_id);
+  });
+
+  it('missing Message-ID → empty provider_message_id, thread_id null (no chain)', async () => {
+    const noId = [
+      'Date: Fri, 29 May 2026 12:00:00 +0000',
+      'From: op@example.com',
+      'To: c@buyer.com',
+      'Subject: hi',
+      '',
+      'body',
+      '',
+    ].join('\r\n');
+    const msg = await parseSentRfc822(noId);
+    expect(msg.provider_message_id).toBe('');
+    // No References, no In-Reply-To, and no own id → no usable thread root.
+    expect(msg.thread_id).toBeNull();
   });
 });

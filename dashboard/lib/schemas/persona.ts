@@ -22,3 +22,14 @@ export const personaRefreshSchema = z.object({
 });
 
 export type PersonaRefresh = z.infer<typeof personaRefreshSchema>;
+
+// MBOX-373 (MBOX-162 V6 P2): POST /api/accounts/[id]/voice-backfill body. Both
+// fields optional — the route defaults to a 90-day lookback / 500 messages (the
+// Gmail/RAG-backfill defaults). The account id comes from the path param, not
+// the body. Empty body ({}) is valid.
+export const voiceBackfillSchema = z.object({
+  lookback_hours: z.coerce.number().int().positive('lookback_hours must be positive').optional(),
+  max_messages: z.coerce.number().int().positive('max_messages must be positive').optional(),
+});
+
+export type VoiceBackfill = z.infer<typeof voiceBackfillSchema>;
