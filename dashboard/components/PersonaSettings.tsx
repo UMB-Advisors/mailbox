@@ -89,6 +89,14 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] text-ink-dim">Persona</span>
         </div>
+        {/* MBOX-162 P5a — the Tuning · Style tab is the friendly editor over the
+            same statistical_markers; this raw-JSON page is the advanced surface. */}
+        <a
+          href={apiUrl('/settings/tuning')}
+          className="font-mono text-[11px] text-accent-blue hover:underline"
+        >
+          Voice tuning →
+        </a>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

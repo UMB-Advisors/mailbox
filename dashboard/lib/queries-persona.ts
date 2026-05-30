@@ -103,3 +103,51 @@ export async function upsertPersona(
     .executeTakeFirstOrThrow();
   return row as Persona;
 }
+
+// MBOX-162 P5a (Tuning · Style tab) — merge a PARTIAL set of statistical_markers
+// into the existing persona row, preserving every marker key the caller didn't
+// touch plus category_exemplars / source_email_count / last_refreshed_at. The
+// Style tab owns only a handful of voice knobs; it must not clobber extraction-
+// derived markers or the exemplar few-shots (which upsertPersona would replace).
+//
+// Read-modify-write: the merge happens in JS against the current row, then the
+// already-merged object is written. Last-write-wins across concurrent editors —
+// acceptable on the single-operator appliance (no multi-writer contention).
+// Notably does NOT bump last_refreshed_at (that's the extraction timestamp).
+export async function mergePersonaMarkers(
+  partial: Record<string, unknown>,
+  accountId?: number,
+  customerKey = 'default',
+): Promise<Persona> {
+  const acct = accountId ?? (await getDefaultAccountId());
+  const current = await getPersona(acct, customerKey);
+  const mergedMarkers = { ...(current?.statistical_markers ?? {}), ...partial };
+  const exemplars = current?.category_exemplars ?? {};
+
+  const db = getKysely();
+  const stat = JSON.stringify(mergedMarkers);
+  const exem = JSON.stringify(exemplars);
+  const row = await db
+    .insertInto('persona')
+    .values({
+      account_id: acct,
+      customer_key: customerKey,
+      statistical_markers: sql`${stat}::jsonb`,
+      category_exemplars: sql`${exem}::jsonb`,
+      source_email_count: current?.source_email_count ?? 0,
+      // Preserve the extraction timestamp — a Style edit is not a re-extraction.
+      last_refreshed_at: current?.last_refreshed_at ?? null,
+      updated_at: sql<string>`NOW()`,
+    })
+    .onConflict((oc) =>
+      oc.columns(['account_id', 'customer_key']).doUpdateSet((eb) => ({
+        // Only the markers (the merged object) and updated_at change; the other
+        // columns in excluded equal the current row, so updating them is a no-op.
+        statistical_markers: eb.ref('excluded.statistical_markers'),
+        updated_at: sql<string>`NOW()`,
+      })),
+    )
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  return row as Persona;
+}
