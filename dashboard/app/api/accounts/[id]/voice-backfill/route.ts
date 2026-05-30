@@ -71,10 +71,10 @@ export async function POST(
     if (error instanceof VoiceBackfillError) {
       return NextResponse.json({ error: error.message }, { status: 422 });
     }
+    // Full detail goes to the server log only — a raw imapflow/Kysely message
+    // can carry host:port / server-banner internals, so the client gets an
+    // opaque message (mirrors the connectImap 500 path).
     console.error(`POST /api/accounts/${id}/voice-backfill failed:`, error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

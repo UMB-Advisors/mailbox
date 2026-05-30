@@ -233,37 +233,42 @@ export class ImapSmtpProvider implements MailProvider {
     try {
       // Locate the Sent mailbox: prefer the RFC 6154 \Sent special-use flag,
       // else a case-insensitive name match against the known conventions.
+      // No early `return` inside this try (it's an async generator) — nest the
+      // happy path under guards so client.logout()/lock.release() always run on
+      // every exit, including the no-Sent-mailbox / empty-window cases.
       const boxes = await client.list();
       const wanted = new Set(SENT_MAILBOX_NAMES.map((n) => n.toLowerCase()));
       const sent =
         boxes.find((b) => b.specialUse === '\\Sent') ??
         boxes.find((b) => wanted.has(b.path.toLowerCase())) ??
         boxes.find((b) => wanted.has(b.name?.toLowerCase() ?? ''));
-      if (!sent) return; // no Sent mailbox → nothing to learn from
 
-      const lock = await client.getMailboxLock(sent.path);
-      try {
-        const since = new Date(Date.now() - opts.lookbackHours * 3600_000);
-        const found = await client.search({ since }, { uid: true });
-        const uids = found || [];
-        if (uids.length === 0) return;
+      if (sent) {
+        const lock = await client.getMailboxLock(sent.path);
+        try {
+          const since = new Date(Date.now() - opts.lookbackHours * 3600_000);
+          const found = await client.search({ since }, { uid: true });
+          const uids = found || [];
 
-        // Tail = the most recent N (uids come back ascending).
-        const cap = opts.maxMessages ?? DEFAULT_BACKFILL_MAX_MESSAGES;
-        const slice = uids.length > cap ? uids.slice(-cap) : uids;
+          if (uids.length > 0) {
+            // Tail = the most recent N (uids come back ascending).
+            const cap = opts.maxMessages ?? DEFAULT_BACKFILL_MAX_MESSAGES;
+            const slice = uids.length > cap ? uids.slice(-cap) : uids;
 
-        for await (const m of client.fetch(slice, { uid: true, source: true }, { uid: true })) {
-          if (!m.source) continue;
-          try {
-            yield await parseSentRfc822(m.source);
-          } catch (err) {
-            // One malformed MIME message must never abort the whole backfill.
-            // Log the uid only — never body content (privacy).
-            console.error(`parseSentRfc822 skipped uid=${m.uid}:`, asText(err));
+            for await (const m of client.fetch(slice, { uid: true, source: true }, { uid: true })) {
+              if (!m.source) continue;
+              try {
+                yield await parseSentRfc822(m.source);
+              } catch (err) {
+                // One malformed MIME message must never abort the whole backfill.
+                // Log the uid only — never body content (privacy).
+                console.error(`parseSentRfc822 skipped uid=${m.uid}:`, asText(err));
+              }
+            }
           }
+        } finally {
+          lock.release();
         }
-      } finally {
-        lock.release();
       }
     } finally {
       await client.logout();
