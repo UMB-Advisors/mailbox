@@ -104,10 +104,7 @@ export async function applyDeleteAndRejectDraft(id: number): Promise<InboxAction
 // Record the Gmail write-through outcome after the webhook returns. 'ok' on
 // success, 'failed' on a webhook error (row stays disposed locally — see
 // philosophy note above). Best-effort: never throws into the caller.
-export async function recordGmailActionState(
-  id: number,
-  state: 'ok' | 'failed',
-): Promise<void> {
+export async function recordGmailActionState(id: number, state: 'ok' | 'failed'): Promise<void> {
   try {
     const db = getKysely();
     await db

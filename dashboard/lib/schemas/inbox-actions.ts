@@ -26,9 +26,9 @@ export const snoozeBodySchema = z
     },
     { message: 'until must be a future instant', path: ['until'] },
   )
-  .refine(
-    (b) => Date.parse(b.until) < Date.now() + MAX_SNOOZE_DAYS * 24 * 60 * 60 * 1000,
-    { message: `until must be within ${MAX_SNOOZE_DAYS} days`, path: ['until'] },
-  );
+  .refine((b) => Date.parse(b.until) < Date.now() + MAX_SNOOZE_DAYS * 24 * 60 * 60 * 1000, {
+    message: `until must be within ${MAX_SNOOZE_DAYS} days`,
+    path: ['until'],
+  });
 
 export type SnoozeBody = z.infer<typeof snoozeBodySchema>;
