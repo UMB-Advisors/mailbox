@@ -21,6 +21,7 @@ import {
   Check,
   Flame,
   Inbox,
+  ListChecks,
   type LucideIcon,
   Mailbox,
   MessageSquare,
@@ -34,6 +35,7 @@ import { apiUrl } from '@/lib/api';
 
 export type FolderKey = 'queue' | 'priority' | 'approved' | 'sent' | 'rejected' | 'all';
 export type SurfaceSlug =
+  | 'daily-brief'
   | 'chat'
   | 'classifications'
   | 'knowledge-base'
@@ -68,6 +70,8 @@ const FOLDERS: FolderEntry[] = [
 ];
 
 const SURFACES: SurfaceEntry[] = [
+  // MBOX-379 — morning landing surface; leads with Recommended Daily Actions.
+  { slug: 'daily-brief', href: '/daily-brief', label: 'Daily Brief', icon: ListChecks },
   { slug: 'chat', href: '/chat', label: 'Chat', icon: MessageSquare },
   { slug: 'classifications', href: '/classifications', label: 'Classifications', icon: Tags },
   { slug: 'knowledge-base', href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
