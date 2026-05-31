@@ -1,8 +1,10 @@
 import { sql } from 'kysely';
 import { gatherFiringAlerts } from '@/lib/alert-inputs';
 import type { Alert } from '@/lib/alerts';
+import { operatorOwnsThread } from '@/lib/classification/thread-ownership';
 import { getKysely } from '@/lib/db';
 import { getQueueWithUrgency } from '@/lib/queries';
+import { type AwaitingReplyItem, getAwaitingReply } from '@/lib/queries-followup';
 import { getDraftCounts24h, getStuckApprovedCount } from '@/lib/queries-system';
 import type { ClassificationCategory, DraftStatus, UrgencySignal } from '@/lib/types';
 
@@ -68,6 +70,11 @@ export interface DigestPayload {
   // The oldest pending drafts (FIFO — what's been waiting longest), capped.
   // Drives the "oldest waiting" tail so nothing rots silently in the queue.
   oldest_pending: DigestDraftItem[];
+  // MBOX-377 — outbound replies we sent that have gone quiet (no inbound since
+  // our send, past the per-category follow-up threshold), operator-owned threads
+  // excluded. Drives the "Awaiting reply" section. Distinct from the queue lists
+  // above: these threads are already SENT, not pending.
+  awaiting_reply: AwaitingReplyItem[];
   // FR-22 health rollup — sent count, send failures, and currently-firing
   // health alerts. Drives the "Appliance health" section.
   health: DigestHealth;
@@ -77,12 +84,14 @@ export interface DigestPayloadOptions {
   // Cap on each list. Defaults keep the email glanceable on a phone.
   urgentLimit?: number;
   oldestLimit?: number;
-  // Injected for tests; defaults to process.env (urgency thresholds).
+  awaitingLimit?: number;
+  // Injected for tests; defaults to process.env (urgency + follow-up thresholds).
   env?: Record<string, string | undefined>;
 }
 
 const DEFAULT_URGENT_LIMIT = 10;
 const DEFAULT_OLDEST_LIMIT = 10;
+const DEFAULT_AWAITING_LIMIT = 10;
 
 function clampLimit(v: number | undefined, fallback: number): number {
   return Math.min(Math.max(Math.trunc(v ?? fallback) || fallback, 1), 50);
@@ -92,6 +101,7 @@ export async function getDigestPayload(opts: DigestPayloadOptions = {}): Promise
   const env = opts.env ?? process.env;
   const urgentLimit = clampLimit(opts.urgentLimit, DEFAULT_URGENT_LIMIT);
   const oldestLimit = clampLimit(opts.oldestLimit, DEFAULT_OLDEST_LIMIT);
+  const awaitingLimit = clampLimit(opts.awaitingLimit, DEFAULT_AWAITING_LIMIT);
   const db = getKysely();
 
   // counts_by_category — one set-based GROUP BY over the queue slice.
@@ -160,9 +170,23 @@ export async function getDigestPayload(opts: DigestPayloadOptions = {}): Promise
     signals: [],
   }));
 
+  // awaiting_reply — outbound threads gone quiet (MBOX-377). Fetch a few more
+  // candidates than the cap so the operator-owns-thread guard (MBOX-142) can
+  // drop owned threads without starving the list, then cap. The guard does
+  // per-thread DB work but the candidate set is bounded and this is a
+  // once-per-day render. operatorOwnsThread fail-opens (owned:false on error),
+  // so an infra hiccup surfaces the thread rather than hiding it.
+  const awaitingCandidates = await getAwaitingReply({ env, limit: awaitingLimit * 3 });
+  const awaiting_reply: AwaitingReplyItem[] = [];
+  for (const item of awaitingCandidates) {
+    if (awaiting_reply.length >= awaitingLimit) break;
+    const ownership = await operatorOwnsThread({ thread_id: item.thread_id });
+    if (!ownership.owned) awaiting_reply.push(item);
+  }
+
   const health = await getDigestHealth();
 
-  return { counts_by_category, urgent_untouched, oldest_pending, health };
+  return { counts_by_category, urgent_untouched, oldest_pending, awaiting_reply, health };
 }
 
 // MBOX-185 (FR-22) — digest health rollup. sent_24h comes from

@@ -338,6 +338,19 @@ services:
       URGENCY_AGE_HOURS_REORDER: ${URGENCY_AGE_HOURS_REORDER:-4}
       URGENCY_AGE_HOURS_FOLLOW_UP: ${URGENCY_AGE_HOURS_FOLLOW_UP:-24}
       URGENCY_AGE_HOURS_ESCALATE: ${URGENCY_AGE_HOURS_ESCALATE:-1}
+      # MBOX-377 — follow-up / no-reply thresholds (read by lib/followup.ts via
+      # lib/queries-followup.ts). Hours of counterparty silence after WE sent a
+      # reply before the thread shows in the digest's "Awaiting reply" section.
+      # Longer than the urgency windows above (chase after days, not hours).
+      # Defaults match lib/followup.ts; categories without an explicit var fall
+      # back to DEFAULT_FOLLOWUP_AGE_HOURS (48h) in code (MBOX-306 forward rule).
+      FOLLOWUP_AGE_HOURS_INQUIRY: ${FOLLOWUP_AGE_HOURS_INQUIRY:-48}
+      FOLLOWUP_AGE_HOURS_REORDER: ${FOLLOWUP_AGE_HOURS_REORDER:-48}
+      FOLLOWUP_AGE_HOURS_SCHEDULING: ${FOLLOWUP_AGE_HOURS_SCHEDULING:-24}
+      FOLLOWUP_AGE_HOURS_FOLLOW_UP: ${FOLLOWUP_AGE_HOURS_FOLLOW_UP:-72}
+      FOLLOWUP_AGE_HOURS_INTERNAL: ${FOLLOWUP_AGE_HOURS_INTERNAL:-72}
+      FOLLOWUP_AGE_HOURS_ESCALATE: ${FOLLOWUP_AGE_HOURS_ESCALATE:-24}
+      FOLLOWUP_AGE_HOURS_UNKNOWN: ${FOLLOWUP_AGE_HOURS_UNKNOWN:-48}
       # MBOX-132 — daily digest worker (read by app/api/internal/digest).
       # DIGEST_SEND_FROM_GMAIL gates the appliance-Gmail-OAuth send path (v1
       # default per the issue's open-question resolution); treated as ON unless

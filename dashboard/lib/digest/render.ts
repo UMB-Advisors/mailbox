@@ -5,6 +5,7 @@ import type {
   DigestHealth,
   DigestPayload,
 } from '@/lib/queries-digest';
+import type { AwaitingReplyItem } from '@/lib/queries-followup';
 import type { UrgencySignal } from '@/lib/types';
 
 // MBOX-132 — daily digest HTML renderer. Turns getDigestPayload() into an
@@ -71,15 +72,20 @@ export function renderDigest(
 
   const pendingCount = payload.counts_by_category.reduce((sum, c) => sum + c.count, 0);
   const urgentCount = payload.urgent_untouched.length;
+  const awaitingCount = payload.awaiting_reply.length;
   const dateLabel = formatDigestDate(now);
 
-  const subject = `MailBox daily digest — ${dateLabel} · ${urgentCount} urgent · ${pendingCount} pending`;
+  // Awaiting-reply count is appended only when non-zero so the subject stays
+  // quiet on a normal day (MBOX-377).
+  const awaitingSuffix = awaitingCount > 0 ? ` · ${awaitingCount} awaiting reply` : '';
+  const subject = `MailBox daily digest — ${dateLabel} · ${urgentCount} urgent · ${pendingCount} pending${awaitingSuffix}`;
 
   const html = wrapDocument(
     [
       headerSection(dateLabel, urgentCount, pendingCount),
       healthSection(payload.health),
       urgentSection(payload.urgent_untouched, queueUrl),
+      awaitingReplySection(payload.awaiting_reply, queueUrl),
       categorySection(payload.counts_by_category),
       oldestSection(payload.oldest_pending),
       footerSection(),
@@ -213,6 +219,37 @@ function oldestSection(items: DigestDraftItem[]): string {
     C.sub,
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>`,
   );
+}
+
+// MBOX-377 — outbound threads gone quiet: we sent a reply, the counterparty
+// hasn't come back past the per-category follow-up threshold (operator-owned
+// threads already excluded upstream). Amber, not red — it's a nudge to chase,
+// not a queue emergency. Each row links the originating draft so "Open" lands on
+// the thread.
+function awaitingReplySection(items: AwaitingReplyItem[], queueUrl: string | null): string {
+  if (items.length === 0) return '';
+  const rows = items.map((it) => awaitingRow(it, queueUrl)).join('\n');
+  return sectionShell(
+    'Awaiting reply — sent, no response yet',
+    C.amber,
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>`,
+  );
+}
+
+function awaitingRow(it: AwaitingReplyItem, queueUrl: string | null): string {
+  const link =
+    queueUrl !== null
+      ? `<td align="right" style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;white-space:nowrap;">
+           <a href="${esc(deepLink(queueUrl, it.draft_id))}" style="color:${C.amber};text-decoration:none;font-weight:bold;">Open</a>
+         </td>`
+      : '';
+  return `
+  <tr>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${C.sub};width:38%;">${esc(senderName(it.to_addr))}</td>
+    <td style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${C.faint};">${esc(it.subject || '(no subject)')}</td>
+    <td align="right" style="padding:3px 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${C.amber};white-space:nowrap;font-weight:bold;">${formatAge(it.age_hours)} silent</td>
+    ${link}
+  </tr>`;
 }
 
 function footerSection(): string {
