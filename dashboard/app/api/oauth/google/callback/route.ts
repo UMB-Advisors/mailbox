@@ -15,8 +15,13 @@ import { oauthCallbackQuerySchema } from '@/lib/schemas/oauth';
 export const dynamic = 'force-dynamic';
 
 function settingsRedirect(req: NextRequest, status: string): NextResponse {
-  // Build an absolute URL on the same origin so the redirect works behind Caddy.
-  const url = new URL(apiUrl('/settings/integrations'), req.nextUrl.origin);
+  // Build an absolute URL. Prefer the configured public origin
+  // (MAILBOX_PUBLIC_BASE_URL) — behind Caddy the request's own origin resolves
+  // to the internal bind (http://0.0.0.0:3001), so redirecting there sends the
+  // browser to https://0.0.0.0:3001 → ERR_SSL_PROTOCOL_ERROR (MBOX-402). Fall
+  // back to the request origin only when the public base is unset.
+  const base = process.env.MAILBOX_PUBLIC_BASE_URL?.trim() || req.nextUrl.origin;
+  const url = new URL(apiUrl('/settings/integrations'), base);
   url.searchParams.set('oauth', status);
   return NextResponse.redirect(url);
 }
