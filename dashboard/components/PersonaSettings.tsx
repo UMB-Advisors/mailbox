@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { apiUrl } from '@/lib/api';
+import type { RejectRateStat, RejectSignals } from '@/lib/persona/types';
 import type { Persona } from '@/lib/types';
+import { REJECT_REASON_LABELS, type RejectReasonCode } from '@/lib/types';
 import { AppShell } from './AppShell';
 import { SettingsTabs } from './SettingsTabs';
 import { TimeAgo } from './TimeAgo';
@@ -127,6 +129,10 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
             )}
           </section>
 
+          {/* MBOX-375 — read-only reject-feedback patterns. Operator-confirm
+              suggestions + classifier eval inputs; nothing here is auto-applied. */}
+          <RejectSignalsPanel signals={readRejectSignals(persona)} />
+
           {/* Statistical markers editor */}
           <Editor
             label="statistical_markers"
@@ -217,4 +223,181 @@ function formatJson(obj: Record<string, unknown>): string {
   } catch {
     return '{}';
   }
+}
+
+// MBOX-375 — narrow the reject_signals block out of the untyped JSONB markers.
+function readRejectSignals(persona: Persona | null): RejectSignals | null {
+  const markers = persona?.statistical_markers as Record<string, unknown> | undefined;
+  const rs = markers?.reject_signals;
+  if (rs && typeof rs === 'object' && 'total_rejections' in rs) {
+    return rs as RejectSignals;
+  }
+  return null;
+}
+
+function pct(share: number): string {
+  return `${Math.round(share * 100)}%`;
+}
+
+// Read-only "Patterns from your rejections" surface. Renders nothing until a
+// persona refresh has populated reject_signals (keeps the page quiet pre-signal).
+function RejectSignalsPanel({ signals }: { signals: RejectSignals | null }) {
+  if (!signals || signals.total_rejections === 0) {
+    return (
+      <section className="rounded-sm border border-border bg-bg-panel p-4">
+        <h2 className="mb-1 font-sans text-sm font-semibold">Patterns from your rejections</h2>
+        <p className="text-xs text-ink-muted">
+          No reject feedback aggregated yet. Reject a draft with a reason, then{' '}
+          <code>Refresh from sent history</code> to populate this. Read-only — nothing here is
+          applied automatically.
+        </p>
+      </section>
+    );
+  }
+
+  const toneCats = Object.entries(signals.wrong_tone.per_category).sort(
+    (a, b) => b[1].share - a[1].share || b[1].rejections - a[1].rejections,
+  );
+  const toneSenders = Object.entries(signals.wrong_tone.per_sender).sort(
+    (a, b) => b[1].share - a[1].share || b[1].rejections - a[1].rejections,
+  );
+  const ragCats = Object.entries(signals.rag_quality.per_category).sort(
+    (a, b) => b[1].share - a[1].share,
+  );
+  const candidates = signals.classifier_relabel_candidates;
+
+  return (
+    <section className="space-y-4 rounded-sm border border-border bg-bg-panel p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="font-sans text-sm font-semibold">Patterns from your rejections</h2>
+        <span className="font-mono text-[11px] text-ink-dim tabular-nums">
+          {signals.total_rejections} rejections
+        </span>
+      </div>
+      <p className="text-xs text-ink-muted">
+        Read-only signals derived from your reject reasons. Suggestions are yours to apply — nothing
+        is changed automatically.
+      </p>
+
+      {/* Reason breakdown chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {(Object.entries(signals.by_reason) as [RejectReasonCode, number][])
+          .filter(([, n]) => n > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([code, n]) => (
+            <span
+              key={code}
+              className="rounded-sm border border-border-subtle bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-ink-muted"
+            >
+              {REJECT_REASON_LABELS[code]}: <span className="text-ink tabular-nums">{n}</span>
+            </span>
+          ))}
+      </div>
+
+      {/* Suggestions */}
+      {signals.wrong_tone.suggestion && (
+        <p className="rounded-sm border border-accent-orange/40 bg-accent-orange/10 p-2 text-xs text-accent-orange">
+          {signals.wrong_tone.suggestion}
+        </p>
+      )}
+      {signals.rag_quality.suggestion && (
+        <p className="rounded-sm border border-accent-blue/40 bg-accent-blue/10 p-2 text-xs text-accent-blue">
+          {signals.rag_quality.suggestion}
+        </p>
+      )}
+
+      {/* Wrong-tone concentration */}
+      {(toneCats.length > 0 || toneSenders.length > 0) && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {toneCats.length > 0 && (
+            <RateTable
+              title={`Wrong tone by category — ${pct(signals.wrong_tone.overall_share)} overall`}
+              rows={toneCats}
+            />
+          )}
+          {toneSenders.length > 0 && (
+            <RateTable title="Wrong tone by sender (top)" rows={toneSenders} />
+          )}
+        </div>
+      )}
+
+      {/* RAG-quality categories */}
+      {ragCats.length > 0 && (
+        <div>
+          <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-ink-dim">
+            Factual / context gaps by category
+          </h3>
+          <table className="w-full font-mono text-[11px]">
+            <tbody>
+              {ragCats.map(([cat, stat]) => (
+                <tr key={cat} className="border-t border-border-subtle">
+                  <td className="py-1 text-ink">{cat}</td>
+                  <td className="py-1 text-right text-ink-muted tabular-nums">
+                    {stat.factually_inaccurate + stat.missing_context}/{stat.rejections}
+                  </td>
+                  <td className="w-12 py-1 text-right text-ink tabular-nums">{pct(stat.share)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Classifier re-label candidates (exportable eval set) */}
+      {candidates.length > 0 && (
+        <div>
+          <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-ink-dim">
+            Classifier re-label candidates ({candidates.length})
+          </h3>
+          <p className="mb-2 text-[11px] text-ink-muted">
+            "Reply myself" → lean <code>escalate</code>; "Don't reply" → lean{' '}
+            <code>spam_marketing</code>. Eval/re-label inputs only — not applied to the classifier.
+          </p>
+          <table className="w-full font-mono text-[11px]">
+            <tbody>
+              {candidates.slice(0, 8).map((c) => (
+                <tr key={c.draft_id} className="border-t border-border-subtle align-top">
+                  <td className="py-1 pr-2 text-ink-muted">{c.sender ?? '—'}</td>
+                  <td className="py-1 pr-2 text-ink truncate">
+                    {c.inbound_subject ?? '(no subject)'}
+                  </td>
+                  <td className="py-1 text-right text-accent-orange">
+                    {c.current_category ?? '?'} → {c.suggested_category}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {candidates.length > 8 && (
+            <p className="mt-1 text-[11px] text-ink-dim">
+              + {candidates.length - 8} more in <code>statistical_markers.reject_signals</code>.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RateTable({ title, rows }: { title: string; rows: [string, RejectRateStat][] }) {
+  return (
+    <div>
+      <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-ink-dim">
+        {title}
+      </h3>
+      <table className="w-full font-mono text-[11px]">
+        <tbody>
+          {rows.map(([key, stat]) => (
+            <tr key={key} className="border-t border-border-subtle">
+              <td className="py-1 text-ink truncate">{key}</td>
+              <td className="py-1 text-right text-ink-muted tabular-nums">
+                {stat.wrong_tone}/{stat.rejections}
+              </td>
+              <td className="w-12 py-1 text-right text-ink tabular-nums">{pct(stat.share)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
