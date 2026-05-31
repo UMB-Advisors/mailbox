@@ -52,6 +52,7 @@ export const OAUTH_PROVIDERS = [
   'google_tasks',
   'google_drive',
   'google_contacts',
+  'google_gmail',
 ] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
@@ -59,11 +60,17 @@ export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 // write). tasks is read/write (MBOX-129 pushes a task). drive scope deferred to
 // STAQPRO-212. contacts.readonly is read-only (MBOX-398 — right-rail Contacts
 // panel only reads the operator's own connections via the People API).
+// gmail.readonly (MBOX-399 — per-account Sent-history voice backfill; read-only,
+// no send). NOTE the key is `google_gmail`, NOT `gmail`: this is an
+// oauth_tokens.provider grant key (the google_* family), deliberately distinct
+// from the `gmail` MAIL TRANSPORT in lib/mail/providers/types.ts — that file's
+// naming-discipline note warns against conflating the two namespaces.
 export const PROVIDER_SCOPE: Record<OAuthProvider, string> = {
   google_calendar: 'https://www.googleapis.com/auth/calendar.readonly',
   google_tasks: 'https://www.googleapis.com/auth/tasks',
   google_drive: 'https://www.googleapis.com/auth/drive.readonly',
   google_contacts: 'https://www.googleapis.com/auth/contacts.readonly',
+  google_gmail: 'https://www.googleapis.com/auth/gmail.readonly',
 };
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';

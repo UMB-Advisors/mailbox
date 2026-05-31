@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, Pencil, Sparkles, Star, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GraphConnectForm } from '@/app/onboarding/email-connect/GraphConnectForm';
 import { ImapConnectForm } from '@/app/onboarding/email-connect/ImapConnectForm';
 import { AppShell } from '@/components/AppShell';
@@ -173,19 +173,25 @@ export function AccountsSettings({
     }
   }
 
-  // MBOX-373 (MBOX-162 V6 P1/P2) — extract this inbox's voice from its own Sent
-  // history. For IMAP (P2) we hit the voice-backfill route, which first pulls
-  // the inbox's Sent mailbox into sent_history and THEN extracts — so a fresh
-  // IMAP inbox with no approved drafts can still learn its voice cold-start.
-  // For Gmail/Microsoft we keep the P1 account-scoped persona refresh (their
-  // Sent history comes from the onboarding Gmail backfill / approved drafts).
-  // 409 = still no Sent history — surfaced as an informational message, not a
-  // hard failure.
-  async function onLearnVoice(a: AccountDetail) {
+  // MBOX-373 (V6 P1/P2) + MBOX-399 (V6 P3) — extract this inbox's voice from its
+  // own Sent history. IMAP (P2) and Gmail (P3) both hit the voice-backfill
+  // route, which first pulls the inbox's Sent mail into sent_history and THEN
+  // extracts — so a fresh inbox with no approved drafts can learn its voice
+  // cold-start. Microsoft keeps the P1 account-scoped persona refresh (Graph
+  // Sent backfill is a later slice). 409 = still no Sent history → informational
+  // toast, not a hard failure.
+  //
+  // Gmail twist: the inbox needs its OWN gmail.readonly grant (the single n8n
+  // credential only covers the primary inbox). When it's not yet connected the
+  // route returns 409 + code 'gmail_not_connected'; we send the operator to the
+  // consent screen with ?account_id, and on return the post-consent effect
+  // (below) re-runs this — so the whole thing is one click, consent being the
+  // detour.
+  async function runLearnVoice(a: AccountDetail) {
     setRowBusyId(a.id);
-    const isImap = a.provider === 'imap';
+    const usesBackfill = a.provider === 'imap' || a.provider === 'gmail';
     try {
-      const res = isImap
+      const res = usesBackfill
         ? await fetch(apiUrl(`/api/accounts/${a.id}/voice-backfill`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -197,12 +203,19 @@ export function AccountsSettings({
             body: JSON.stringify({ account_id: a.id }),
           });
       const data = await res.json().catch(() => null);
+      if (res.status === 409 && data?.code === 'gmail_not_connected') {
+        // Detour to Google consent for THIS inbox; the callback returns to
+        // /settings/accounts?gmail_connected=<id> and the mount effect resumes.
+        setToast({ kind: 'success', text: `Connecting ${labelFor(a)}'s Gmail…` });
+        window.location.href = `${apiUrl('/api/oauth/google/google_gmail/connect')}?account_id=${a.id}`;
+        return;
+      }
       if (res.status === 409) {
         setToast({
           kind: 'error',
           text:
             data?.error ??
-            (isImap
+            (usesBackfill
               ? 'No Sent history found for this inbox.'
               : 'No Sent history for this inbox yet — approve a draft first.'),
         });
@@ -212,7 +225,7 @@ export function AccountsSettings({
       const n = (data?.source_email_count as number | undefined) ?? 0;
       setToast({
         kind: 'success',
-        text: isImap
+        text: usesBackfill
           ? `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'} (pulled from Sent history)`
           : `Learned ${labelFor(a)}'s voice from ${n} sent email${n === 1 ? '' : 's'}`,
       });
@@ -222,6 +235,28 @@ export function AccountsSettings({
       setRowBusyId(null);
     }
   }
+
+  // MBOX-399 — post-consent resume. The Gmail connect callback redirects back
+  // here with ?gmail_connected=<id>; pick that inbox up and auto-run the Sent
+  // backfill so the operator's single "Learn voice" click ends in a backfill.
+  // Strip the param first (replaceState) so a manual refresh doesn't re-fire.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run-once on mount for the OAuth return
+  useEffect(() => {
+    let id: number;
+    try {
+      const url = new URL(window.location.href);
+      const raw = url.searchParams.get('gmail_connected');
+      if (!raw) return;
+      id = Number(raw);
+      url.searchParams.delete('gmail_connected');
+      window.history.replaceState(null, '', url.toString());
+    } catch {
+      return;
+    }
+    if (!Number.isInteger(id) || id <= 0) return;
+    const acct = accounts.find((row) => row.id === id);
+    if (acct) void runLearnVoice(acct);
+  }, []);
 
   async function onDelete(a: AccountDetail) {
     setRowBusyId(a.id);
@@ -425,7 +460,7 @@ export function AccountsSettings({
                             own Sent history. Available for every account. */}
                         <button
                           type="button"
-                          onClick={() => onLearnVoice(a)}
+                          onClick={() => runLearnVoice(a)}
                           disabled={rowBusyId === a.id}
                           aria-label={`Learn ${labelFor(a)}'s voice from its sent mail`}
                           title="Extract this inbox's writing voice from its sent mail"
