@@ -1,8 +1,10 @@
 import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
 import type { ExtractInput } from '@/lib/persona/extract';
+import type { RejectFeedbackInput } from '@/lib/persona/reject-signals';
 import { getDefaultAccountId } from '@/lib/queries-accounts';
-import type { Persona } from '@/lib/types';
+import { normalizeSender } from '@/lib/rag/qdrant';
+import type { Persona, RejectReasonCode } from '@/lib/types';
 
 const DEFAULT_EXTRACTION_LIMIT = 200;
 
@@ -45,6 +47,46 @@ export async function listSentHistoryForExtraction(
     inbox_subject: r.inbox_subject,
     inbox_body: r.inbox_body,
     sent_at: r.sent_at,
+  }));
+}
+
+// MBOX-375 — pull reject feedback joined to its draft + inbound message for the
+// reject_signals aggregator. draft_feedback / drafts / inbox_messages are NOT
+// account-scoped (no account_id column), so this read is global — equivalent to
+// account-scoped on the single live appliance. Newest-first, capped to keep the
+// aggregation bounded. Sender is normalized here (matching queries-sender.ts) so
+// the pure aggregator stays dependency-free.
+const DEFAULT_REJECT_FEEDBACK_LIMIT = 1000;
+
+export async function listRejectFeedbackForSignals(
+  limit = DEFAULT_REJECT_FEEDBACK_LIMIT,
+): Promise<RejectFeedbackInput[]> {
+  const safe = Math.min(Math.max(Math.trunc(limit) || DEFAULT_REJECT_FEEDBACK_LIMIT, 1), 5000);
+  const db = getKysely();
+  const rows = await db
+    .selectFrom('draft_feedback as df')
+    .innerJoin('drafts as d', 'd.id', 'df.draft_id')
+    .leftJoin('inbox_messages as m', 'm.draft_id', 'd.id')
+    .select([
+      'df.draft_id as draft_id',
+      'df.reason_code as reason_code',
+      'df.rejected_at as rejected_at',
+      'd.classification_category as classification_category',
+      'm.from_addr as from_addr',
+      'm.subject as inbound_subject',
+      'm.body as inbound_body',
+    ])
+    .orderBy('df.rejected_at', 'desc')
+    .limit(safe)
+    .execute();
+  return rows.map((r) => ({
+    draft_id: r.draft_id,
+    reason_code: r.reason_code as RejectReasonCode,
+    classification_category: r.classification_category,
+    sender: r.from_addr ? normalizeSender(r.from_addr) || null : null,
+    inbound_subject: r.inbound_subject,
+    inbound_body: r.inbound_body,
+    rejected_at: r.rejected_at,
   }));
 }
 

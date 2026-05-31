@@ -1,7 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { parseJson } from '@/lib/middleware/validate';
 import { extractPersona } from '@/lib/persona/extract';
-import { listSentHistoryForExtraction, upsertPersona } from '@/lib/queries-persona';
+import { aggregateRejectSignals } from '@/lib/persona/reject-signals';
+import {
+  listRejectFeedbackForSignals,
+  listSentHistoryForExtraction,
+  upsertPersona,
+} from '@/lib/queries-persona';
 import { personaRefreshSchema } from '@/lib/schemas/persona';
 
 // STAQPRO-153 — on-demand persona extraction. MBOX-373 (MBOX-162 V6 P1) — now
@@ -38,6 +43,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
     const result = extractPersona(rows);
+
+    // MBOX-375 — fold the reject-feedback aggregate into statistical_markers.
+    // draft_feedback isn't account-scoped (no account_id column), so the signal
+    // is global; we attach it on every refresh so the read-only "Patterns from
+    // your rejections" panel renders regardless of which account's persona the
+    // settings page loaded. Non-fatal: a reject-aggregation failure must not
+    // sink the voice extraction.
+    try {
+      const rejectRows = await listRejectFeedbackForSignals();
+      if (rejectRows.length > 0) {
+        result.statistical_markers.reject_signals = aggregateRejectSignals(rejectRows);
+      }
+    } catch (rejectErr) {
+      console.error('reject-signals aggregation failed (non-fatal):', rejectErr);
+    }
+
     const persona = await upsertPersona(
       result.statistical_markers as unknown as Record<string, unknown>,
       result.category_exemplars as unknown as Record<string, unknown>,
