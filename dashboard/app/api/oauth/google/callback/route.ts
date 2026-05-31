@@ -50,6 +50,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       refreshToken: exchanged.refreshToken,
       scope: exchanged.scope,
       accountEmail: exchanged.accountEmail,
+      accountId: verified.accountId,
     });
     return settingsRedirect(req, `connected_${verified.provider}`);
   } catch (err) {
