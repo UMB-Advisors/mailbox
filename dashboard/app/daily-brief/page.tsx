@@ -22,6 +22,7 @@ const EMPTY_PAYLOAD: DigestPayload = {
   counts_by_category: [],
   urgent_untouched: [],
   oldest_pending: [],
+  awaiting_reply: [],
   health: { sent_24h: 0, stuck_approved: 0, firing_alerts: [] },
 };
 

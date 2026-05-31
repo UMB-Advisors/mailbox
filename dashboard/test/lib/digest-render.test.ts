@@ -17,7 +17,13 @@ function health(over: Partial<DigestHealth> = {}): DigestHealth {
 }
 
 function emptyPayload(): DigestPayload {
-  return { counts_by_category: [], urgent_untouched: [], oldest_pending: [], health: health() };
+  return {
+    counts_by_category: [],
+    urgent_untouched: [],
+    oldest_pending: [],
+    awaiting_reply: [],
+    health: health(),
+  };
 }
 
 describe('renderDigest', () => {
@@ -39,6 +45,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      awaiting_reply: [],
       health: health(),
     };
     const { subject, html } = renderDigest(payload, { now: NOW });
@@ -72,6 +79,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      awaiting_reply: [],
       health: health(),
     };
     const withUrl = renderDigest(payload, {
@@ -99,6 +107,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      awaiting_reply: [],
       health: health(),
     };
     const evil = renderDigest(payload, { now: NOW, queueUrl: 'javascript:alert(1)' });
@@ -121,6 +130,7 @@ describe('renderDigest', () => {
         },
       ],
       oldest_pending: [],
+      awaiting_reply: [],
       health: health(),
     };
     const { html } = renderDigest(payload, { now: NOW });
@@ -134,6 +144,38 @@ describe('renderDigest', () => {
     expect(subject).toContain('0 urgent');
     expect(subject).toContain('0 pending');
     expect(html).toContain('MailBox One — Daily digest');
+  });
+
+  // MBOX-377 — awaiting-reply section.
+  it('renders the awaiting-reply section + appends the count to the subject', () => {
+    const payload = emptyPayload();
+    payload.awaiting_reply = [
+      {
+        thread_id: 't-1',
+        to_addr: 'buyer@acme.com',
+        subject: 'Re: your quote',
+        category: 'inquiry',
+        sent_at: '2026-05-19T09:00:00Z',
+        age_hours: 72,
+        draft_id: 99,
+        account_id: 1,
+      },
+    ];
+    const { subject, html } = renderDigest(payload, {
+      now: NOW,
+      queueUrl: 'https://m.staqs.io/dashboard/queue',
+    });
+    expect(subject).toContain('1 awaiting reply');
+    expect(html).toContain('Awaiting reply — sent, no response yet');
+    expect(html).toContain('Buyer'); // senderName(to_addr)
+    expect(html).toContain('3d silent'); // formatAge(72)
+    expect(html).toContain('https://m.staqs.io/dashboard/queue?focus=99');
+  });
+
+  it('suppresses the awaiting-reply section + subject suffix when empty', () => {
+    const { subject, html } = renderDigest(emptyPayload(), { now: NOW });
+    expect(html).not.toContain('Awaiting reply');
+    expect(subject).not.toContain('awaiting reply');
   });
 
   // MBOX-185 (FR-22) — health section.
