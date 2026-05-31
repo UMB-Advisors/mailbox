@@ -3,6 +3,7 @@
 import { Calendar, CheckSquare, Link2, Unlink, Users } from 'lucide-react';
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { SettingsTabs } from '@/components/SettingsTabs';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Toast } from '@/components/Toast';
 import { apiUrl } from '@/lib/api';
@@ -101,6 +102,7 @@ export function GoogleIntegrations({
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+      <SettingsTabs active="integrations" />
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-4">
         <header>
           <h1 className="font-mono text-lg uppercase tracking-wider text-ink">Integrations</h1>

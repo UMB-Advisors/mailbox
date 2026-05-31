@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/AppShell';
+import { SettingsTabs } from '@/components/SettingsTabs';
 import { apiUrl } from '@/lib/api';
 import { listKbDocuments } from '@/lib/queries-kb';
 import { getTopEditRateCategories, type TopEditRateCategory } from '@/lib/queries-status';
@@ -55,6 +56,7 @@ export default async function SettingsKbPage() {
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+      <SettingsTabs active="kb" />
       <div className="mx-auto w-full max-w-4xl overflow-y-auto p-4 lg:p-6">
         <section className="mb-6">
           <h2 className="mb-1 font-sans text-base font-semibold">

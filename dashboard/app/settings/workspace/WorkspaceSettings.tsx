@@ -3,6 +3,7 @@
 import { Calendar, FolderOpen, LinkIcon } from 'lucide-react';
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { SettingsTabs } from '@/components/SettingsTabs';
 import { Toast } from '@/components/Toast';
 import { apiUrl } from '@/lib/api';
 import { buildCalendarEmbedUrl, buildDriveEmbedUrl } from '@/lib/embed';
@@ -69,6 +70,7 @@ export function WorkspaceSettings({
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+      <SettingsTabs active="workspace" />
       <header className="flex h-12 shrink-0 items-center border-b border-border-subtle bg-bg-panel px-4">
         <span className="font-mono text-[11px] text-ink-dim">Workspace</span>
       </header>
