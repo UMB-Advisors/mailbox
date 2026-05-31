@@ -29,7 +29,10 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) return parsed.response;
 
   try {
-    const conversation = await createConversation(parsed.data.title ?? null);
+    const conversation = await createConversation(
+      parsed.data.title ?? null,
+      parsed.data.account_id,
+    );
     return NextResponse.json(conversation, { status: 201 });
   } catch (error) {
     console.error('POST /api/internal/chat/conversations failed:', error);

@@ -32,6 +32,8 @@ export const kbMimeTypeSchema = z.enum(
 export const kbListQuerySchema = z.object({
   status: z.enum(['processing', 'ready', 'failed']).optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
+  // MBOX-400 (MBOX-162 V7) — scope the listing to one inbox's documents.
+  account_id: z.coerce.number().int().positive().optional(),
 });
 
 export type KbListQuery = z.infer<typeof kbListQuerySchema>;

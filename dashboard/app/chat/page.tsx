@@ -1,5 +1,6 @@
 import { AppShell } from '@/components/AppShell';
 import { ChatClient } from '@/components/ChatClient';
+import { type AccountRow, listAccounts } from '@/lib/queries-accounts';
 import { getConversationMessages, listConversations } from '@/lib/queries-chat';
 import type { ChatConversation, ChatMessage } from '@/lib/types';
 
@@ -18,33 +19,46 @@ export const dynamic = 'force-dynamic';
 // client-side in ChatClient.
 
 interface ChatPageProps {
-  searchParams?: { c?: string | string[] };
+  searchParams?: { c?: string | string[]; account?: string | string[] };
 }
 
-function parseConversationId(raw: string | string[] | undefined): number | null {
-  if (Array.isArray(raw)) return parseConversationId(raw[0]);
+function parseIntParam(raw: string | string[] | undefined): number | null {
+  if (Array.isArray(raw)) return parseIntParam(raw[0]);
   if (!raw) return null;
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 export default async function ChatPage({ searchParams }: ChatPageProps) {
-  const activeId = parseConversationId(searchParams?.c);
+  const activeId = parseIntParam(searchParams?.c);
+  const accountParam = parseIntParam(searchParams?.account);
 
   let conversations: ChatConversation[] = [];
   let initialMessages: ChatMessage[] = [];
+  let accounts: AccountRow[] = [];
   let error: string | null = null;
 
   try {
-    const [convs, msgs] = await Promise.all([
+    const [convs, msgs, accts] = await Promise.all([
       listConversations(),
       activeId ? getConversationMessages(activeId) : Promise.resolve([] as ChatMessage[]),
+      listAccounts(),
     ]);
     conversations = convs;
     initialMessages = msgs;
+    accounts = accts;
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to load conversations';
   }
+
+  // MBOX-400 — which inbox a NEW conversation is asked against: ?account= if
+  // valid, else the active conversation's own account, else the default account.
+  const activeConv = activeId ? conversations.find((c) => c.id === activeId) : undefined;
+  const defaultAccountId = accounts.find((a) => a.is_default)?.id ?? accounts[0]?.id ?? null;
+  const selectedAccountId =
+    (accountParam && accounts.some((a) => a.id === accountParam) ? accountParam : null) ??
+    activeConv?.account_id ??
+    defaultAccountId;
 
   if (error) {
     return (
@@ -66,6 +80,8 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
         conversations={conversations}
         activeConversationId={activeId}
         initialMessages={initialMessages}
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
       />
     </AppShell>
   );

@@ -56,6 +56,9 @@ function baseDeps(overrides: Partial<ChatSendDeps> = {}): {
   const appendMessage = vi.fn(async () => fakeAssistantRow(42));
   const deps: ChatSendDeps = {
     retrieveForChat: async () => okRetrieval,
+    // MBOX-400 — canned account resolver so the default DB-backed query is never
+    // hit in this hermetic suite (same reasoning as getApplianceStats below).
+    getConversationAccountId: async () => 1,
     getConversationMessages: async () => [],
     // MBOX-307 — canned stats so the default DB-backed helper is never hit in
     // this hermetic suite (no real Postgres available here).
@@ -90,6 +93,29 @@ function baseDeps(overrides: Partial<ChatSendDeps> = {}): {
   };
   return { deps, appendMessage };
 }
+
+describe('runChatTurn — account-scoped retrieval (MBOX-400)', () => {
+  it("threads the conversation's account_id into retrieveForChat", async () => {
+    const retrieveForChat = vi.fn(async () => okRetrieval);
+    const { deps } = baseDeps({
+      getConversationAccountId: async () => 7,
+      retrieveForChat,
+    });
+    await collect(runChatTurn({ conversationId: 99, content: 'what did we agree on?' }, deps));
+    // (query, accountId) — retrieval is hard-scoped to the resolved inbox.
+    expect(retrieveForChat).toHaveBeenCalledWith('what did we agree on?', 7);
+  });
+
+  it('falls back to corpus-wide (undefined) when the conversation has no account', async () => {
+    const retrieveForChat = vi.fn(async () => okRetrieval);
+    const { deps } = baseDeps({
+      getConversationAccountId: async () => null,
+      retrieveForChat,
+    });
+    await collect(runChatTurn({ conversationId: 99, content: 'orphan convo' }, deps));
+    expect(retrieveForChat).toHaveBeenCalledWith('orphan convo', undefined);
+  });
+});
 
 describe('runChatTurn — happy path', () => {
   it('relays tokens, emits done then saved, persists user + assistant turns', async () => {

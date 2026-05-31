@@ -7,7 +7,7 @@ import { apiUrl } from '@/lib/api';
 import { streamChatSend } from '@/lib/chat/client-stream';
 import type { ChatSourceRef } from '@/lib/chat/orchestrate';
 import type { DraftingFlag } from '@/lib/drafting-flag';
-import type { ChatConversation, ChatMessage } from '@/lib/types';
+import type { AccountRef, ChatConversation, ChatMessage } from '@/lib/types';
 
 // MBOX-287 — the /dashboard/chat client surface (epic MBOX-282). Owns the live
 // turn loop: it POSTs to /api/internal/chat/send and renders streamed tokens
@@ -40,6 +40,12 @@ interface Props {
   conversations: ChatConversation[];
   activeConversationId: number | null;
   initialMessages: ChatMessage[];
+  // MBOX-400 (MBOX-162 V7) — connected inboxes for the account picker, and the
+  // SSR-resolved inbox a NEW conversation is asked against (seeded from ?account=
+  // → default account). Single-account boxes pass one account and the picker
+  // stays hidden. Retrieval is scoped to the conversation's account server-side.
+  accounts: AccountRef[];
+  selectedAccountId: number | null;
 }
 
 function toUiMessage(m: ChatMessage): UiMessage {
@@ -56,7 +62,23 @@ function toUiMessage(m: ChatMessage): UiMessage {
   };
 }
 
-export function ChatClient({ conversations, activeConversationId, initialMessages }: Props) {
+export function ChatClient({
+  conversations,
+  activeConversationId,
+  initialMessages,
+  accounts,
+  selectedAccountId,
+}: Props) {
+  // MBOX-400 — show the inbox picker + per-conversation account badge only on a
+  // multi-account box; single-account stays uncluttered (mirrors the V3 queue).
+  const showAccount = accounts.length > 1;
+  const accountLabel = (id: number): string => {
+    const a = accounts.find((x) => x.id === id);
+    return a ? a.display_label?.trim() || a.email_address : `#${id}`;
+  };
+  // Preserve the chosen inbox when starting a new conversation.
+  const newChatHref =
+    selectedAccountId != null ? apiUrl(`/chat?account=${selectedAccountId}`) : apiUrl('/chat');
   const [messages, setMessages] = useState<UiMessage[]>(() => initialMessages.map(toUiMessage));
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -104,7 +126,9 @@ export function ChatClient({ conversations, activeConversationId, initialMessage
     const res = await fetch(apiUrl('/api/internal/chat/conversations'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
+      // MBOX-400 — stamp the chosen inbox so retrieval is scoped to it. Omitted
+      // → the column DEFAULT (default account) on a single-account box.
+      body: JSON.stringify(selectedAccountId != null ? { account_id: selectedAccountId } : {}),
     });
     if (!res.ok) throw new Error(`could not start conversation (HTTP ${res.status})`);
     const conv = (await res.json()) as ChatConversation;
@@ -112,7 +136,7 @@ export function ChatClient({ conversations, activeConversationId, initialMessage
     // navigation re-runs the server page with the new ?c=.
     window.location.assign(apiUrl(`/chat?c=${conv.id}`));
     return conv.id;
-  }, [activeConversationId]);
+  }, [activeConversationId, selectedAccountId]);
 
   const send = useCallback(async () => {
     const content = input.trim();
@@ -211,13 +235,35 @@ export function ChatClient({ conversations, activeConversationId, initialMessage
             Conversations
           </span>
           <a
-            href={apiUrl('/chat')}
+            href={newChatHref}
             className="flex items-center gap-1 rounded px-1.5 py-1 text-ink-muted hover:bg-bg-deep hover:text-ink"
             aria-label="New conversation"
           >
             <MessageSquarePlus size={15} />
           </a>
         </div>
+        {/* MBOX-400 — inbox picker (multi-account only). Navigates with ?account=
+            so the choice is reload-safe and scopes the NEXT new conversation. */}
+        {showAccount && (
+          <label className="block shrink-0 border-b border-border-subtle px-3 py-2">
+            <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+              Ask about inbox
+            </span>
+            <select
+              value={selectedAccountId ?? ''}
+              onChange={(e) => {
+                window.location.assign(apiUrl(`/chat?account=${e.target.value}`));
+              }}
+              className="w-full rounded border border-border bg-bg-deep px-2 py-1 font-sans text-xs text-ink"
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.display_label?.trim() || a.email_address}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <nav className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-2">
           {conversations.length === 0 && (
             <p className="px-2 py-3 font-sans text-xs text-ink-dim">No conversations yet.</p>
@@ -233,6 +279,11 @@ export function ChatClient({ conversations, activeConversationId, initialMessage
                   : 'text-ink-muted hover:bg-bg-deep hover:text-ink'
               }`}
             >
+              {showAccount && (
+                <span className="mr-1.5 rounded-full border border-border bg-bg-deep px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-ink-dim">
+                  {accountLabel(c.account_id)}
+                </span>
+              )}
               {c.title?.trim() || `Conversation ${c.id}`}
             </a>
           ))}

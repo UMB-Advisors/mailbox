@@ -41,6 +41,19 @@
 // cloud privacy gate (RAG_CLOUD_ROUTE_ENABLED) does not apply here. Retrieval
 // always runs. Reusing the same on-device nomic-embed-text:v1.5 + local
 // Qdrant keeps all corpus content on the appliance.
+//
+// === Per-account isolation (MBOX-400, MBOX-162 V7) ===
+//
+// Query-scoped does NOT mean corpus-wide across inboxes. On a multi-account
+// appliance, "Ask the KB" must only see the history of the inbox the operator
+// is asking about — otherwise account #2's mail leaks into account #1's chat
+// answer. The caller passes the conversation's account_id (resolved from
+// chat_conversations.account_id, migration 033) and we hard-filter
+// payload.account_id via searchByVector's accountFilter (the same primitive the
+// draft path uses, STAQPRO-191 / MBOX-352). accountId is optional: when omitted
+// (the standalone eval/test caller), no account filter is applied and retrieval
+// is corpus-wide — back-compat for single-account / harness callers. The live
+// chat path (runChatTurn) always resolves and passes it.
 
 import { embedText } from './embed';
 import { searchByVector } from './qdrant';
@@ -101,7 +114,10 @@ function excerptCharCap(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 600;
 }
 
-export async function retrieveForChat(query: string): Promise<ChatRetrievalResult> {
+export async function retrieveForChat(
+  query: string,
+  accountId?: number,
+): Promise<ChatRetrievalResult> {
   const trimmed = (query ?? '').trim();
   if (!trimmed) {
     return { refs: [], reason: 'empty_query' };
@@ -112,9 +128,15 @@ export async function retrieveForChat(query: string): Promise<ChatRetrievalResul
     return { refs: [], reason: 'embed_unavailable' };
   }
 
-  // Query-scoped: no sender/recipient/persona/self/thread filters. We want
-  // the most relevant prior messages across the whole corpus, period.
-  const search = await searchByVector(vector, { limit: topK() });
+  // Query-scoped: no sender/recipient/persona/self/thread filters — we want the
+  // most relevant prior messages across the whole corpus. The one exception is
+  // the per-account hard filter (MBOX-400): when accountId is supplied, recall
+  // is scoped to that inbox so a multi-account box never bleeds one inbox's
+  // history into another's chat answer. Omitted → corpus-wide (harness/eval).
+  const search = await searchByVector(vector, {
+    limit: topK(),
+    ...(accountId !== undefined ? { accountFilter: accountId } : {}),
+  });
   if (!search.ok) {
     return { refs: [], reason: 'qdrant_unavailable' };
   }

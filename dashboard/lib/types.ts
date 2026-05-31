@@ -365,6 +365,9 @@ export interface SentHistory {
 
 export interface KbDocument {
   id: number;
+  // MBOX-400 (MBOX-162 V7) — owning inbox (mailbox.accounts.id). Lets the KB
+  // management UI group/scope documents per account on a multi-account box.
+  account_id: number;
   title: string;
   filename: string;
   mime_type: string;
@@ -422,6 +425,10 @@ export interface Onboarding {
 
 export interface ChatConversation {
   id: number;
+  // MBOX-400 (MBOX-162 V7) — the mailbox.accounts row this chat session belongs
+  // to (column added by migration 033, DEFAULT = default account). Scopes
+  // "Ask the KB" retrieval to one inbox's history on a multi-account appliance.
+  account_id: number;
   title: string | null;
   created_at: string;
   updated_at: string;

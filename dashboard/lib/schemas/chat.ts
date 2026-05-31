@@ -11,6 +11,9 @@ import { CHAT_MESSAGE_ROLES } from '@/lib/types';
 // the chat route may backfill it from a first-message summary later.
 export const chatConversationCreateSchema = z.object({
   title: z.string().trim().min(1).max(200).nullish(),
+  // MBOX-400 (MBOX-162 V7) — which inbox this session asks about. Optional:
+  // omitted → the chat_conversations.account_id DEFAULT (default account).
+  account_id: z.coerce.number().int().positive().optional(),
 });
 
 export type ChatConversationCreate = z.infer<typeof chatConversationCreateSchema>;
@@ -49,6 +52,9 @@ export type ChatMessagesQuery = z.infer<typeof chatMessagesQuerySchema>;
 // input bounded (embed.ts truncates further to EMBED_MAX_CHARS regardless).
 export const chatRetrieveSchema = z.object({
   query: z.string().trim().min(1, 'query (non-empty string) required').max(2000),
+  // MBOX-400 (MBOX-162 V7) — hard-scope retrieval to one inbox's history.
+  // Optional: omitted → corpus-wide (single-account / eval harness).
+  account_id: z.coerce.number().int().positive().optional(),
 });
 
 export type ChatRetrieve = z.infer<typeof chatRetrieveSchema>;

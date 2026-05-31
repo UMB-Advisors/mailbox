@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) return parsed.response;
 
   try {
-    const result = await retrieveForChat(parsed.data.query);
+    const result = await retrieveForChat(parsed.data.query, parsed.data.account_id);
     return NextResponse.json(result);
   } catch (error) {
     // retrieveForChat is designed not to throw, but a defensive 500 keeps the
