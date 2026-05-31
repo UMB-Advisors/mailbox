@@ -76,20 +76,21 @@ describe('connect-flow state HMAC', () => {
     else process.env.MAILBOX_OAUTH_STATE_SECRET = saved.MAILBOX_OAUTH_STATE_SECRET;
   });
 
-  it('signs and verifies a provider+nonce round-trip', () => {
-    const state = signState('google_calendar', 'nonce-123');
+  it('signs and verifies a provider+account+nonce round-trip', () => {
+    // MBOX-415 — state pins account_id (oauth_tokens PK is (provider, account_id)).
+    const state = signState('google_calendar', 'nonce-123', 7);
     const verified = verifyState(state);
-    expect(verified).toEqual({ provider: 'google_calendar', nonce: 'nonce-123' });
+    expect(verified).toEqual({ provider: 'google_calendar', accountId: 7, nonce: 'nonce-123' });
   });
 
   it('rejects a tampered MAC', () => {
-    const state = signState('google_tasks', 'n');
+    const state = signState('google_tasks', 'n', 1);
     const tampered = `${state}x`;
     expect(verifyState(tampered)).toBeNull();
   });
 
   it('rejects a state signed with a different secret', () => {
-    const state = signState('google_calendar', 'n');
+    const state = signState('google_calendar', 'n', 1);
     process.env.MAILBOX_OAUTH_STATE_SECRET = 'a-different-secret';
     expect(verifyState(state)).toBeNull();
   });

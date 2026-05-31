@@ -16,6 +16,7 @@
 // n8n-coupled world DR-56/P3 replaces. parseRateLimit is consumed by the
 // dashboard-owned IMAP/Graph poll loops (P1/P2), where a JS error object exists.
 
+import { fetchSentViaGmail } from '@/lib/mail/gmail-fetch';
 import type {
   BackfillOptions,
   CanonicalMessage,
@@ -26,6 +27,11 @@ import type {
   SendRequest,
   SendResult,
 } from './types';
+
+// Default Sent cap when the orchestrator passes no maxMessages — matches the
+// IMAP provider's DEFAULT_BACKFILL_MAX_MESSAGES and the 90-day lookback default
+// in the voice-backfill orchestrators.
+const DEFAULT_BACKFILL_MAX_MESSAGES = 500;
 
 export class NotImplementedInP0 extends Error {
   constructor(method: string) {
@@ -107,9 +113,10 @@ export class GmailProvider implements MailProvider {
     return { until: parsed };
   }
 
-  // --- Transport I/O: n8n's job in P0 (see file header / DR-56). ---
-  // These throw synchronously — they are not-implemented guards, not real async
-  // paths. P1 (IMAP) / P2 (Graph) provide genuine async implementations.
+  // --- Transport I/O ---
+  // listNew / send remain n8n's job (Gmail Get / Gmail Reply) — the live inbound
+  // poll + reply still flow through the workflows (file header / DR-56). These
+  // stay not-implemented guards.
   listNew(
     _account: MailAccount,
     _cursor: unknown,
@@ -121,7 +128,25 @@ export class GmailProvider implements MailProvider {
     throw new NotImplementedInP0('send');
   }
 
-  backfillSent(_account: MailAccount, _opts: BackfillOptions): AsyncIterable<CanonicalMessage> {
-    throw new NotImplementedInP0('backfillSent');
+  // backfillSent IS implemented (MBOX-399 / MBOX-162 V6 P3 — the first slice of
+  // dashboard-owned Gmail I/O, DR-56). Transport-pure: the per-account
+  // gmail.readonly access token is injected by the orchestrator at call time as
+  // account.provider_config.access_token (this layer never touches the DB or
+  // getAccessToken). Delegates the REST mechanics to fetchSentViaGmail and the
+  // pure mapping to gmail-parse. An AsyncGenerator satisfies AsyncIterable.
+  async *backfillSent(
+    account: MailAccount,
+    opts: BackfillOptions,
+  ): AsyncGenerator<CanonicalMessage> {
+    const accessToken = str(account.provider_config.access_token);
+    if (!accessToken) {
+      // The orchestrator guarantees this — a missing token here is a wiring bug,
+      // not an operator-facing not-connected (that's resolved before we get here).
+      throw new Error('GmailProvider.backfillSent: no access_token in provider_config');
+    }
+    yield* fetchSentViaGmail(accessToken, {
+      lookbackHours: opts.lookbackHours,
+      maxMessages: opts.maxMessages ?? DEFAULT_BACKFILL_MAX_MESSAGES,
+    });
   }
 }

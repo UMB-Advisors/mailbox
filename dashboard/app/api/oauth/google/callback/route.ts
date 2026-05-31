@@ -26,6 +26,17 @@ function settingsRedirect(req: NextRequest, status: string): NextResponse {
   return NextResponse.redirect(url);
 }
 
+// MBOX-399 — a per-account Gmail grant is initiated from /settings/accounts
+// ("Learn voice" on a Gmail inbox), not the integrations page. Land the operator
+// back THERE with ?gmail_connected=<id> so the Accounts page auto-runs the Sent
+// backfill on return — making it a true one-click flow (consent is the detour).
+function accountsGmailRedirect(req: NextRequest, accountId: number): NextResponse {
+  const base = process.env.MAILBOX_PUBLIC_BASE_URL?.trim() || req.nextUrl.origin;
+  const url = new URL(apiUrl('/settings/accounts'), base);
+  url.searchParams.set('gmail_connected', String(accountId));
+  return NextResponse.redirect(url);
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const q = parseQuery(req, oauthCallbackQuerySchema);
   if (!q.ok) return q.response;
@@ -52,6 +63,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       accountEmail: exchanged.accountEmail,
       accountId: verified.accountId,
     });
+    if (verified.provider === 'google_gmail') {
+      return accountsGmailRedirect(req, verified.accountId);
+    }
     return settingsRedirect(req, `connected_${verified.provider}`);
   } catch (err) {
     console.error('GET /api/oauth/google/callback exchange failed:', err);

@@ -85,7 +85,7 @@ describe('GmailProvider capabilities + I/O boundary', () => {
     });
   });
 
-  it('throws NotImplementedInP0 for transport I/O (n8n owns it in P0)', () => {
+  it('still throws NotImplementedInP0 for the live poll/send I/O (n8n owns it)', () => {
     const acct = { id: 1, provider: 'gmail' as const, provider_config: {} };
     expect(() => gmail.listNew(acct, null)).toThrow(NotImplementedInP0);
     expect(() =>
@@ -97,7 +97,20 @@ describe('GmailProvider capabilities + I/O boundary', () => {
         body: 'b',
       }),
     ).toThrow(NotImplementedInP0);
-    expect(() => gmail.backfillSent(acct, { lookbackHours: 24 })).toThrow(NotImplementedInP0);
+  });
+
+  // MBOX-399 (V6 P3) — backfillSent is the first dashboard-owned Gmail I/O
+  // (DR-56). It's an async generator now (no longer NotImplementedInP0): the
+  // access token is injected via provider_config.access_token by the
+  // orchestrator. A missing token is a wiring bug that surfaces on iteration,
+  // not a synchronous throw at call time.
+  it('backfillSent rejects on iteration when no access_token is injected', async () => {
+    const acct = { id: 1, provider: 'gmail' as const, provider_config: {} };
+    await expect(async () => {
+      for await (const _ of gmail.backfillSent(acct, { lookbackHours: 24 })) {
+        // unreachable — the missing-token guard throws before the first yield
+      }
+    }).rejects.toThrow(/no access_token/);
   });
 });
 

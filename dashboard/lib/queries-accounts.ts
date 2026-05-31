@@ -41,6 +41,20 @@ export async function getDefaultAccountId(): Promise<number> {
   return row.id;
 }
 
+// MBOX-399 — the transport provider for one account, or null if it doesn't
+// exist. The voice-backfill route reads this to dispatch by provider
+// (imap→runImapVoiceBackfill, gmail→runGmailVoiceBackfill) before hitting the
+// provider-specific orchestrator.
+export async function getAccountProviderById(id: number): Promise<MailProviderKind | null> {
+  const db = getKysely();
+  const row = await db
+    .selectFrom('accounts')
+    .select('provider')
+    .where('id', '=', id)
+    .executeTakeFirst();
+  return row ? (row.provider as MailProviderKind) : null;
+}
+
 export type ResolveAccountResult = { ok: true; account_id: number } | { ok: false; reason: string };
 
 // Resolution order: explicit account_id wins; else resolve a stable

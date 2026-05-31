@@ -19,7 +19,7 @@ import type { Kysely } from 'kysely';
 import { getKysely } from '@/lib/db';
 import type { DB } from '@/lib/db/schema';
 import { ImapSmtpProvider } from '@/lib/mail/providers/imap';
-import type { MailAccount, MailProvider } from '@/lib/mail/providers/types';
+import type { CanonicalMessage, MailAccount, MailProvider } from '@/lib/mail/providers/types';
 import { decryptToken } from '@/lib/oauth/google';
 
 // Mirror the 90-day defaults of the Gmail/RAG backfills.
@@ -38,12 +38,60 @@ export interface ImapVoiceBackfillDeps {
   provider?: MailProvider;
 }
 
-// Account is IMAP-only — voice backfill reads the Sent mailbox over IMAP, which
-// the Gmail/Microsoft providers don't expose (their I/O lives in n8n / is P2).
+// Setup/credential fault for a voice backfill (account not found, wrong
+// provider, missing credential). Caller maps it to a 4xx — it is not a server
+// fault. Shared by the IMAP (here) and Gmail (gmail-voice-backfill.ts) paths.
 export class VoiceBackfillError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'VoiceBackfillError';
+  }
+}
+
+// Upsert one CanonicalMessage into mailbox.sent_history as a Sent-only backfill
+// row (no paired inbound, account_id-tagged), deduped on the migration-011 /
+// MBOX-348 partial unique index (account_id, message_id) WHERE message_id IS NOT
+// NULL. Returns which bucket the row fell into so the caller can tally counts.
+// Shared by both provider orchestrators so the row shape + dedup live in ONE
+// place. Privacy: a failure logs the message_id only, never body content.
+export async function archiveSentMessage(
+  db: Kysely<DB>,
+  accountId: number,
+  msg: CanonicalMessage,
+): Promise<'upserted' | 'skipped_existing' | 'malformed'> {
+  try {
+    const r = await db
+      .insertInto('sent_history')
+      .values({
+        account_id: accountId,
+        message_id: msg.provider_message_id || null,
+        draft_id: null,
+        inbox_message_id: null,
+        from_addr: msg.from_addr,
+        to_addr: msg.to_addr,
+        subject: msg.subject || null,
+        body_text: null,
+        thread_id: msg.thread_id,
+        draft_original: null,
+        draft_sent: msg.body || '',
+        draft_source: 'local',
+        classification_category: 'unknown',
+        classification_confidence: 0,
+        sent_at: msg.received_at,
+        source: 'backfill',
+      })
+      .onConflict((oc) =>
+        oc.columns(['account_id', 'message_id']).where('message_id', 'is not', null).doNothing(),
+      )
+      .executeTakeFirst();
+    const affected = r?.numInsertedOrUpdatedRows ?? BigInt(0);
+    return affected === BigInt(0) ? 'skipped_existing' : 'upserted';
+  } catch (err) {
+    console.error(
+      `archiveSentMessage upsert failed (message_id=${msg.provider_message_id || 'none'}):`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return 'malformed';
   }
 }
 
@@ -96,44 +144,10 @@ export async function runImapVoiceBackfill(
 
   for await (const msg of provider.backfillSent(account, { lookbackHours, maxMessages })) {
     counts.messages_seen += 1;
-    try {
-      const r = await db
-        .insertInto('sent_history')
-        .values({
-          account_id: accountId,
-          message_id: msg.provider_message_id || null,
-          draft_id: null,
-          inbox_message_id: null,
-          from_addr: msg.from_addr,
-          to_addr: msg.to_addr,
-          subject: msg.subject || null,
-          body_text: null,
-          thread_id: msg.thread_id,
-          draft_original: null,
-          draft_sent: msg.body || '',
-          draft_source: 'local',
-          classification_category: 'unknown',
-          classification_confidence: 0,
-          sent_at: msg.received_at,
-          source: 'backfill',
-        })
-        // Dedup on the migration-011/MBOX-348 partial unique index
-        // (account_id, message_id) WHERE message_id IS NOT NULL.
-        .onConflict((oc) =>
-          oc.columns(['account_id', 'message_id']).where('message_id', 'is not', null).doNothing(),
-        )
-        .executeTakeFirst();
-      const affected = r?.numInsertedOrUpdatedRows ?? BigInt(0);
-      if (affected === BigInt(0)) counts.skipped_existing += 1;
-      else counts.sent_history_upserts += 1;
-    } catch (err) {
-      counts.malformed += 1;
-      // message_id only — never body content (privacy).
-      console.error(
-        `imap-voice-backfill upsert failed (message_id=${msg.provider_message_id || 'none'}):`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+    const bucket = await archiveSentMessage(db, accountId, msg);
+    if (bucket === 'upserted') counts.sent_history_upserts += 1;
+    else if (bucket === 'skipped_existing') counts.skipped_existing += 1;
+    else counts.malformed += 1;
   }
 
   return counts;
