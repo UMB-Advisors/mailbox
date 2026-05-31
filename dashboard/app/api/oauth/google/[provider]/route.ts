@@ -12,15 +12,23 @@ import { oauthProviderParamSchema } from '@/lib/schemas/oauth';
 
 export const dynamic = 'force-dynamic';
 
+// MBOX-415 — optional ?account_id= scopes the status/disconnect to a specific
+// appliance account; absent → the helper layer falls back to the default.
+function accountIdFromQuery(req: NextRequest): number | undefined {
+  const raw = req.nextUrl.searchParams.get('account_id');
+  const n = raw ? Number(raw) : Number.NaN;
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { provider: string } },
 ): Promise<NextResponse> {
   const p = parseParams(params, oauthProviderParamSchema);
   if (!p.ok) return p.response;
 
   try {
-    const conn = await getConnection(p.data.provider);
+    const conn = await getConnection(p.data.provider, accountIdFromQuery(req));
     return NextResponse.json(conn);
   } catch (error) {
     console.error(`GET /api/oauth/google/${params.provider} failed:`, error);
@@ -37,17 +45,18 @@ export async function GET(
 // process-local and TTL-bounded (~30s); we don't reach into it here because the
 // next fetch sees not_connected and returns an empty snapshot anyway.
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { provider: string } },
 ): Promise<NextResponse> {
   const p = parseParams(params, oauthProviderParamSchema);
   if (!p.ok) return p.response;
 
   try {
+    const accountId = accountIdFromQuery(req);
     // Pull the token first so we can revoke it at Google before deleting.
-    const token = await getRefreshToken(p.data.provider).catch(() => null);
+    const token = await getRefreshToken(p.data.provider, accountId).catch(() => null);
     if (token) await revokeAtGoogle(token);
-    const result = await deleteToken(p.data.provider);
+    const result = await deleteToken(p.data.provider, accountId);
     return NextResponse.json({ deleted: result.deleted });
   } catch (error) {
     console.error(`DELETE /api/oauth/google/${params.provider} failed:`, error);

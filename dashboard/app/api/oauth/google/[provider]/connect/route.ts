@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { type NextRequest, NextResponse } from 'next/server';
 import { parseParams } from '@/lib/middleware/validate';
 import { buildConsentUrl } from '@/lib/oauth/google';
+import { getDefaultAccountId } from '@/lib/queries-accounts';
 import { oauthProviderParamSchema } from '@/lib/schemas/oauth';
 
 // MBOX-130 + MBOX-129 — connect-flow initiator. The settings page's "Connect
@@ -15,17 +16,22 @@ import { oauthProviderParamSchema } from '@/lib/schemas/oauth';
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { provider: string } },
 ): Promise<NextResponse> {
   const p = parseParams(params, oauthProviderParamSchema);
   if (!p.ok) return p.response;
 
   try {
-    // Nonce binds this redirect to its callback. State is HMAC-signed so a
-    // forged callback can't smuggle a provider; verifyState rejects a bad MAC.
+    // MBOX-415 — which appliance account this grant is for. ?account_id= pins it
+    // (multi-account); absent → the default account (single-account behavior).
+    const raw = req.nextUrl.searchParams.get('account_id');
+    const parsed = raw ? Number(raw) : Number.NaN;
+    const accountId = Number.isInteger(parsed) && parsed > 0 ? parsed : await getDefaultAccountId();
+    // Nonce binds this redirect to its callback. State is HMAC-signed so a forged
+    // callback can't smuggle a provider/account; verifyState rejects a bad MAC.
     const nonce = randomBytes(16).toString('base64url');
-    const url = buildConsentUrl(p.data.provider, nonce);
+    const url = buildConsentUrl(p.data.provider, nonce, accountId);
     return NextResponse.redirect(url);
   } catch (error) {
     console.error(`GET /api/oauth/google/${params.provider}/connect failed:`, error);

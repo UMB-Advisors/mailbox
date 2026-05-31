@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { parseJson } from '@/lib/middleware/validate';
+import { getConnection } from '@/lib/oauth/google';
 import {
   AccountMutationError,
   createAccount,
@@ -22,7 +23,21 @@ export const dynamic = 'force-dynamic';
 // selector contract unchanged.
 export async function GET(request: NextRequest) {
   try {
-    const detail = new URL(request.url).searchParams.get('detail') === '1';
+    const sp = new URL(request.url).searchParams;
+    // MBOX-415 — ?calendar=1 adds google_calendar connection status per account,
+    // for the right-rail account picker + the Integrations account selector.
+    if (sp.get('calendar') === '1') {
+      const base = await listAccounts();
+      const accounts = await Promise.all(
+        base.map(async (a) => ({
+          ...a,
+          calendar_connected:
+            (await getConnection('google_calendar', a.id).catch(() => null))?.connected ?? false,
+        })),
+      );
+      return NextResponse.json({ accounts });
+    }
+    const detail = sp.get('detail') === '1';
     const accounts = detail ? await listAccountsDetailed() : await listAccounts();
     return NextResponse.json({ accounts });
   } catch (error) {

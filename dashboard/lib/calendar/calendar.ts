@@ -41,6 +41,9 @@ export interface CalendarEvent {
   start: string; // ISO
   end: string; // ISO
   summary: string;
+  // MBOX-415 — which calendar this event came from (day-view multi-calendar
+  // toggle). Unset on the draft-path snapshot, which only reads `primary`.
+  calendarId?: string;
 }
 
 export interface CalendarSnapshot {
@@ -317,18 +320,51 @@ export function filterEventsForDay(
     .sort((a, b) => a.start.localeCompare(b.start));
 }
 
+const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3/calendars';
+
+export interface GetDayEventsOptions {
+  // MBOX-415 — which appliance account's Google grant to read (default account
+  // when unset), and which calendars (default ['primary']).
+  accountId?: number;
+  calendarIds?: string[];
+}
+
+async function fetchCalendarWindow(
+  calendarId: string,
+  accessToken: string,
+  timeMin: string,
+  timeMax: string,
+): Promise<{ ok: boolean; status: number; items: unknown }> {
+  const url = new URL(`${CALENDAR_BASE}/${encodeURIComponent(calendarId)}/events`);
+  url.searchParams.set('timeMin', timeMin);
+  url.searchParams.set('timeMax', timeMax);
+  url.searchParams.set('singleEvents', 'true');
+  url.searchParams.set('orderBy', 'startTime');
+  url.searchParams.set('maxResults', '100');
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(6_000),
+    });
+    if (!res.ok) return { ok: false, status: res.status, items: null };
+    const json = (await res.json().catch(() => null)) as { items?: unknown } | null;
+    return { ok: true, status: 200, items: json?.items ?? [] };
+  } catch {
+    return { ok: false, status: 0, items: null };
+  }
+}
+
 export async function getDayEvents(
   dateStr: string,
-  now: Date = new Date(),
+  opts: GetDayEventsOptions = {},
 ): Promise<CalendarDayResult> {
-  void now; // reserved for future "today" affordances; keeps the signature testable
   const tz = process.env.GENERIC_TIMEZONE ?? 'UTC';
-  const conn = await getConnection('google_calendar');
+  const conn = await getConnection('google_calendar', opts.accountId);
   if (!conn.connected) return { reason: 'not_connected', date: dateStr, events: [] };
 
   let accessToken: string;
   try {
-    accessToken = await getAccessToken('google_calendar');
+    accessToken = await getAccessToken('google_calendar', 5_000, opts.accountId);
   } catch (err) {
     if (err instanceof OAuthTokenError) {
       if (err.kind === 'not_connected')
@@ -339,20 +375,100 @@ export async function getDayEvents(
   }
 
   // Fetch a generous UTC window around the requested local day (±26h covers any
-  // tz offset), then filter to the requested day in the operator tz. Avoids a
-  // tz library for exact day boundaries; a few extra events get filtered out.
+  // tz offset), then filter to the requested day in the operator tz.
   const anchor = new Date(`${dateStr}T12:00:00Z`);
   if (Number.isNaN(anchor.getTime())) return { reason: 'fetch_failed', date: dateStr, events: [] };
   const timeMin = new Date(anchor.getTime() - 26 * 3600 * 1000).toISOString();
   const timeMax = new Date(anchor.getTime() + 26 * 3600 * 1000).toISOString();
 
-  const url = new URL(CALENDAR_EVENTS_URL);
-  url.searchParams.set('timeMin', timeMin);
-  url.searchParams.set('timeMax', timeMax);
-  url.searchParams.set('singleEvents', 'true');
-  url.searchParams.set('orderBy', 'startTime');
-  url.searchParams.set('maxResults', '100');
+  const calendarIds =
+    opts.calendarIds && opts.calendarIds.length > 0 ? opts.calendarIds : ['primary'];
+  const results = await Promise.all(
+    calendarIds.map((id) => fetchCalendarWindow(id, accessToken, timeMin, timeMax)),
+  );
 
+  // A 401/403 on any calendar → grant bad (reconnect); 429 → rate limited.
+  // Otherwise a single bad calendar id is skipped, not fatal.
+  if (results.some((r) => r.status === 401 || r.status === 403)) {
+    return { reason: 'token_expired', date: dateStr, events: [] };
+  }
+  if (results.some((r) => r.status === 429)) {
+    return { reason: 'rate_limited', date: dateStr, events: [] };
+  }
+  if (results.every((r) => !r.ok)) {
+    return { reason: 'fetch_failed', date: dateStr, events: [] };
+  }
+
+  void markFetched('google_calendar', opts.accountId).catch(() => undefined);
+
+  // No attendee filter here (unlike the draft snapshot) — the panel shows
+  // everything on the selected calendars, tagged with the source calendarId.
+  const merged: CalendarEvent[] = [];
+  results.forEach((r, i) => {
+    if (!r.ok) return;
+    for (const ev of coerceEvents(r.items, null)) {
+      merged.push({ ...ev, calendarId: calendarIds[i] });
+    }
+  });
+
+  return { reason: 'ok', date: dateStr, events: filterEventsForDay(merged, dateStr, tz) };
+}
+
+// MBOX-415 — the account's calendar list, for the panel's calendar toggle.
+export interface CalendarListEntry {
+  id: string;
+  summary: string;
+  primary: boolean;
+  selected: boolean;
+  backgroundColor: string | null;
+}
+
+export interface CalendarListResult {
+  reason: CalendarDayReason;
+  calendars: CalendarListEntry[];
+}
+
+const CALENDAR_LIST_URL = 'https://www.googleapis.com/calendar/v3/users/me/calendarList';
+
+// Pure (exported for tests): map a calendarList payload → entries, primary first.
+export function parseCalendarList(raw: unknown): CalendarListEntry[] {
+  if (typeof raw !== 'object' || raw === null) return [];
+  const items = (raw as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return [];
+  const out: CalendarListEntry[] = [];
+  for (const it of items) {
+    if (typeof it !== 'object' || it === null) continue;
+    const o = it as Record<string, unknown>;
+    if (typeof o.id !== 'string') continue;
+    out.push({
+      id: o.id,
+      summary: typeof o.summary === 'string' ? o.summary : o.id,
+      primary: o.primary === true,
+      selected: o.selected === true,
+      backgroundColor: typeof o.backgroundColor === 'string' ? o.backgroundColor : null,
+    });
+  }
+  return out.sort((a, b) =>
+    a.primary === b.primary ? a.summary.localeCompare(b.summary) : a.primary ? -1 : 1,
+  );
+}
+
+export async function listCalendars(accountId?: number): Promise<CalendarListResult> {
+  const conn = await getConnection('google_calendar', accountId);
+  if (!conn.connected) return { reason: 'not_connected', calendars: [] };
+  let accessToken: string;
+  try {
+    accessToken = await getAccessToken('google_calendar', 5_000, accountId);
+  } catch (err) {
+    if (err instanceof OAuthTokenError) {
+      if (err.kind === 'not_connected') return { reason: 'not_connected', calendars: [] };
+      if (err.kind === 'auth') return { reason: 'token_expired', calendars: [] };
+    }
+    return { reason: 'fetch_failed', calendars: [] };
+  }
+  const url = new URL(CALENDAR_LIST_URL);
+  url.searchParams.set('minAccessRole', 'reader');
+  url.searchParams.set('maxResults', '250');
   let res: Response;
   try {
     res = await fetch(url, {
@@ -360,18 +476,13 @@ export async function getDayEvents(
       signal: AbortSignal.timeout(6_000),
     });
   } catch {
-    return { reason: 'fetch_failed', date: dateStr, events: [] };
+    return { reason: 'fetch_failed', calendars: [] };
   }
-  if (res.status === 429) return { reason: 'rate_limited', date: dateStr, events: [] };
-  if (res.status === 401 || res.status === 403) {
-    return { reason: 'token_expired', date: dateStr, events: [] };
-  }
-  if (!res.ok) return { reason: 'fetch_failed', date: dateStr, events: [] };
-
-  const json = (await res.json().catch(() => null)) as { items?: unknown } | null;
-  if (!json) return { reason: 'fetch_failed', date: dateStr, events: [] };
-
-  void markFetched('google_calendar').catch(() => undefined);
-  const events = filterEventsForDay(coerceEvents(json.items, conn.account_email), dateStr, tz);
-  return { reason: 'ok', date: dateStr, events };
+  if (res.status === 429) return { reason: 'rate_limited', calendars: [] };
+  if (res.status === 401 || res.status === 403) return { reason: 'token_expired', calendars: [] };
+  if (!res.ok) return { reason: 'fetch_failed', calendars: [] };
+  const json = await res.json().catch(() => null);
+  if (!json) return { reason: 'fetch_failed', calendars: [] };
+  void markFetched('google_calendar', accountId).catch(() => undefined);
+  return { reason: 'ok', calendars: parseCalendarList(json) };
 }

@@ -121,13 +121,18 @@ function readStateSecret(): string {
   return s;
 }
 
-export function signState(provider: OAuthProvider, nonce: string): string {
-  const payload = `${provider}:${nonce}`;
+// MBOX-415 — state now also pins the account_id so a multi-account connect
+// saves the token to the right account (oauth_tokens PK is (provider,
+// account_id)). Payload: `provider:accountId:nonce`, HMAC-signed.
+export function signState(provider: OAuthProvider, nonce: string, accountId: number): string {
+  const payload = `${provider}:${accountId}:${nonce}`;
   const mac = createHmac('sha256', readStateSecret()).update(payload).digest('base64url');
   return `${payload}:${mac}`;
 }
 
-export function verifyState(state: string): { provider: OAuthProvider; nonce: string } | null {
+export function verifyState(
+  state: string,
+): { provider: OAuthProvider; accountId: number; nonce: string } | null {
   const idx = state.lastIndexOf(':');
   if (idx === -1) return null;
   const payload = state.slice(0, idx);
@@ -136,12 +141,16 @@ export function verifyState(state: string): { provider: OAuthProvider; nonce: st
   const a = Buffer.from(mac);
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  const sep = payload.indexOf(':');
-  if (sep === -1) return null;
-  const provider = payload.slice(0, sep) as OAuthProvider;
-  const nonce = payload.slice(sep + 1);
+  // payload = provider:accountId:nonce. provider + accountId have no ':'; nonce
+  // is base64url (no ':') but rejoin defensively.
+  const parts = payload.split(':');
+  if (parts.length < 3) return null;
+  const [provider, accountIdStr, ...rest] = parts;
+  const nonce = rest.join(':');
   if (!(OAUTH_PROVIDERS as readonly string[]).includes(provider)) return null;
-  return { provider, nonce };
+  const accountId = Number(accountIdStr);
+  if (!Number.isInteger(accountId) || accountId <= 0) return null;
+  return { provider: provider as OAuthProvider, accountId, nonce };
 }
 
 // ── Token storage (mailbox.oauth_tokens) ─────────────────────────────────────
@@ -320,7 +329,7 @@ function callbackUrl(): string {
 // `prompt=consent` force Google to return a refresh token (without consent,
 // Google omits it on re-auth). The signed state pins the provider through the
 // round-trip (verifyState on the callback).
-export function buildConsentUrl(provider: OAuthProvider, nonce: string): string {
+export function buildConsentUrl(provider: OAuthProvider, nonce: string, accountId: number): string {
   const { clientId } = readClientCreds();
   const url = new URL(GOOGLE_AUTH_URL);
   url.searchParams.set('client_id', clientId);
@@ -330,8 +339,12 @@ export function buildConsentUrl(provider: OAuthProvider, nonce: string): string 
   // the settings UI, plus the provider's data scope.
   url.searchParams.set('scope', `openid email ${PROVIDER_SCOPE[provider]}`);
   url.searchParams.set('access_type', 'offline');
-  url.searchParams.set('prompt', 'consent');
-  url.searchParams.set('state', signState(provider, nonce));
+  // 'select_account' forces Google's account chooser so the operator can pick a
+  // DIFFERENT Google identity per appliance account (MBOX-415 multi-account) —
+  // without it Google silently reuses the already-signed-in account. 'consent'
+  // still forces a refresh_token on every grant.
+  url.searchParams.set('prompt', 'consent select_account');
+  url.searchParams.set('state', signState(provider, nonce, accountId));
   return url.toString();
 }
 
