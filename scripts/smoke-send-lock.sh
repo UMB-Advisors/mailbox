@@ -12,8 +12,11 @@
 # Run from the workstation (uses ssh) or directly on the appliance.
 #
 # Usage:
-#   bash scripts/smoke-send-lock.sh [--host mailbox1|mailbox2] [--draft-id N]
-#   bash scripts/smoke-send-lock.sh --host mailbox2 --live-send --i-mean-it --draft-id 999
+#   bash scripts/smoke-send-lock.sh [--host <ssh-alias>] [--draft-id N]   # default host: mailbox1
+#   bash scripts/smoke-send-lock.sh --host mailbox1 --live-send --i-mean-it --draft-id 999
+#
+# NOTE: mailbox1 (M1, Heron Labs) is the only live MailBOX appliance. mailbox2 was
+# repurposed for the OpenClaw stack (2026-05-22) — do NOT target it for MailBOX smokes.
 #
 # Exit codes:
 #   0 = lock works as expected (Scenario A passes; or Scenario B 200 success path)
@@ -23,7 +26,7 @@
 set -euo pipefail
 
 # ───────────────────────── Arg parse ─────────────────────────
-HOST="mailbox2"
+HOST="mailbox1"
 DRAFT_ID=""
 LIVE_SEND=false
 I_MEAN_IT=false
