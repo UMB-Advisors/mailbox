@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { apiUrl } from '@/lib/api';
 import type { Persona } from '@/lib/types';
 import { AppShell } from './AppShell';
+import { SettingsTabs } from './SettingsTabs';
 import { TimeAgo } from './TimeAgo';
 import { Toast } from './Toast';
 
@@ -85,6 +86,7 @@ export function PersonaSettings({ initial }: { initial: Persona | null }) {
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+      <SettingsTabs active="persona" />
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-panel px-4">
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] text-ink-dim">Persona</span>

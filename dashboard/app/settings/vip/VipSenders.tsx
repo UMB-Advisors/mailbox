@@ -3,6 +3,7 @@
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { SettingsTabs } from '@/components/SettingsTabs';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Toast } from '@/components/Toast';
 import { apiUrl } from '@/lib/api';
@@ -82,6 +83,7 @@ export function VipSenders({
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+      <SettingsTabs active="vip" />
       <header className="flex h-12 shrink-0 items-center border-b border-border-subtle bg-bg-panel px-4">
         <span className="font-mono text-[11px] text-ink-dim">VIP senders</span>
       </header>

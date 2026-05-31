@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { SettingsTabs } from '@/components/SettingsTabs';
 import { Toast } from '@/components/Toast';
 import { apiUrl } from '@/lib/api';
 import type { AccountRow } from '@/lib/queries-accounts';
@@ -126,6 +127,7 @@ export function TuningSettings({
 
   return (
     <AppShell active={{ kind: 'surface', surface: 'settings' }}>
+      <SettingsTabs active="tuning" />
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-panel px-4">
         <span className="font-mono text-[11px] text-ink-dim">Tuning</span>
         {/* MBOX-374 — per-account selector. Hidden on a single-account box
