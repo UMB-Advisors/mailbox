@@ -9,6 +9,7 @@
 # Starts the memory sampler in the background, then launches both workloads in
 # the same ~2s window. Bench box only.
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${OUT_DIR:-./out}"; mkdir -p "$OUT"
 DUR="${S2_DURATION_SEC:-90}"
 HERMES_BIN="${HERMES_BIN:-hermes}"
@@ -20,7 +21,7 @@ HERMES_PROVIDER="${HERMES_PROVIDER:-}"
 HEAVY_PROMPT="${S2_PROMPT:-Search my last week of filed email, cross-reference the three most frequent senders, summarize every open thread that still needs a reply, and list any commitments I made. Use tools in parallel where possible.}"
 
 echo "[$(date -u +%H:%M:%S)] S2: starting ${DUR}s memory sample in background"
-( OUT_DIR="$OUT" ./10-memory-sample.sh S2 "$DUR" >/dev/null 2>&1 ) &
+( OUT_DIR="$OUT" "$SCRIPT_DIR/10-memory-sample.sh" S2 "$DUR" >/dev/null 2>&1 ) &
 SAMPLER=$!
 sleep 1   # let the sampler establish a floor
 
@@ -30,7 +31,9 @@ echo "[$(date -u +%H:%M:%S)] S2: firing n8n classify+draft + heavy Hermes turn (
 #     synthetic inbound through the internal route, which fires classify→draft.
 #     Set TEST_INBOUND_CURL to your own trigger if you prefer the live schedule.
 if [ -n "${TEST_INBOUND_CURL:-}" ]; then
-  eval "$TEST_INBOUND_CURL" >/dev/null 2>&1 &
+  # bash -c (not eval) so a stray trailing token can't splice into this shell.
+  # Only a literal curl command belongs here.
+  bash -c "$TEST_INBOUND_CURL" >/dev/null 2>&1 &
 else
   echo "  NOTE: set TEST_INBOUND_CURL to a curl that POSTs a test inbound to" >&2
   echo "        /dashboard/api/internal/inbox-messages, OR ensure a real inbound" >&2
@@ -49,4 +52,4 @@ echo "[$(date -u +%H:%M:%S)] S2: hermes turn finished; waiting for sampler"
 wait "$SAMPLER" || true
 
 echo "[$(date -u +%H:%M:%S)] S2 done. Verdict:"
-node ./11-memory-parse.mjs "$OUT/S2-tegrastats.log"
+node "$SCRIPT_DIR/11-memory-parse.mjs" "$OUT/S2-tegrastats.log"

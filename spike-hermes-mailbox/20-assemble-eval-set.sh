@@ -12,6 +12,7 @@
 #   {message_id,from_addr,to_addr,subject,body_text,category,confidence}
 set -euo pipefail
 N="${1:-40}"
+if ! [[ "$N" =~ ^[0-9]+$ ]]; then echo "N must be a positive integer (got: $N)" >&2; exit 1; fi
 OUT="${OUT_DIR:-./out}"; mkdir -p "$OUT"
 DEST="$OUT/eval-set.jsonl"
 PSQL=( docker compose exec -T postgres psql -U "${POSTGRES_USER:-mailbox}" -d "${POSTGRES_DB:-mailbox}" -tA )

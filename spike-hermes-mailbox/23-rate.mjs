@@ -23,6 +23,10 @@ function loadResults() {
 
 if (mode === 'sheet') {
   const results = loadResults();
+  if (existsSync(KEY)) {
+    console.error(`${KEY} already exists — regenerating would rotate the blind key and invalidate any filled ratings. Delete it first to regenerate.`);
+    process.exit(1);
+  }
   const key = {};
   const out = ['# Blind rating sheet (Hermes spike — NC-41)', '',
     'For each email, mark Draft 1 and Draft 2 as **send** / **minor** / **rewrite**.',

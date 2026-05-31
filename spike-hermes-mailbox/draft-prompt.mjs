@@ -59,8 +59,11 @@ export function buildSystemPrompt(persona = {}) {
     '  ✓ GOOD: "I will get a replacement shipment moving — [confirm with operator:',
     '          ship date once warehouse confirms]."',
     '',
-    'If the customer gave you the fact in their email, restate it instead of using a',
-    'placeholder — that is confirmation, not invention.',
+    '  ✗ BAD:  "Our lead time is 3 weeks."  (when not stated by the customer)',
+    '  ✓ GOOD: "Lead time is [confirm with operator: current production calendar]."',
+    '',
+    'If the customer gave you the fact in their email (e.g. "3-week lead time works for us"),',
+    'restate it instead of using a placeholder — that is confirmation, not invention.',
   ].join('\n');
 }
 
@@ -109,6 +112,31 @@ function exemplarBlock(input) {
   return lines.join('\n');
 }
 
+function kbBlock(input) {
+  if (!input.kb_refs || input.kb_refs.length === 0) return '';
+  const lines = ['', '## Reference snippets from your knowledge base'];
+  for (const ref of input.kb_refs.slice(0, 3)) {
+    lines.push(`[${ref.source}] ${ref.excerpt.slice(0, 600)}`);
+  }
+  return lines.join('\n');
+}
+
+const CALENDAR_LINES_CAP = 25;
+function calendarBlock(input) {
+  if (!input.calendar_snapshot || input.calendar_snapshot.length === 0) return '';
+  const lines = [
+    '',
+    '## Your calendar (next 2 weeks — busy blocks)',
+    'These are times you are ALREADY booked. Propose 1-3 concrete open slots',
+    'that avoid these when the email is asking to schedule. Do not reveal event',
+    'titles to the recipient — only use them to find open time.',
+  ];
+  for (const line of input.calendar_snapshot.slice(0, CALENDAR_LINES_CAP)) {
+    lines.push(`- ${line}`);
+  }
+  return lines.join('\n');
+}
+
 export function buildUserPrompt(input) {
   const safeBody = (input.body_text ?? '').slice(0, MAX_BODY_CHARS);
   return [
@@ -126,6 +154,8 @@ export function buildUserPrompt(input) {
     threadBlock(input),
     exemplarBlock(input),
     ragBlock(input),
+    kbBlock(input),
+    calendarBlock(input),
     '',
     '## Output format',
     'Return ONLY the body of the reply email. No subject line, no headers, no quoted original. Plain text only.',

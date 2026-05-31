@@ -12,7 +12,7 @@ log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
 log "host: $(hostname)  arch: $(uname -m)"
 case "$(hostname)" in
-  mailbox1|*heronlabs*) echo "REFUSING: this looks like the live customer box. Bench only." >&2; exit 2;;
+  mailbox1|mailbox2|*heronlabs*|*staqs*) echo "REFUSING: this looks like a live customer/appliance box. Bench only." >&2; exit 2;;
 esac
 
 log "=== orphan containers (running on host − declared in compose) ==="

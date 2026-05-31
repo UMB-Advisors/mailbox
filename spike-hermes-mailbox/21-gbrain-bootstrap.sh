@@ -20,7 +20,9 @@ SRC="$OUT/sent-corpus.jsonl"
 echo "[$(date -u +%H:%M:%S)] exporting sent corpus → $SRC"
 docker compose exec -T postgres psql -U "${POSTGRES_USER:-mailbox}" -d "${POSTGRES_DB:-mailbox}" -tA -c "
   SELECT row_to_json(t) FROM (
-    SELECT message_id, recipient, subject, body, sent_at, classification_category AS category
+    SELECT draft_id AS id, to_addr AS recipient, subject,
+           draft_sent AS body, sent_at,
+           classification_category AS category
     FROM mailbox.sent_history
     ORDER BY sent_at DESC
     LIMIT ${SENT_LIMIT:-300}
@@ -40,9 +42,11 @@ echo "  exported $(wc -l < "$SRC" | tr -d ' ') sent messages"
 #       done < "$SRC"
 #
 # (B) Via Hermes (gbrain is MCP-published, memory_enabled=true) — let Hermes
-#     write each sent reply to memory. Slower but uses the live wiring:
+#     write each sent reply to memory. Slower but uses the live wiring. Pass the
+#     raw JSON via stdin, NOT inline string expansion — a body containing
+#     --provider or similar would otherwise leak into hermes' arg parser:
 #       while read -r line; do
-#         hermes -z "Remember this email I sent (for voice/style memory), do not reply: $line" --yolo >/dev/null
+#         printf '%s' "$line" | hermes -z "Remember this email I sent (for voice/style memory), do not reply (read it from stdin)." --yolo >/dev/null
 #       done < "$SRC"
 echo "[$(date -u +%H:%M:%S)] gbrain ingest is a TODO gate — see paths (A)/(B) in this script."
 echo "  Confirm the ingest verb:  $BUN run $GBRAIN_CLI --help"

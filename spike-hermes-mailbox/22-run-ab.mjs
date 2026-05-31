@@ -56,7 +56,10 @@ async function armA(item) {
     persona,
   });
   const t0 = Date.now();
-  const res = await fetch(new URL('/api/chat', CLOUD_BASE), {
+  // Append to the base, don't use new URL('/api/chat', base) — that would drop
+  // any path component (e.g. a '/v1' on an OpenAI-compat proxy base URL).
+  const chatUrl = CLOUD_BASE.replace(/\/$/, '') + '/api/chat';
+  const res = await fetch(chatUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CLOUD_KEY}` },
     body: JSON.stringify({ model: CLOUD_MODEL, messages, stream: false,
