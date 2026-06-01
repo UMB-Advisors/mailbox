@@ -35,8 +35,17 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, inboxMessageInsertBodySchema);
   if (!b.ok) return b.response;
-  const { provider, message_id, received_at, account_id, account_email, channel, external_id, metadata, ...rest } =
-    b.data;
+  const {
+    provider,
+    message_id,
+    received_at,
+    account_id,
+    account_email,
+    channel,
+    external_id,
+    metadata,
+    ...rest
+  } = b.data;
 
   // MBOX-348 — resolve the target mailbox. Omitted by the legacy single-account
   // path (→ default account); set explicitly by the multi-account fan-out. An
