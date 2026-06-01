@@ -26,9 +26,11 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 export type Numeric = ColumnType<string, number | string, number | string>;
 
 export interface Accounts {
+  channel: Generated<string>;
   created_at: Generated<string>;
   display_label: string | null;
   email_address: string;
+  enabled: Generated<boolean>;
   id: Generated<number>;
   is_default: Generated<boolean>;
   provider: Generated<string>;
@@ -177,18 +179,21 @@ export interface InboxMessages {
   account_id: Generated<number>;
   archived_at: string | null;
   body: string | null;
+  channel: Generated<string>;
   classification: string | null;
   classified_at: string | null;
   confidence: Numeric | null;
   created_at: Generated<string | null>;
   deleted_at: string | null;
   draft_id: number | null;
+  external_id: string | null;
   from_addr: string | null;
   gmail_action_state: string | null;
   id: Generated<number>;
   in_reply_to: string | null;
   is_read: Generated<boolean>;
   message_id: string;
+  metadata: Generated<Json>;
   model: string | null;
   received_at: string | null;
   references: string | null;

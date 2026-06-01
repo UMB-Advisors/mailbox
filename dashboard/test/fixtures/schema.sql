@@ -1459,3 +1459,33 @@ CREATE INDEX IF NOT EXISTS prompt_rules_account_enabled_idx
 
 \unrestrict jsPo17P9Gn0vDqUWcxp0cOYofwJdgqmmXLfc7CA6tqz1TOw4iON2UeFaJdgOXW3
 
+-- ── MBOX-421 (migration 045): channel-agnostic inbox columns ────────────────
+-- Hand-applied to fixture pending next pg_dump refresh. Mirrors
+-- dashboard/migrations/045-channel-agnostic-inbox-v1-2026-06-01.sql.
+ALTER TABLE mailbox.accounts        ADD COLUMN IF NOT EXISTS channel text    NOT NULL DEFAULT 'email';
+ALTER TABLE mailbox.accounts        ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE mailbox.inbox_messages  ADD COLUMN IF NOT EXISTS channel     text  NOT NULL DEFAULT 'email';
+ALTER TABLE mailbox.inbox_messages  ADD COLUMN IF NOT EXISTS external_id text;
+ALTER TABLE mailbox.inbox_messages  ADD COLUMN IF NOT EXISTS metadata    jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE mailbox.drafts          ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'email';
+ALTER TABLE mailbox.accounts       DROP CONSTRAINT IF EXISTS accounts_channel_check;
+ALTER TABLE mailbox.inbox_messages DROP CONSTRAINT IF EXISTS inbox_messages_channel_check;
+ALTER TABLE mailbox.drafts         DROP CONSTRAINT IF EXISTS drafts_channel_check;
+ALTER TABLE mailbox.accounts       ADD CONSTRAINT accounts_channel_check
+  CHECK (channel IN ('email','telegram','discord','slack','whatsapp','signal','sms',
+                     'teams','matrix','mattermost','irc','line','google_chat','ntfy','simplex'));
+ALTER TABLE mailbox.inbox_messages ADD CONSTRAINT inbox_messages_channel_check
+  CHECK (channel IN ('email','telegram','discord','slack','whatsapp','signal','sms',
+                     'teams','matrix','mattermost','irc','line','google_chat','ntfy','simplex'));
+ALTER TABLE mailbox.drafts         ADD CONSTRAINT drafts_channel_check
+  CHECK (channel IN ('email','telegram','discord','slack','whatsapp','signal','sms',
+                     'teams','matrix','mattermost','irc','line','google_chat','ntfy','simplex'));
+CREATE INDEX IF NOT EXISTS idx_inbox_messages_channel          ON mailbox.inbox_messages (channel);
+CREATE INDEX IF NOT EXISTS idx_inbox_messages_channel_external ON mailbox.inbox_messages (channel, external_id);
+
+-- ── MBOX-421 (migration 046): broaden accounts_provider_check with 'social' ──
+-- Mirrors dashboard/migrations/046-broaden-accounts-provider-check-v1-2026-06-01.sql.
+ALTER TABLE mailbox.accounts DROP CONSTRAINT IF EXISTS accounts_provider_check;
+ALTER TABLE mailbox.accounts ADD CONSTRAINT accounts_provider_check
+  CHECK (provider IN ('gmail','imap','microsoft','social'));
+

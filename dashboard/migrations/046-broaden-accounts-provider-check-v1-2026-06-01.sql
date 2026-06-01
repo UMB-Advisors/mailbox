@@ -1,0 +1,49 @@
+-- Migration 046 — AgentBOX Unified Inbox Phase 2: broaden accounts.provider so a
+--       single `mailbox.accounts` row can represent a social/chat identity, not
+--       only a mail transport — see HermesBOX/docs/unified-inbox CONTEXT Phase 2.
+-- WHAT: widen the auto-named `accounts_provider_check` CHECK to allow a single inert
+--       `'social'` sentinel in addition to the existing mail transports, so a
+--       `mailbox.accounts` row can represent a social/chat identity (not only a mail
+--       transport). `email_address` stays NOT NULL UNIQUE; social rows carry a
+--       synthetic unique placeholder (e.g. 'telegram:@heronbot') supplied at onboarding.
+-- WHY:  Phase 2 D3/D5 (hybrid ingest, reuse-first): the locked single writer
+--       (`/api/internal/inbox-messages`, STAQPRO-135) resolves the target mailbox
+--       via `resolveIngestAccountId`. Social inbound resolves by explicit `account_id`
+--       (the Hermes bridge + n8n thread it); the synthetic `email_address` is just a
+--       placeholder for the NOT NULL UNIQUE column and is NEVER matched for resolution.
+--       Keeping email_address NOT NULL avoids rippling `string | null` through the
+--       dashboard's account types — a nullable refactor can land later as its own change.
+-- WHY 'social' (NOT the full channel set): `provider` (mail transport, consumed by
+--       providerForKind() in lib/mail/providers) is a DIFFERENT axis from `channel`
+--       (unified-inbox channel, migration 045). The actual channel lives in
+--       accounts.channel (045); `provider` stays a small CLOSED mail-transport set so
+--       the unchecked `row.provider as MailProviderKind` casts in queries-accounts.ts
+--       (getAccountProviderById / getDraftProviderContext) remain trivially
+--       defensible (a future `if (!MAIL_PROVIDERS.includes(p)) return null` guard).
+--       A single inert sentinel keeps social rows legal without conflating the two
+--       axes. The ingest path drives normalization off `provider` (DEFAULT 'gmail'
+--       when omitted); the social payload omits `provider` AND the route
+--       short-circuits normalization when channel != 'email', so 'social' is never
+--       routed into the MailProvider factory. This CHECK only governs what DB values
+--       are LEGAL for stored social account rows.
+-- ADDITIVE + IDEMPOTENT: DROP CONSTRAINT IF EXISTS then ADD CONSTRAINT with the
+--       broadened set (mirrors the named-idempotent idiom of the 045 channel
+--       CHECKs). The 037 inline/unnamed CHECK is auto-named `accounts_provider_check`
+--       (column-level convention <table>_<column>_check) so the DROP IF EXISTS hits
+--       it. All existing provider values (gmail|imap|microsoft) remain valid; no
+--       drops, no renames, no data migration. The running Gmail/IMAP path is
+--       unaffected. The runner wraps this file in its own transaction (no BEGIN/
+--       COMMIT here).
+-- ROLLBACK:
+--   ALTER TABLE mailbox.accounts DROP CONSTRAINT IF EXISTS accounts_provider_check;
+--   ALTER TABLE mailbox.accounts ADD CONSTRAINT accounts_provider_check
+--     CHECK (provider IN ('gmail', 'imap', 'microsoft'));
+--   -- (only succeeds if no rows with provider='social' exist.)
+
+-- (1) Broaden the provider domain to the email transports PLUS a single inert
+--     'social' sentinel. Idempotent re-add so the set can be widened again later
+--     without failing. Keeps provider a small closed mail-transport set (the actual
+--     channel lives in accounts.channel, migration 045).
+ALTER TABLE mailbox.accounts DROP CONSTRAINT IF EXISTS accounts_provider_check;
+ALTER TABLE mailbox.accounts ADD CONSTRAINT accounts_provider_check
+  CHECK (provider IN ('gmail','imap','microsoft','social'));
