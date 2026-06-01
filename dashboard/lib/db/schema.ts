@@ -29,7 +29,7 @@ export interface Accounts {
   channel: Generated<string>;
   created_at: Generated<string>;
   display_label: string | null;
-  email_address: string | null;
+  email_address: string;
   enabled: Generated<boolean>;
   id: Generated<number>;
   is_default: Generated<boolean>;
