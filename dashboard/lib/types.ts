@@ -153,6 +153,32 @@ export const MAIL_PROVIDERS = ['gmail', 'imap', 'microsoft'] as const;
 
 export type MailProviderKind = (typeof MAIL_PROVIDERS)[number];
 
+// Unified-inbox channels (Phase 2). SoT for the `channel` CHECK constraints on
+// mailbox.accounts / inbox_messages / drafts (migration 045) and the
+// inboxMessageInsertBodySchema.channel enum. DISTINCT from MAIL_PROVIDERS: that
+// is the mail transport (gmail|imap|microsoft); this is the channel a message
+// arrived on. 'email' covers every mail transport. Order/values mirror the 045
+// CHECK set exactly.
+export const CHANNELS = [
+  'email',
+  'telegram',
+  'discord',
+  'slack',
+  'whatsapp',
+  'signal',
+  'sms',
+  'teams',
+  'matrix',
+  'mattermost',
+  'irc',
+  'line',
+  'google_chat',
+  'ntfy',
+  'simplex',
+] as const;
+
+export type Channel = (typeof CHANNELS)[number];
+
 // Urgency signal vocabulary (MBOX-134). The evaluator returns the subset of
 // these that fired for a draft; `urgent` is true iff at least one fired. Kept
 // here as the SoT so the SQL query helper, the evaluator, and any UI badge map

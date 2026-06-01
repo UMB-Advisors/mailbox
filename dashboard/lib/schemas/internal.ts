@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAIL_PROVIDERS, ONBOARDING_STAGES } from '@/lib/types';
+import { CHANNELS, MAIL_PROVIDERS, ONBOARDING_STAGES } from '@/lib/types';
 
 // Schemas for the n8n-facing internal routes. These accept the exact shapes
 // n8n already sends today; tightening here would break the live pipeline.
@@ -152,6 +152,21 @@ export const inboxMessageInsertBodySchema = z.object({
   // is the un-changed single-account behavior.
   account_id: z.number().int().positive().optional(),
   account_email: z.string().trim().min(1).optional(),
+  // MBOX-421 (Phase 2) — unified-inbox channel discriminator. Omitted by the
+  // live email workflows (→ 'email', the un-changed path). The MailBOX-Ingest
+  // social webhook sends the real channel (telegram|discord|slack|…). Drives the
+  // RAG-embed gate in the route (email-only embed is skipped for non-email).
+  // Additive + optional → the locked Gmail body is byte-for-byte unaffected.
+  channel: z.enum(CHANNELS).optional().default('email'),
+  // MBOX-421 (Phase 2) — channel-native message id mirrored for indexed
+  // (channel, external_id) lookup (reply correlation / Phase 4 send routing).
+  // The webhook also maps this same value into message_id so dedup on
+  // (account_id, message_id) stays idempotent. Email workflows omit it.
+  external_id: z.string().optional(),
+  // MBOX-421 (Phase 2) — per-channel routing identity (chat_id/thread_id/user_id/
+  // guild_id/platform/…) the Phase 4 send path reads back to reply on the exact
+  // chat. Email workflows omit it → defaults to {}.
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
   thread_id: z.string().optional().default(''),
   from_addr: z.string().optional().default(''),
   to_addr: z.string().optional().default(''),

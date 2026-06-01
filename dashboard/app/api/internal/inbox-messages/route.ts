@@ -35,7 +35,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, inboxMessageInsertBodySchema);
   if (!b.ok) return b.response;
-  const { provider, message_id, received_at, account_id, account_email, ...rest } = b.data;
+  const { provider, message_id, received_at, account_id, account_email, channel, external_id, metadata, ...rest } =
+    b.data;
 
   // MBOX-348 — resolve the target mailbox. Omitted by the legacy single-account
   // path (→ default account); set explicitly by the multi-account fan-out. An
@@ -54,8 +55,14 @@ export async function POST(req: NextRequest) {
   // chain root into a stable key (FR-MP-1). Gmail (the default + un-changed
   // path) already arrives with mapped columns + a native threadId, so it skips
   // normalization entirely — the locked STAQPRO-135 contract is preserved.
+  // MBOX-421 (Phase 2) — the MailProvider normalize seam is mail-transport-only
+  // (it synthesizes email thread_id from RFC headers). Non-email channels arrive
+  // pre-normalized from the n8n ingest webhook, so short-circuit normalization
+  // for them as well as for Gmail. The social payload also omits `provider`
+  // (→ 'gmail'), so this is belt-and-suspenders against a stray provider value
+  // reaching providerForKind() (which only knows MAIL_PROVIDERS).
   const norm =
-    provider === 'gmail'
+    provider === 'gmail' || channel !== 'email'
       ? null
       : providerForKind(provider).normalize({
           message_id,
@@ -101,6 +108,17 @@ export async function POST(req: NextRequest) {
         body,
         in_reply_to: inReplyTo,
         references,
+        // MBOX-421 (Phase 2) — channel-aware columns (migration 045). `channel`
+        // and `metadata` carry schema defaults from the validated body ('email'
+        // / {}), so the un-changed Gmail path writes today's values verbatim.
+        // `external_id` is nullable: only set when the social webhook provides it
+        // (mirrors the channel-native id for (channel, external_id) lookup).
+        channel,
+        // jsonb write convention: ${JSON.stringify(obj)}::jsonb (mirrors
+        // queries-accounts/queries-kb) — a bare string would land as a JSON
+        // scalar, not a jsonb object.
+        metadata: sql`${JSON.stringify(metadata)}::jsonb`,
+        ...(external_id !== undefined ? { external_id } : {}),
         ...(effectiveReceivedAt !== undefined ? { received_at: effectiveReceivedAt } : {}),
       })
       // MBOX-348 — dedup is per (account_id, message_id): the same Gmail message
@@ -122,7 +140,12 @@ export async function POST(req: NextRequest) {
     // Failure is silent on purpose: RAG is augmentation, not gate. The
     // response to n8n must not depend on Qdrant/Ollama health, otherwise a
     // momentarily-down RAG stack stalls the draft pipeline.
-    if (row.created) {
+    // MBOX-421 (Phase 2) — the embed targets the email-only Qdrant
+    // `email_messages` collection (embedAndUpsertInbound → upsertEmailPoint), so
+    // gate it on channel==='email'. Non-email channels skip it (no email RAG
+    // point); the un-changed Gmail path (channel defaults to 'email') is
+    // unaffected.
+    if (row.created && channel === 'email') {
       void embedAndUpsertInbound({
         message_id: row.message_id,
         account_id: resolvedAccountId,
