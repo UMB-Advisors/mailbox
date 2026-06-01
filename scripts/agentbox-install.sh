@@ -98,7 +98,9 @@ docker exec mailbox-ollama-1 ollama list
 
 # ── STAGE 5: stack up (dashboard, n8n, caddy) ─────────────────────────────
 log "STAGE 5 — full stack up"
-docker compose up -d --build mailbox-dashboard n8n caddy
+CADDY="caddy"
+if [ "$PROTOTYPE" = 1 ]; then CADDY=""; log "  --prototype: skipping caddy (LAN/tailnet only; no DNS/TLS creds)"; fi
+docker compose up -d --build mailbox-dashboard n8n $CADDY
 docker compose --profile qdrant-bootstrap run --rm mailbox-qdrant-bootstrap || log "  (qdrant bootstrap non-fatal)"
 
 # ── STAGE 6: n8n workflows + credential + activate ────────────────────────
