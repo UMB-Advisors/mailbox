@@ -13,7 +13,9 @@ import type { MailProviderKind } from '@/lib/types';
 
 export interface AccountRow {
   id: number;
-  email_address: string;
+  // MBOX-421 (Phase 2) — nullable since migration 046: social accounts have no
+  // email and are resolved by account_id. Email accounts still carry a value.
+  email_address: string | null;
   display_label: string | null;
   is_default: boolean;
 }
