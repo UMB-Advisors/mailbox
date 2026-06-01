@@ -273,10 +273,15 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   );
 
   it.skipIf(!DB_URL)(
-    'accounts.provider CHECK matches MAIL_PROVIDERS (MBOX-356, migration 037)',
+    'accounts.provider CHECK matches MAIL_PROVIDERS + social sentinel (MBOX-356/MBOX-421, migrations 037/046)',
     async () => {
       const allowed = await getCheckValues(pool!, 'accounts', 'accounts_provider_check');
-      const expected = [...MAIL_PROVIDERS];
+      // MBOX-421 (migration 046): the provider CHECK additionally allows the inert
+      // 'social' sentinel so a non-mail (social/chat) account row is legal. It is
+      // deliberately kept OUT of MAIL_PROVIDERS so it never casts to MailProviderKind
+      // or routes into providerForKind(); social accounts resolve by account_id and
+      // the writer short-circuits normalization for channel !== 'email'.
+      const expected = [...MAIL_PROVIDERS, 'social'];
       expect([...allowed].sort()).toEqual([...expected].sort());
     },
   );
