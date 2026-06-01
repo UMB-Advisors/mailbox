@@ -103,15 +103,33 @@ if [ "$PROTOTYPE" = 1 ]; then CADDY=""; log "  --prototype: skipping caddy (LAN/
 docker compose up -d --build mailbox-dashboard n8n $CADDY
 docker compose --profile qdrant-bootstrap run --rm mailbox-qdrant-bootstrap || log "  (qdrant bootstrap non-fatal)"
 
-# ── STAGE 6: n8n workflows + credential + activate ────────────────────────
-log "STAGE 6 — n8n workflows"
-if [ -x scripts/n8n-import-workflows.sh ]; then
-  scripts/n8n-import-workflows.sh || log "  WARN: workflow import returned non-zero — verify manually"
-else
-  log "  MANUAL: import n8n/workflows/*.json + the Postgres credential (JFX4tvrffvKnTouV),"
-  log "          then 'docker compose restart n8n'. CLI --active is a no-op without restart."
-fi
-docker compose --profile n8n-verify run --rm mailbox-n8n-verify || log "  WARN: n8n-verify non-zero — not all workflows active"
+# ── STAGE 6: n8n credential + workflows + activate ────────────────────────
+# Fresh n8n has no credentials; the workflows hard-reference the Postgres
+# credential id JFX4tvrffvKnTouV. Create it with that exact id, import the 4
+# core workflows (ids preserved incl sub-workflow refs), activate each by id
+# (n8n dropped update:workflow --all), restart (CLI activation is a no-op until
+# restart). Validated working on the prototype 2026-05-31.
+log "STAGE 6 — n8n credential + workflows"
+PGPW=$(grep '^POSTGRES_PASSWORD=' .env | tail -1 | cut -d= -f2-)
+umask 077; CJ=$(mktemp)
+printf '[{"id":"JFX4tvrffvKnTouV","name":"MailBox Postgres","type":"postgres","data":{"host":"postgres","database":"%s","user":"%s","password":"%s","port":5432,"ssl":"disable","allowUnauthorizedCerts":false}}]' \
+  "${POSTGRES_DB:-mailbox}" "${POSTGRES_USER:-mailbox}" "$PGPW" > "$CJ"
+docker cp "$CJ" mailbox-n8n-1:/tmp/creds.json >/dev/null
+docker exec mailbox-n8n-1 n8n import:credentials --input=/tmp/creds.json >/dev/null 2>&1 && log "  Postgres credential imported (JFX4tvrffvKnTouV)"
+docker exec mailbox-n8n-1 rm -f /tmp/creds.json; rm -f "$CJ"
+for w in MailBOX MailBOX-Classify MailBOX-Draft MailBOX-Send; do
+  [ -f "n8n/workflows/$w.json" ] || { log "  WARN: n8n/workflows/$w.json missing"; continue; }
+  docker cp "n8n/workflows/$w.json" "mailbox-n8n-1:/tmp/$w.json" >/dev/null
+  docker exec mailbox-n8n-1 n8n import:workflow --input="/tmp/$w.json" >/dev/null 2>&1 && log "  imported $w"
+  docker exec mailbox-n8n-1 rm -f "/tmp/$w.json"
+done
+for id in $(docker exec mailbox-postgres-1 psql -U "${POSTGRES_USER:-mailbox}" -d "${POSTGRES_DB:-mailbox}" -tAc "select id from public.workflow_entity" 2>/dev/null); do
+  docker exec mailbox-n8n-1 n8n update:workflow --active=true --id="$id" >/dev/null 2>&1 \
+    || docker exec mailbox-n8n-1 n8n publish:workflow --id="$id" >/dev/null 2>&1 || true
+done
+docker compose restart n8n >/dev/null 2>&1; sleep 10
+docker compose --profile n8n-verify run --rm mailbox-n8n-verify || log "  WARN: n8n-verify non-zero — check workflow activation"
+log "  NOTE: live Gmail triage needs Gmail OAuth (MANUAL browser consent, per inbox) — not bench-automatable."
 
 # ── STAGE 7: Hermes client-mode + gbrain at the shared ollama (DR-63/64) ──
 log "STAGE 7 — Hermes + gbrain"
