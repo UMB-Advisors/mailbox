@@ -93,9 +93,48 @@ docker exec mailbox-postgres psql -U mailbox -c \
 - [ ] no regression to the heronlabs default-account flow
 - [ ] brief + Incoming Messages both reflect the same connected-accounts set
 
+---
+
+## v0.2 — DECIDED: account-agnostic loop (connect-and-go onboarding)
+
+The per-account n8n wiring (A1/A2) is too much for client onboarding. **Decision: ingestion is
+account-agnostic** — n8n stops using per-account `gmailOAuth2` nodes and instead loops over whatever
+accounts are connected, fetching short-lived tokens from the dashboard. Onboarding a client becomes:
+**connect the Google account in the dashboard → done.** No n8n edit per account, ever.
+
+**Built (committed, branch `feat/google-sot-mailbox-provisioner`):**
+- `dashboard/lib/oauth/gmail-ingest.ts` — `listIngestAccounts()` + `mintGmailAccessToken(accountId)`
+  (reads `oauth_tokens(google_gmail)`, refreshes with the dashboard OAuth client).
+- `GET /api/internal/gmail/accounts` → connected mailboxes.
+- `GET /api/internal/gmail/token?account_id=` → fresh Gmail access token.
+
+**n8n topology (ONE-TIME, baked into the workflow template — not per client):**
+```
+Schedule (5 min) → cooldown/bootstrap gates
+  → HTTP GET /api/internal/gmail/accounts
+    → Loop Over Items (one item per connected account)
+        → HTTP GET /api/internal/gmail/token?account_id={{id}}
+        → HTTP GET Gmail API messages.list/get  (Bearer {{access_token}})
+        → POST /api/internal/inbox-messages  (account_email = {{account_email}})
+        → (existing) Classify → Draft
+```
+One Gmail-Get path, account from data — exactly what the per-node `gmailOAuth2` model couldn't do, now
+possible because the token comes from the dashboard endpoint, not an n8n credential.
+
+**One-time setup to go live (then zero per-client work):**
+1. Deploy the dashboard image carrying the new endpoints to the appliance (normal `git pull && docker
+   compose up -d --build`, via PR→merge).
+2. Set `GOOGLE_DASHBOARD_CLIENT_ID` / `GOOGLE_DASHBOARD_CLIENT_SECRET` on the appliance (the dashboard's
+   Google *Web* client that minted the SoT tokens) so they can be refreshed.
+3. Rebuild the MailBOX ingestion workflow into the loop above (once), Publish, restart n8n, verify.
+4. (Cleanup) the per-account `gmailOAuth2` creds created in the A1 spike ("Gmail account — consulting/
+   — umbadvisors") are now unused under the loop — safe to delete.
+
+**SoT transport still needed** dashboard-box → appliance-box so the appliance has each account's token
+(today: `scripts/sync-google-accounts-from-hermes.ts`; productized: the connect flow pushes on connect).
+
 ## Open decisions
 
-1. **Ingestion cred path: A1 vs A2 vs A3** (recommend A1). ← blocks the live steps.
-2. **SoT transport** dashboard-box → appliance-box: rsync-on-a-timer vs mount vs a small pull endpoint.
-3. **Per-account send routing** (`MailBOX-Send`) is also per-node in n8n — same manual residue; do it in the
-   same pass as ingestion wiring.
+1. **SoT transport** dashboard-box → appliance-box: rsync-on-a-timer vs mount vs push-on-connect.
+2. **Per-account send routing** (`MailBOX-Send`) — make it account-agnostic the same way (token endpoint)
+   rather than per-node, in the same pass.
