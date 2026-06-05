@@ -13,6 +13,7 @@
     "rag:backfill": "tsx scripts/rag-backfill.ts",
     "eval:rag": "tsx scripts/rag-eval-harness.ts",
     "onboarding:backfill": "tsx scripts/gmail-history-backfill.ts",
+    "google:sync-accounts": "tsx scripts/sync-google-accounts-from-hermes.ts",
     "db:codegen": "bash scripts/codegen-db.sh",
     "db:codegen:verify": "bash scripts/codegen-db.sh --verify",
     "test": "vitest run",
