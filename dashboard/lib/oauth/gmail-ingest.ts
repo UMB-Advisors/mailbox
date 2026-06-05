@@ -148,3 +148,157 @@ export async function mintGmailAccessToken(accountId: number): Promise<MintedTok
     expiry_date: Date.now() + Number(json.expires_in ?? 3600) * 1000,
   };
 }
+
+// ── Server-side Gmail fetch + parse (so n8n stays a dumb loop) ────────────────
+//
+// The same query + per-account cap the legacy single-account n8n Gmail node used
+// (is:unread in:inbox -from:me newer_than:2d) — recent unread only, so a huge
+// mailbox never floods the classify/draft pipeline. maxResults is hard-capped.
+
+const GMAIL_QUERY = 'is:unread in:inbox -from:me newer_than:2d';
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const MAX_PER_ACCOUNT = 50;
+
+// Normalized message — field names match what /api/internal/inbox-messages and
+// the classify pipeline expect (formerly produced by n8n's "Extract Fields").
+export interface NormalizedMessage {
+  message_id: string;
+  thread_id: string;
+  from_addr: string;
+  to_addr: string;
+  subject: string;
+  received_at: string;
+  snippet: string;
+  body: string;
+  in_reply_to: string;
+  references: string;
+  account_id: number;
+  account_email: string;
+}
+
+interface GmailPart {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPart[];
+  headers?: Array<{ name: string; value: string }>;
+}
+
+function header(headers: Array<{ name: string; value: string }> | undefined, name: string): string {
+  const h = headers?.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  return h?.value ?? '';
+}
+
+function addrFrom(headerValue: string): string {
+  const m = headerValue.match(/<([^>]+)>/);
+  if (m) return m[1].trim();
+  const t = headerValue.trim();
+  return t.includes('@') ? t : '';
+}
+
+function decodeB64Url(data: string): string {
+  return Buffer.from(data, 'base64url').toString('utf8');
+}
+
+// Prefer text/plain; fall back to a tag-stripped text/html. Walks nested parts.
+function extractBody(payload: GmailPart | undefined): string {
+  if (!payload) return '';
+  let html = '';
+  const walk = (p: GmailPart): string | null => {
+    const mime = p.mimeType ?? '';
+    if (mime === 'text/plain' && p.body?.data) return decodeB64Url(p.body.data);
+    if (mime === 'text/html' && p.body?.data && !html) html = decodeB64Url(p.body.data);
+    for (const child of p.parts ?? []) {
+      const r = walk(child);
+      if (r) return r;
+    }
+    return null;
+  };
+  const plain = walk(payload);
+  if (plain) return plain;
+  if (html) return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return '';
+}
+
+async function gmailGet(path: string, accessToken: string): Promise<unknown> {
+  const res = await fetch(`${GMAIL_API}${path}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new GmailIngestError(
+      `Gmail API ${path.split('?')[0]} failed (${res.status}): ${detail.slice(0, 160)}`,
+      res.status >= 500 ? 'transient' : 'auth',
+      res.status,
+    );
+  }
+  return res.json();
+}
+
+// Fetch + normalize recent-unread messages for one connected account.
+async function fetchUnreadForAccount(acct: IngestAccount, limit: number): Promise<NormalizedMessage[]> {
+  const { access_token } = await mintGmailAccessToken(acct.account_id);
+  const list = (await gmailGet(
+    `/messages?q=${encodeURIComponent(GMAIL_QUERY)}&maxResults=${limit}`,
+    access_token,
+  )) as { messages?: Array<{ id: string }> };
+  const ids = (list.messages ?? []).map((m) => m.id);
+  const out: NormalizedMessage[] = [];
+  for (const id of ids) {
+    const msg = (await gmailGet(`/messages/${id}?format=full`, access_token)) as {
+      id: string;
+      threadId: string;
+      snippet?: string;
+      internalDate?: string;
+      payload?: GmailPart;
+    };
+    const h = msg.payload?.headers;
+    const dateHdr = header(h, 'Date');
+    const received_at = dateHdr || (msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : '');
+    out.push({
+      message_id: msg.id,
+      thread_id: msg.threadId,
+      from_addr: addrFrom(header(h, 'From')),
+      to_addr: addrFrom(header(h, 'To')),
+      subject: header(h, 'Subject'),
+      received_at,
+      snippet: (msg.snippet ?? '').slice(0, 200),
+      body: extractBody(msg.payload),
+      in_reply_to: header(h, 'In-Reply-To'),
+      references: header(h, 'References'),
+      account_id: acct.account_id,
+      account_email: acct.account_email,
+    });
+  }
+  return out;
+}
+
+export interface IngestBatchResult {
+  messages: NormalizedMessage[];
+  per_account: Array<{ account_id: number; account_email: string; count: number; error?: string }>;
+}
+
+// Account-agnostic batch: every connected account's recent-unread mail, flat and
+// tagged, ready for n8n to insert one-by-one. One account's failure is isolated
+// (reported in per_account) so a single bad grant never blocks the others.
+export async function ingestBatch(limit = 25): Promise<IngestBatchResult> {
+  const cap = Math.max(1, Math.min(limit, MAX_PER_ACCOUNT));
+  const accounts = await listIngestAccounts();
+  const messages: NormalizedMessage[] = [];
+  const per_account: IngestBatchResult['per_account'] = [];
+  for (const acct of accounts) {
+    try {
+      const msgs = await fetchUnreadForAccount(acct, cap);
+      messages.push(...msgs);
+      per_account.push({ account_id: acct.account_id, account_email: acct.account_email, count: msgs.length });
+    } catch (err) {
+      per_account.push({
+        account_id: acct.account_id,
+        account_email: acct.account_email,
+        count: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return { messages, per_account };
+}
