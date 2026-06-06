@@ -254,7 +254,16 @@ async function fetchUnreadForAccount(acct: IngestAccount, limit: number): Promis
     };
     const h = msg.payload?.headers;
     const dateHdr = header(h, 'Date');
-    const received_at = dateHdr || (msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : '');
+    // Normalize to ISO-8601 — the raw RFC-2822 Date header (e.g.
+    // "Fri, 5 Jun 2026 23:11:34 +0000 (UTC)") is rejected by Postgres
+    // TIMESTAMPTZ. Prefer the Date header, fall back to internalDate (epoch ms).
+    const parsedDate = dateHdr
+      ? new Date(dateHdr)
+      : msg.internalDate
+        ? new Date(Number(msg.internalDate))
+        : null;
+    const received_at =
+      parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : '';
     out.push({
       message_id: msg.id,
       thread_id: msg.threadId,
