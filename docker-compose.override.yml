@@ -1,0 +1,27 @@
+# AgentBOX unified-appliance overlay — auto-merged by `docker compose`.
+#
+# Committed so a fresh `scripts/agentbox-install.sh` reproduces the unified box.
+# Previously this file lived only on the appliances and was absent from git, so
+# fresh installs came up with Ollama unpublished and the co-resident Hermes agent
+# could not reach the local Qwen3-4B (custom:local-qwen3-4b -> 127.0.0.1:11435).
+# Host-specific n8n URLs are parameterized via .env (MAILBOX_LAN_HOSTNAME).
+services:
+  n8n:
+    environment:
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      N8N_EDITOR_BASE_URL: https://${MAILBOX_LAN_HOSTNAME:-localhost}/
+      WEBHOOK_URL: https://${MAILBOX_LAN_HOSTNAME:-localhost}/
+      N8N_HOST: ${MAILBOX_LAN_HOSTNAME:-localhost}
+
+  # Publish the approval queue on loopback so the Hermes dashboard's
+  # "Incoming Messages" tab can iframe it (no tailnet hop).
+  mailbox-dashboard:
+    ports:
+      - "127.0.0.1:3001:3001"
+
+  # Publish Ollama on loopback so Hermes can offer the local Qwen3-4B as a
+  # selectable model (config.yaml: custom:local-qwen3-4b -> 127.0.0.1:11435/v1).
+  ollama:
+    ports:
+      - "127.0.0.1:11435:11434"
