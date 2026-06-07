@@ -139,6 +139,7 @@ export interface Drafts {
   approved_at: string | null;
   auto_send_blocked: Generated<boolean>;
   body_text: string | null;
+  channel: Generated<string>;
   classification_category: string | null;
   classification_confidence: number | null;
   cost_usd: Numeric | null;
@@ -202,6 +203,18 @@ export interface InboxMessages {
   subject: string | null;
   thread_id: string | null;
   to_addr: string | null;
+}
+
+export interface JobInstances {
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  model: string | null;
+  params: Generated<Json>;
+  schedule: string | null;
+  template_id: string;
+  updated_at: Generated<string>;
 }
 
 export interface JobRuns {
@@ -433,6 +446,7 @@ export interface DB {
   draft_feedback: DraftFeedback;
   drafts: Drafts;
   inbox_messages: InboxMessages;
+  job_instances: JobInstances;
   job_runs: JobRuns;
   kb_documents: KbDocuments;
   mail_cooldowns: MailCooldowns;

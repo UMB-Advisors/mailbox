@@ -1489,3 +1489,21 @@ ALTER TABLE mailbox.accounts DROP CONSTRAINT IF EXISTS accounts_provider_check;
 ALTER TABLE mailbox.accounts ADD CONSTRAINT accounts_provider_check
   CHECK (provider IN ('gmail','imap','microsoft','social'));
 
+-- ── MBOX-462 (migration 047): Agent Job Templates — job instances ──
+-- Mirrors dashboard/migrations/047-create-job-instances-v1-2026-06-07.sql.
+CREATE TABLE IF NOT EXISTS mailbox.job_instances (
+  id           SERIAL PRIMARY KEY,
+  template_id  TEXT NOT NULL,
+  enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+  params       JSONB NOT NULL DEFAULT '{}',
+  schedule     TEXT,
+  model        TEXT,
+  created_by   TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT job_instances_template_id_not_blank CHECK (length(trim(template_id)) > 0),
+  CONSTRAINT job_instances_template_id_unique UNIQUE (template_id)
+);
+CREATE INDEX IF NOT EXISTS job_instances_enabled_idx
+  ON mailbox.job_instances (enabled);
+
