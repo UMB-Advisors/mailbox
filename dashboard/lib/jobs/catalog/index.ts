@@ -45,7 +45,9 @@ export function assertCatalogValid(templates: readonly JobTemplate[] = JOB_TEMPL
   const seenIds = new Set<string>();
   for (const t of templates) {
     if (!SLUG_RE.test(t.id)) {
-      throw new Error(`catalog: invalid template id ${JSON.stringify(t.id)} (must be a kebab slug)`);
+      throw new Error(
+        `catalog: invalid template id ${JSON.stringify(t.id)} (must be a kebab slug)`,
+      );
     }
     if (seenIds.has(t.id)) {
       throw new Error(`catalog: duplicate template id ${t.id}`);

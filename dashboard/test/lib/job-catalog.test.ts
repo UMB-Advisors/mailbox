@@ -2,9 +2,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  JOB_TEMPLATES,
   assertCatalogValid,
   getJobTemplate,
+  JOB_TEMPLATES,
   listAvailableJobTemplates,
 } from '@/lib/jobs/catalog';
 
