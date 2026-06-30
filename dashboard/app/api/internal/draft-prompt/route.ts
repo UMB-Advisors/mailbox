@@ -1,6 +1,7 @@
 import { sql } from 'kysely';
 import { type NextRequest, NextResponse } from 'next/server';
 import { getCalendarSnapshot, isCalendarContextEnabled } from '@/lib/calendar/calendar';
+import { draftGate } from '@/lib/classification/draft-policy';
 import type { Category } from '@/lib/classification/prompt';
 import { getKysely } from '@/lib/db';
 import { getCategoryExemplars } from '@/lib/drafting/exemplars';
@@ -78,6 +79,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: `draft ${draft_id} has no classification_category — upstream classify did not complete`,
+        },
+        { status: 422 },
+      );
+    }
+
+    // Spec 002 FR5 (Stage 2b-3) — bucket draft gating. Refuse to generate a
+    // draft for a bucket whose reply policy is not reply-worthy
+    // (draft/often/light_draft/sometimes). This is the shared chokepoint BOTH
+    // the on-demand sidecar (inbox_respond.py) AND n8n MailBOX-Draft's `Get
+    // Prompt` node hit, so gating here makes on-demand Respond safe for every
+    // bucket WITHOUT touching any n8n workflow. Fail-closed, no model call.
+    const gate = draftGate(classification_category);
+    if (!gate.draftable) {
+      return NextResponse.json(
+        {
+          error: gate.reason,
+          draftable: false,
+          bucket: gate.bucket,
+          policy: gate.policy,
         },
         { status: 422 },
       );

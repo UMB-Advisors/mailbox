@@ -101,6 +101,21 @@ export interface ChatMessages {
   role: string;
 }
 
+// Spec 002 FR7b (Stage 2b-2), migration 050. Hand-maintained mirror of the
+// `npm run db:codegen` output (the appliance regenerates this from the migration).
+export interface ClassificationExemplars {
+  account_id: number;
+  bucket: string;
+  company: string | null;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  reason: string | null;
+  snippet: string;
+  source_msg_id: string | null;
+}
+
 export interface ClassificationLog {
   account_id: Generated<number>;
   category: string;
@@ -203,6 +218,9 @@ export interface InboxMessages {
   subject: string | null;
   thread_id: string | null;
   to_addr: string | null;
+  triage_state: Generated<string>;
+  triage_state_updated_at: string | null;
+  triage_state_updated_by: string | null;
 }
 
 export interface JobInstances {
@@ -352,6 +370,21 @@ export interface SenderNeverSpam {
   updated_at: Generated<string>;
 }
 
+// Spec 002 FR7 (Stage 2b-1), migration 049. Hand-maintained mirror of the
+// `npm run db:codegen` output (the appliance regenerates this from the migration).
+export interface SenderRules {
+  account_id: number;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  kind: string;
+  match: string;
+  mode: Generated<string>;
+  reason: string | null;
+  target_bucket: string;
+}
+
 export interface SentHistory {
   account_id: Generated<number>;
   action_items: Generated<Json>;
@@ -441,6 +474,7 @@ export interface DB {
   auto_send_rules: AutoSendRules;
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
+  classification_exemplars: ClassificationExemplars;
   classification_log: ClassificationLog;
   digest_sends: DigestSends;
   draft_feedback: DraftFeedback;
@@ -459,6 +493,7 @@ export interface DB {
   prompt_rules: PromptRules;
   rejected_history: RejectedHistory;
   sender_never_spam: SenderNeverSpam;
+  sender_rules: SenderRules;
   sent_history: SentHistory;
   state_transitions: StateTransitions;
   system_state: SystemState;

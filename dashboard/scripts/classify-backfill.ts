@@ -49,6 +49,7 @@ const LIMIT = Number.parseInt(process.env.BACKFILL_LIMIT ?? '100', 10);
 
 interface InboxRow {
   id: number;
+  account_id: number;
   from_addr: string | null;
   to_addr: string | null;
   subject: string | null;
@@ -130,11 +131,14 @@ async function classifyOne(row: InboxRow, pool: Pool): Promise<NormalizeResponse
 
   await pool.query(
     `INSERT INTO mailbox.classification_log
-       (inbox_message_id, category, confidence, model_version,
+       (inbox_message_id, account_id, category, confidence, model_version,
         latency_ms, raw_output, json_parse_ok, think_stripped)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       row.id,
+      // Phase 1b — tag with the inbox row's owning account (was omitted →
+      // defaulted to account 1, mis-attributing multi-account classifications).
+      row.account_id,
       normalized.category,
       normalized.confidence,
       prompt.model,
@@ -179,7 +183,7 @@ async function main() {
   const pool = new Pool({ connectionString: POSTGRES_URL });
   try {
     const { rows } = await pool.query<InboxRow>(
-      `SELECT m.id, m.from_addr, m.to_addr, m.subject, m.body, m.snippet
+      `SELECT m.id, m.account_id, m.from_addr, m.to_addr, m.subject, m.body, m.snippet
          FROM mailbox.inbox_messages m
     LEFT JOIN mailbox.classification_log c ON c.inbox_message_id = m.id
         WHERE c.id IS NULL

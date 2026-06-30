@@ -38,6 +38,16 @@ export interface ClassificationResult {
     // the classification-normalize route + the reclassify re-run (needs a DB
     // lookup, so not in the sync preclass chain).
     | 'sender-never-spam'
+    // Spec 002 FR7 (Stage 2b-1): a `force`-mode Train sender-rule hard-routed this
+    // message to its target bucket BEFORE the LLM ran (single-purpose automated
+    // senders only). Set by classify-one when deps.senderRuleLookup returns a
+    // force hit; the DB lookup lives there, not in this sync chain.
+    | 'sender-rule-force'
+    // Spec 002 FR7 (Stage 2b-2): a Reverb sender's templated SUBJECT hard-routed
+    // this message to its bucket BEFORE the LLM ran (the multi-intent case 2b-1
+    // deferred — Reverb is never a single force rule). Set by classify-one via
+    // the pure lib/classification/reverb-routing.ts matcher.
+    | 'reverb-subject'
     | null;
   // Why the draft was suppressed (distinct from generic spam). Populated when
   // precheckSelfLoop fires ('self_loop') or when the async thread-ownership

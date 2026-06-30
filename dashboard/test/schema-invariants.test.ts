@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATEGORIES } from '../lib/classification/prompt';
@@ -330,6 +333,54 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
   it('CATEGORIES from prompt.ts has no duplicates and is non-empty', () => {
     expect(CATEGORIES.length).toBeGreaterThan(0);
     expect(new Set(CATEGORIES).size).toBe(CATEGORIES.length);
+  });
+
+  // ── Spec 002 FR1 (Stage 2a) drift gate — runs WITHOUT a DB ──────────────────
+  // Pins all three sources of the classification enum to one set, so future
+  // drift fails CI even on a machine with no Postgres:
+  //   (1) prompt.ts CATEGORIES  — imported below, the runtime SoT.
+  //   (2) lib/types.ts ClassificationCategory — pinned to CATEGORIES at COMPILE
+  //       time by the `_AssertCategoriesMatch` (`_Expect<_Equal<…>>`) guard in
+  //       lib/types.ts; any divergence fails `npm run typecheck`. (Vitest strips
+  //       types, so the type↔CATEGORIES leg is enforced by tsc, not at runtime.)
+  //   (3) migration 048's CHECK lists — parsed from the .sql file here and
+  //       asserted equal to CATEGORIES for every enforcing table.
+  // The DB-backed cases above assert the LIVE Postgres CHECK == CATEGORIES once a
+  // DB is reachable; this case asserts the same against the migration source.
+  it('migration 048 widens every category CHECK to exactly CATEGORIES (5 tables)', () => {
+    const migDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
+    const migFile = readdirSync(migDir).find((f) => f.startsWith('048') && f.endsWith('.sql'));
+    expect(migFile, 'migration 048 (.sql) must exist').toBeTruthy();
+
+    const sql = readFileSync(join(migDir, migFile as string), 'utf8');
+    // Drop comment lines (the header's ROLLBACK block also lists category values)
+    // before splitting into statements, so only live SQL is parsed.
+    const statements = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n')
+      .split(';');
+
+    const constraintNames = [
+      'classification_log_category_check',
+      'drafts_classification_category_check',
+      'sent_history_category_check',
+      'rejected_history_category_check',
+      'auto_send_rules_category_check',
+    ];
+
+    const expected = [...CATEGORIES].sort();
+
+    for (const name of constraintNames) {
+      const stmt = statements.find(
+        (s) => s.includes(`ADD CONSTRAINT ${name}`) && s.includes('CHECK'),
+      );
+      expect(stmt, `migration 048 must ADD CONSTRAINT ${name}`).toBeTruthy();
+      const values = [...(stmt as string).matchAll(/'([^']+)'/g)].map((m) => m[1]);
+      expect([...new Set(values)].sort(), `${name} value list must equal CATEGORIES`).toEqual(
+        expected,
+      );
+    }
   });
 
   // Pure code-level invariant — confidence floor is in (0, 1) range.

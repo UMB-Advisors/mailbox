@@ -28,6 +28,7 @@ import { CATEGORIES, type Category } from '@/lib/classification/prompt';
 // border-accent-X/40 bg-accent-X/10 text-accent-X rhythm already used across
 // the dashboard (RoutingBadge, ClassificationChip, status banners).
 const CATEGORY_PILL: Record<Category, string> = {
+  // legacy coarse (transition)
   escalate: 'border-accent-red/40 bg-accent-red/10 text-accent-red',
   reorder: 'border-accent-blue/40 bg-accent-blue/10 text-accent-blue',
   inquiry: 'border-accent-green/40 bg-accent-green/10 text-accent-green',
@@ -36,6 +37,22 @@ const CATEGORY_PILL: Record<Category, string> = {
   internal: 'border-border bg-bg-surface text-ink-muted',
   spam_marketing: 'border-border bg-bg-surface text-ink-dim',
   unknown: 'border-border bg-bg-surface text-ink-dim',
+  // design taxonomy (seed/buckets.yaml) — Spec 002 FR1, Stage 2a
+  client_request: 'border-accent-green/40 bg-accent-green/10 text-accent-green',
+  proposal_request: 'border-accent-green/40 bg-accent-green/10 text-accent-green',
+  sales_lead: 'border-accent-green/40 bg-accent-green/10 text-accent-green',
+  meeting_invite: 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange',
+  meeting_notes: 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange',
+  receipt: 'border-accent-blue/40 bg-accent-blue/10 text-accent-blue',
+  marketplace_notification: 'border-accent-blue/40 bg-accent-blue/10 text-accent-blue',
+  marketing_promo: 'border-border bg-bg-surface text-ink-dim',
+  vendor_partner: 'border-accent-blue/40 bg-accent-blue/10 text-accent-blue',
+  finance_legal: 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange',
+  admin_account: 'border-border bg-bg-surface text-ink-muted',
+  invoice_payable: 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange',
+  contract_legal: 'border-accent-orange/40 bg-accent-orange/10 text-accent-orange',
+  notification: 'border-border bg-bg-surface text-ink-muted',
+  spam: 'border-border bg-bg-surface text-ink-dim',
 };
 
 function pillClasses(category: string): string {
