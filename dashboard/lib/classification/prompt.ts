@@ -54,8 +54,7 @@ export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
     'Coarse/legacy state: continuation of a prior thread already engaged in. Reclassify to its real bucket.',
   internal:
     'Team/colleague mail on the operator domain — internal coordination, bid replies, action items.',
-  spam_marketing:
-    'Coarse/legacy: split into spam (unwanted) and marketing_promo (opted-in bulk).',
+  spam_marketing: 'Coarse/legacy: split into spam (unwanted) and marketing_promo (opted-in bulk).',
   escalate:
     'Urgent / action-needed / money / deadline: payment failed, account suspension, tax/filing due, legal, breach, or a commerce return/refund/dispute. Real human escalations too.',
   unknown: 'Cannot be confidently placed in any other category.',

@@ -32,7 +32,9 @@ describe('reverbRoute — subject patterns map to the 4 buckets', () => {
     expect(reverbRoute(from, 'We found new listings you might like')).toBe('marketing_promo');
   });
   it('offers → marketplace_notification', () => {
-    expect(reverbRoute(from, 'Someone has an offer on your listing')).toBe('marketplace_notification');
+    expect(reverbRoute(from, 'Someone has an offer on your listing')).toBe(
+      'marketplace_notification',
+    );
     expect(reverbRoute(from, 'You received a counteroffer')).toBe('marketplace_notification');
   });
 

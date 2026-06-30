@@ -6,10 +6,9 @@
 // lib/classification/sender-rules.ts:senderRule (the fail-open / kill-switch
 // lookup); these are the operator/seed WRITE helpers.
 
-import { sql } from 'kysely';
 import { getKysely } from '@/lib/db';
-import type { SenderRuleKind, SenderRuleMode } from './classification/sender-rules';
 import type { Category } from './classification/prompt';
+import type { SenderRuleKind, SenderRuleMode } from './classification/sender-rules';
 import { getDefaultAccountId } from './queries-accounts';
 
 export interface UpsertSenderRuleInput {

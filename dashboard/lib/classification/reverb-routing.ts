@@ -59,11 +59,20 @@ interface ReverbPattern {
 }
 export const REVERB_SUBJECT_PATTERNS: ReverbPattern[] = [
   // payouts / earnings — money already moved → a receipt to track.
-  { bucket: 'receipt', test: /\b(you got paid|you've been paid|payment|payout|earnings|deposit)\b/i },
+  {
+    bucket: 'receipt',
+    test: /\b(you got paid|you've been paid|payment|payout|earnings|deposit)\b/i,
+  },
   // an offer to act on → a marketplace notification.
-  { bucket: 'marketplace_notification', test: /\b(offer|has an offer|made an offer|counteroffer|counter-offer)\b/i },
+  {
+    bucket: 'marketplace_notification',
+    test: /\b(offer|has an offer|made an offer|counteroffer|counter-offer)\b/i,
+  },
   // discovery / feed / saved-search blasts → marketing.
-  { bucket: 'marketing_promo', test: /\b(saved search|we found|matches|new listings?|in your feed|price drop|just listed)\b/i },
+  {
+    bucket: 'marketing_promo',
+    test: /\b(saved search|we found|matches|new listings?|in your feed|price drop|just listed)\b/i,
+  },
   // a buyer asking about a listing → a sales lead (win-the-job).
   { bucket: 'sales_lead', test: /\bmessage about\b/i },
 ];

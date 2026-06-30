@@ -11,10 +11,10 @@ import {
 } from '@/lib/classification/exemplars';
 import { buildPrompt, renderExemplarSection } from '@/lib/classification/prompt';
 
-const ex = (
-  snippet: string,
-  bucket: ClassificationExemplar['bucket'],
-): ClassificationExemplar => ({ snippet, bucket });
+const ex = (snippet: string, bucket: ClassificationExemplar['bucket']): ClassificationExemplar => ({
+  snippet,
+  bucket,
+});
 
 describe('exemplarCap', () => {
   afterEach(() => {

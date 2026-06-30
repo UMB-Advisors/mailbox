@@ -90,8 +90,7 @@ export async function senderRule(rawFrom: string | undefined): Promise<SenderRul
       }))
       .filter(
         (r) =>
-          (r.kind === 'email' && r.match === email) ||
-          (r.kind === 'domain' && r.match === domain),
+          (r.kind === 'email' && r.match === email) || (r.kind === 'domain' && r.match === domain),
       );
 
     if (valid.length === 0) return null;

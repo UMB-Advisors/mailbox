@@ -4,7 +4,7 @@
 // a bucket the classifier can't emit. Mirrors the migration-049 case in
 // test/sender-rules-migration.test.ts.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';

@@ -113,15 +113,19 @@ describe('intent detectors', () => {
       }),
     ).toBe('security_breach');
     expect(
-      detectEscalationSignal({ category: 'notification', subject: 'New sign-in on Chrome', body: '' }),
+      detectEscalationSignal({
+        category: 'notification',
+        subject: 'New sign-in on Chrome',
+        body: '',
+      }),
     ).toBeNull();
   });
   it('isReviewSubtype', () => {
     expect(
       isReviewSubtype({ category: 'notification', subject: 'New review on Yelp', body: '' }),
     ).toBe(true);
-    expect(
-      isReviewSubtype({ category: 'notification', subject: 'Payroll ran', body: '' }),
-    ).toBe(false);
+    expect(isReviewSubtype({ category: 'notification', subject: 'Payroll ran', body: '' })).toBe(
+      false,
+    );
   });
 });

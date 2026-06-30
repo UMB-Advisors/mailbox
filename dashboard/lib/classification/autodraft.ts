@@ -39,10 +39,7 @@ export function getAutodraftBuckets(env: NodeJS.ProcessEnv = process.env): strin
 //   2. the bucket is listed, AND
 //   3. canDraft(bucket) — FR5 gating ALWAYS applies, even when listed.
 // So a non-reply-worthy bucket can never auto-draft no matter the flag value.
-export function shouldAutodraft(
-  bucket: Category,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function shouldAutodraft(bucket: Category, env: NodeJS.ProcessEnv = process.env): boolean {
   const list = getAutodraftBuckets(env);
   if (list.length === 0) return false; // default OFF — zero auto-drafting
   if (!list.includes(bucket)) return false;

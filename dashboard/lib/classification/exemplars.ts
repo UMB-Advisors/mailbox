@@ -25,8 +25,8 @@
 // don't add a vector dependency to the classify hot path until measured).
 
 import {
-  listClassificationExemplars,
   type ClassificationExemplarRow,
+  listClassificationExemplars,
 } from '@/lib/queries-classification-exemplars';
 import type { Category } from './prompt';
 

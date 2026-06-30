@@ -21,11 +21,8 @@
 //                                lib/classification/reverb-routing.ts (the patterns
 //                                are code constants — inherently idempotent, no DML).
 
-import {
-  type UpsertSenderRuleInput,
-  upsertSenderRule,
-} from '@/lib/queries-sender-rules';
 import { getDefaultAccountId } from '@/lib/queries-accounts';
+import { type UpsertSenderRuleInput, upsertSenderRule } from '@/lib/queries-sender-rules';
 
 type SeedRule = Omit<UpsertSenderRuleInput, 'account_id' | 'created_by'>;
 
@@ -126,14 +123,16 @@ export async function seedSenderRules(): Promise<{ seeded: number }> {
   for (const rule of SEED_SENDER_RULES) {
     await upsertSenderRule({ ...rule, account_id: accountId, created_by: 'seed-sender-rules' });
     seeded += 1;
-    console.log(`  [seed] ${rule.mode.padEnd(5)} ${rule.kind.padEnd(6)} ${rule.match} -> ${rule.target_bucket}`);
+    console.log(
+      `  [seed] ${rule.mode.padEnd(5)} ${rule.kind.padEnd(6)} ${rule.match} -> ${rule.target_bucket}`,
+    );
   }
   return { seeded };
 }
 
 // Run directly (tsx) — guard so importing the SEED_SENDER_RULES table in tests
 // doesn't execute the seed.
-if (process.argv[1] && process.argv[1].includes('seed-sender-rules')) {
+if (process.argv[1]?.includes('seed-sender-rules')) {
   seedSenderRules()
     .then(({ seeded }) => {
       console.log(`[seed-sender-rules] done: ${seeded} rules upserted (idempotent).`);

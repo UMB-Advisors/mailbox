@@ -4,7 +4,7 @@
 // triage-state write path (features/_triage_state_logic.py TRIAGE_STATES) can
 // never drift apart. Mirrors the migration-049 case in sender-rules-migration.test.ts.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -37,9 +37,7 @@ describe('migration 051 inbox_messages.triage_state — closed 5-state lifecycle
   });
 
   it('triage_state is NOT NULL with DEFAULT needs_action', () => {
-    expect(live).toMatch(
-      /triage_state\s+TEXT NOT NULL DEFAULT 'needs_action'/,
-    );
+    expect(live).toMatch(/triage_state\s+TEXT NOT NULL DEFAULT 'needs_action'/);
   });
 
   it('reuses snooze_until (adds no second snooze column)', () => {

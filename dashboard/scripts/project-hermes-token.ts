@@ -47,7 +47,9 @@ async function main() {
   // scope list so scopeCovers() finds gmail.readonly and the guard passes.
   const scopes = process.env.HERMES_SCOPES?.trim();
   if (!scopes) {
-    console.error('HERMES_SCOPES env not set (space-delimited scope list from the host hermes JSON)');
+    console.error(
+      'HERMES_SCOPES env not set (space-delimited scope list from the host hermes JSON)',
+    );
     process.exit(1);
   }
   if (!scopes.split(/\s+/).includes('https://www.googleapis.com/auth/gmail.readonly')) {

@@ -99,9 +99,8 @@ export type ClassificationCategory =
 // If either side adds/removes a value without the other, `Expect<Equal<...>>`
 // resolves to a non-`true` type and `tsc --noEmit` fails here — closing the
 // dual-source drift that produced the original mis-sorts (Spec 002).
-type _Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-  ? true
-  : false;
+type _Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 type _Expect<T extends true> = T;
 export type _AssertCategoriesMatch = _Expect<_Equal<ClassificationCategory, PromptCategory>>;
 

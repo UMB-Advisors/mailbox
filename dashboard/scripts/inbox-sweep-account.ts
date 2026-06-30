@@ -83,12 +83,12 @@ async function main() {
       if (!res.ok) {
         failed += 1;
         const detail = await res.text().catch(() => '');
-        console.error(`  POST failed ${res.status} for ${m.provider_message_id}: ${detail.slice(0, 160)}`);
+        console.error(
+          `  POST failed ${res.status} for ${m.provider_message_id}: ${detail.slice(0, 160)}`,
+        );
         continue;
       }
-      const json = (await res.json().catch(() => null)) as
-        | { id: number; created: boolean }
-        | null;
+      const json = (await res.json().catch(() => null)) as { id: number; created: boolean } | null;
       if (json?.created) inserted += 1;
       else deduped += 1;
     } catch (err) {

@@ -47,7 +47,11 @@ describe('retrieveClassificationExemplars', () => {
 
   it('passes the senderPrior as preferBucket and over-fetches a window', async () => {
     listMock.mockResolvedValue([row('team note', 'internal')]);
-    await retrieveClassificationExemplars({ senderPrior: 'internal', subject: 'hi', account_id: 4 });
+    await retrieveClassificationExemplars({
+      senderPrior: 'internal',
+      subject: 'hi',
+      account_id: 4,
+    });
     expect(listMock).toHaveBeenCalledTimes(1);
     const arg = listMock.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.preferBucket).toBe('internal');
@@ -59,6 +63,8 @@ describe('retrieveClassificationExemplars', () => {
     listMock.mockResolvedValue([row('a', 'receipt'), row('b', 'spam')]);
     const out = await retrieveClassificationExemplars({ subject: 'a' });
     expect(out.length).toBeGreaterThan(0);
-    expect(out.every((e) => typeof e.snippet === 'string' && typeof e.bucket === 'string')).toBe(true);
+    expect(out.every((e) => typeof e.snippet === 'string' && typeof e.bucket === 'string')).toBe(
+      true,
+    );
   });
 });

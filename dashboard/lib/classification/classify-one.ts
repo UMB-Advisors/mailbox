@@ -188,7 +188,9 @@ export async function classifyOne(
   // automated senders only — highest precedence, like the reverted MBOX-368
   // override BUT only for force-mode rows). `bias` does NOT short-circuit — it
   // becomes a prompt prior the model reconciles (the multi-intent-safe path).
-  const ruleHit = deps.senderRuleLookup ? await deps.senderRuleLookup(row.from_addr ?? undefined) : null;
+  const ruleHit = deps.senderRuleLookup
+    ? await deps.senderRuleLookup(row.from_addr ?? undefined)
+    : null;
   const action = senderRuleAction(ruleHit);
   if (action.kind === 'force') {
     return {

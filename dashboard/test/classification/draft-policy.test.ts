@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   BUCKET_REPLY_POLICY,
   canDraft,
-  draftGate,
   DRAFTABLE_POLICIES,
+  draftGate,
   replyPolicyFor,
 } from '@/lib/classification/draft-policy';
 import { CATEGORIES, type Category } from '@/lib/classification/prompt';
