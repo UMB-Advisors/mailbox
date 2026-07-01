@@ -74,6 +74,73 @@ describe('promoteEscalation (FR4)', () => {
     expect(r.review_subtype).toBe(true);
     expect(r.important).toBe(true);
   });
+
+  // 2026-07-01 — live-verified against real mail on a demo DB: the model
+  // classified this real message directly as `finance_legal` (0.99 confidence),
+  // never `notification`, so the old notification-only gate silently skipped a
+  // subject that plainly matches filing_or_tax_due. These are the ACTUAL
+  // subject lines from that run, not synthetic examples.
+  it('a finance_legal verdict matching filing_or_tax_due IS promoted (real mail: CO sales tax deadline)', () => {
+    const r = promoteEscalation({
+      category: 'finance_legal',
+      subject: 'Reminder: The Current Sales Tax Filing Deadline is Near!',
+      body: '',
+    });
+    expect(r.category).toBe('escalate');
+    expect(r.promoted).toBe(true);
+    expect(r.escalation_signal).toBe('filing_or_tax_due');
+    expect(r.important).toBe(true);
+  });
+
+  it('a finance_legal verdict matching NO signal stays finance_legal (real mail: FAMLI payment-method update, not a bug)', () => {
+    const r = promoteEscalation({
+      category: 'finance_legal',
+      subject: 'Action Needed: FirstBank Customers, Confirm Your FAMLI Payment Method',
+      body: 'FirstBank accounts have transitioned to PNC. Any payment details saved in My FAMLI+ Employer that are linked to a former FirstBank account may need to be updated.',
+    });
+    expect(r.category).toBe('finance_legal');
+    expect(r.promoted).toBe(false);
+  });
+
+  it('admin_account and invoice_payable are also escalation candidates now', () => {
+    const admin = promoteEscalation({
+      category: 'admin_account',
+      subject: 'Your account will be suspended',
+      body: 'Your account will be suspended unless you verify ownership.',
+    });
+    expect(admin.category).toBe('escalate');
+    expect(admin.escalation_signal).toBe('account_suspension');
+
+    const invoice = promoteEscalation({
+      category: 'invoice_payable',
+      subject: 'Auto-pay failed for invoice #4471',
+      body: 'Your auto-pay could not be processed; this invoice is now past due.',
+    });
+    expect(invoice.category).toBe('escalate');
+    expect(invoice.escalation_signal).toBe('payment_failed');
+  });
+
+  it('non-candidate buckets (receipt, spam) are still untouched', () => {
+    expect(
+      promoteEscalation({ category: 'receipt', subject: 'payment failed', body: 'card declined' })
+        .category,
+    ).toBe('receipt');
+    expect(
+      promoteEscalation({ category: 'spam', subject: 'payment failed', body: 'card declined' })
+        .category,
+    ).toBe('spam');
+  });
+
+  it('review_alert folding stays notification-only: a finance_legal "review" subject is NOT flagged review_subtype', () => {
+    const r = promoteEscalation({
+      category: 'finance_legal',
+      subject: 'You have a new review',
+      body: 'Someone left you a review on your Google business profile.',
+    });
+    expect(r.category).toBe('finance_legal');
+    expect(r.review_subtype).toBe(false);
+    expect(r.important).toBe(false);
+  });
 });
 
 describe('intent detectors', () => {
