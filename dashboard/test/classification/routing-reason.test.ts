@@ -12,12 +12,14 @@ import { routeFor, routingReasonFor } from '@/lib/classification/prompt';
 // regression on an on-appliance-only product). Direct routeFor coverage for
 // the fix, plus the routingReasonFor extension below.
 describe('routeFor (Spec 002 taxonomy)', () => {
-  it.each(['client_request', 'sales_lead', 'vendor_partner', 'contract_legal'])(
-    'routes %s locally at high confidence (was silently falling through to cloud)',
-    (category) => {
-      expect(routeFor(category as Category, 0.9)).toBe('local');
-    },
-  );
+  it.each([
+    'client_request',
+    'sales_lead',
+    'vendor_partner',
+    'contract_legal',
+  ])('routes %s locally at high confidence (was silently falling through to cloud)', (category) => {
+    expect(routeFor(category as Category, 0.9)).toBe('local');
+  });
 
   it('escalate stays cloud-routed (harder/riskier case, unchanged)', () => {
     expect(routeFor('escalate', 0.9)).toBe('cloud');
