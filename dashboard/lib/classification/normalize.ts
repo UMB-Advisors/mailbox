@@ -12,6 +12,7 @@
 // generating a draft. Noreply is checked BEFORE operator-domain so a
 // noreply address that happens to live on the operator domain still drops.
 
+import type { EscalationSignal } from './escalation-promotion';
 import { type PreclassContext, precheck, precheckNoReply, precheckSelfLoop } from './preclass';
 import { CATEGORIES, type Category, type Route, routeFor } from './prompt';
 
@@ -53,6 +54,14 @@ export interface ClassificationResult {
   // precheckSelfLoop fires ('self_loop') or when the async thread-ownership
   // guard fires ('operator_owns_thread'). null for all other paths.
   suppression_reason: 'self_loop' | 'operator_owns_thread' | null;
+  // Spec 002 FR4 — escalation-promotion metadata, set by
+  // classification-normalize's route (not by this function) when
+  // `subject`+`body` were supplied and `promoteEscalation()` ran against the
+  // (possibly force/reverb-overridden) category. Mirrors
+  // ClassifyOneResult.escalation_signal / .important exactly (classify-one.ts)
+  // so the two n8n-facing surfaces expose the same shape as the sweeper path.
+  escalation_signal?: EscalationSignal | null;
+  important?: boolean;
 }
 
 type ResultWithoutRoute = Omit<ClassificationResult, 'route'>;
