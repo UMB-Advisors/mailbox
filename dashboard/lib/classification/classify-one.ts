@@ -34,8 +34,8 @@ import { type EscalationSignal, promoteEscalation } from './escalation-promotion
 import type { ClassificationExemplar } from './exemplars';
 import { type ClassificationResult, normalizeClassifierOutput } from './normalize';
 import { buildPrompt, type Category, MODEL_VERSION } from './prompt';
-import { reverbRoute } from './reverb-routing';
-import { type SenderRuleHit, senderRuleAction } from './sender-rules';
+import { resolvePreclass } from './resolve-preclass';
+import type { SenderRuleHit } from './sender-rules';
 
 export interface InboxRowForClassify {
   id: number;
@@ -130,9 +130,10 @@ interface LocalGenerateResponse {
 }
 
 // Compose the same framing the `POST /api/internal/classification-prompt`
-// route uses. Inlined rather than HTTP'd because we already share a process
-// with that route.
-async function buildFramedPrompt(
+// route uses. Exported so that route can call it directly (instead of
+// reimplementing the persona → framing → buildPrompt sequence) — we already
+// share a process with that route, so this is a plain function call, not HTTP.
+export async function buildFramedPrompt(
   row: InboxRowForClassify,
   senderPrior?: Category,
   exemplars?: ReadonlyArray<ClassificationExemplar>,
@@ -183,19 +184,19 @@ export async function classifyOne(
   const fetchImpl = deps.fetchImpl ?? fetch;
   const baseUrl = deps.llmBaseUrl ?? readOllamaBaseUrl();
 
-  // Spec 002 FR7 (Stage 2b-1) — Train sender-rule resolution (injected; fail-open
-  // inside the resolver). `force` hard-routes BEFORE the LLM (single-purpose
-  // automated senders only — highest precedence, like the reverted MBOX-368
-  // override BUT only for force-mode rows). `bias` does NOT short-circuit — it
-  // becomes a prompt prior the model reconciles (the multi-intent-safe path).
-  const ruleHit = deps.senderRuleLookup
-    ? await deps.senderRuleLookup(row.from_addr ?? undefined)
-    : null;
-  const action = senderRuleAction(ruleHit);
-  if (action.kind === 'force') {
+  // Spec 002 FR7/FR7b (Stage 2b-1/2b-2) — force/reverb preclass precedence,
+  // shared with the two n8n-facing routes via resolve-preclass.ts (single
+  // implementation — see that module's header for the force > reverb > bias
+  // ordering rationale). `force` hard-routes BEFORE the LLM; a Reverb subject
+  // match hard-routes the same way; `bias` does NOT short-circuit — it becomes
+  // a prompt prior the model reconciles (the multi-intent-safe path).
+  const preclass = await resolvePreclass(row.from_addr ?? undefined, row.subject, {
+    senderRuleLookup: deps.senderRuleLookup,
+  });
+  if (preclass.forced) {
     return {
       inbox_message_id: row.id,
-      category: action.category,
+      category: preclass.forced,
       confidence: 1,
       model_version: MODEL_VERSION,
       latency_ms: 0,
@@ -203,41 +204,13 @@ export async function classifyOne(
       json_parse_ok: true,
       think_stripped: false,
       preclass_applied: true,
-      preclass_source: 'sender-rule-force',
+      preclass_source: preclass.preclass_source,
       escalation_signal: null,
       important: false,
     };
   }
-  // Spec 002 FR7 (Stage 2b-2) — Reverb subject routing (the multi-intent case
-  // 2b-1 deferred). Reverb sends 4 message types from one domain, so it is NEVER
-  // a single `force` sender rule (the MBOX-370 lesson); instead a PURE content
-  // matcher hard-routes the templated subjects ("Message about…"→sales_lead,
-  // payout→receipt, feed/saved-search→marketing_promo, offer→
-  // marketplace_notification). A non-matching Reverb subject returns null and
-  // falls through to the LLM. Runs after `force` (no Reverb force rule exists)
-  // and BEFORE the bias prior + LLM — a deterministic templated subject beats a
-  // soft prior. Kill switch REVERB_ROUTING_DISABLE=1.
-  if (process.env.REVERB_ROUTING_DISABLE !== '1') {
-    const reverbBucket = reverbRoute(row.from_addr ?? undefined, row.subject);
-    if (reverbBucket) {
-      return {
-        inbox_message_id: row.id,
-        category: reverbBucket,
-        confidence: 1,
-        model_version: MODEL_VERSION,
-        latency_ms: 0,
-        raw_output: '',
-        json_parse_ok: true,
-        think_stripped: false,
-        preclass_applied: true,
-        preclass_source: 'reverb-subject',
-        escalation_signal: null,
-        important: false,
-      };
-    }
-  }
 
-  const senderPrior = action.kind === 'bias' ? action.prior : undefined;
+  const senderPrior = preclass.senderPrior;
 
   // Spec 002 FR7b (Stage 2b-2) — retrieve few-shot exemplars (injected; the DB
   // read + rank + ctx CAP live in the dep, fail-closed → []). Handed the bias
