@@ -128,9 +128,31 @@ export function isReviewSubtype(input: EscalationPromotionInput): boolean {
   return REVIEW_MATCHER.test(haystack(input));
 }
 
+// 2026-07-01 correction — live-verified against real mail on a demo DB: the
+// model sometimes classifies an automated alert directly into a more specific
+// "quiet by default" bucket (e.g. a tax-deadline reminder -> `finance_legal`)
+// rather than the generic `notification` bucket, which used to make this
+// function a silent no-op even when the subject/body plainly matched an
+// escalation_signal (e.g. "Sales Tax Filing Deadline" -> filing_or_tax_due
+// matched the regex, but never ran because category was finance_legal, not
+// notification). buckets.yaml's own intent was always "an automated alert
+// matching a signal promotes to escalate", not "...only if literally labeled
+// notification first". Widen the gate to the other quiet/fyi-action buckets
+// (finance_legal, admin_account, invoice_payable) that can plausibly carry the
+// same automated alerts. The review-subtype fallback stays notification-only
+// (review_alert folding is a notification-specific concept, not a finance/admin
+// one) -- see the guard below.
+const ESCALATION_CANDIDATE_CATEGORIES: ReadonlySet<Category> = new Set([
+  'notification',
+  'finance_legal',
+  'admin_account',
+  'invoice_payable',
+]);
+
 /**
- * FR4 post-classify promotion. Pure. Only touches `notification` verdicts; every
- * other category passes through unchanged.
+ * FR4 post-classify promotion. Pure. Only touches verdicts in
+ * `ESCALATION_CANDIDATE_CATEGORIES` (automated/quiet-by-default buckets);
+ * every other category passes through unchanged.
  */
 export function promoteEscalation(input: EscalationPromotionInput): EscalationPromotionResult {
   const base: EscalationPromotionResult = {
@@ -141,7 +163,7 @@ export function promoteEscalation(input: EscalationPromotionInput): EscalationPr
     important: false,
   };
 
-  if (input.category !== 'notification') return base;
+  if (!ESCALATION_CANDIDATE_CATEGORIES.has(input.category)) return base;
 
   const signal = detectEscalationSignal(input);
   if (signal) {
@@ -154,7 +176,9 @@ export function promoteEscalation(input: EscalationPromotionInput): EscalationPr
     };
   }
 
-  if (isReviewSubtype(input)) {
+  // review_alert folding is a notification-specific subtype (buckets.yaml) --
+  // don't apply it to finance_legal/admin_account/invoice_payable verdicts.
+  if (input.category === 'notification' && isReviewSubtype(input)) {
     return { ...base, review_subtype: true, important: true };
   }
 

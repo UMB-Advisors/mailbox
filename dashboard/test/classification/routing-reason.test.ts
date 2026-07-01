@@ -1,10 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import type { Category } from '@/lib/classification/prompt';
-import { routingReasonFor } from '@/lib/classification/prompt';
+import { routeFor, routingReasonFor } from '@/lib/classification/prompt';
 
 // STAQPRO-331 #3 — pure derivation of routing_reason from existing
 // (draft_source, classification, confidence) columns. The badge UI is a
 // thin wrapper; the logic lives here so it's testable without a DOM.
+
+// 2026-07-01 correction — live-verified against real mail: routeFor never got
+// updated when Spec 002 widened CATEGORIES to the design taxonomy, so
+// draftable new-name buckets silently fell through to 'cloud' (a privacy
+// regression on an on-appliance-only product). Direct routeFor coverage for
+// the fix, plus the routingReasonFor extension below.
+describe('routeFor (Spec 002 taxonomy)', () => {
+  it.each(['client_request', 'sales_lead', 'vendor_partner', 'contract_legal'])(
+    'routes %s locally at high confidence (was silently falling through to cloud)',
+    (category) => {
+      expect(routeFor(category as Category, 0.9)).toBe('local');
+    },
+  );
+
+  it('escalate stays cloud-routed (harder/riskier case, unchanged)', () => {
+    expect(routeFor('escalate', 0.9)).toBe('cloud');
+  });
+
+  it('a new-taxonomy category still falls back to cloud below the confidence floor', () => {
+    expect(routeFor('client_request', 0.5)).toBe('cloud');
+  });
+
+  it('non-draftable new buckets still resolve to a route (harmless — canDraft blocks them upstream)', () => {
+    expect(routeFor('marketing_promo', 0.9)).toBe('cloud');
+    expect(routeFor('notification', 0.9)).toBe('cloud');
+  });
+});
 
 describe('routingReasonFor', () => {
   describe('local source', () => {
@@ -14,6 +41,10 @@ describe('routingReasonFor', () => {
       'follow_up',
       'internal',
       'inquiry',
+      'client_request',
+      'sales_lead',
+      'vendor_partner',
+      'contract_legal',
     ])('returns local_category for %s with high confidence', (category) => {
       expect(routingReasonFor('local', category as Category, 0.92)).toBe('local_category');
     });

@@ -192,12 +192,28 @@ ${safeBody}
 // Confidence floor still kicks low-confidence drafts to cloud as the safety
 // net.
 export const LOCAL_CONFIDENCE_FLOOR = 0.75;
+// 2026-07-01 correction — live-verified against real mail: routeFor/LOCAL_
+// CATEGORIES never got updated when Spec 002 widened CATEGORIES to the design
+// taxonomy, so 4 of the 7 draft-policy-allowed buckets (client_request,
+// sales_lead, vendor_partner, contract_legal -- new names, no old-taxonomy
+// equivalent literal) silently fell through routeFor's default `return 'cloud'`
+// branch. On a privacy-first, on-appliance product ("no bulk corpus to cloud"
+// per the root CLAUDE.md Constraints) that's a real regression, not a nuance --
+// these are routine, not-especially-risky categories that should stay local by
+// the same logic the original inquiry/reorder/internal did. `escalate` stays
+// the sole draftable CLOUD_CATEGORIES member (harder/riskier case -> bigger
+// cloud model), matching the original local-by-default / cloud-as-safety-net
+// design; the confidence floor is still the universal override either way.
 export const LOCAL_CATEGORIES: ReadonlyArray<Category> = [
   'reorder',
   'scheduling',
   'follow_up',
   'internal',
   'inquiry',
+  'client_request',
+  'sales_lead',
+  'vendor_partner',
+  'contract_legal',
 ];
 export const CLOUD_CATEGORIES: ReadonlyArray<Category> = ['escalate', 'unknown'];
 
