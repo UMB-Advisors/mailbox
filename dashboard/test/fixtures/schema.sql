@@ -1593,3 +1593,82 @@ CREATE UNIQUE INDEX IF NOT EXISTS classification_exemplars_account_source_uidx
 CREATE INDEX IF NOT EXISTS classification_exemplars_account_bucket_idx
   ON mailbox.classification_exemplars(account_id, bucket) WHERE enabled;
 
+-- ── AgentBOX CRM: Businesses, Departments, Team (humans+agents), Contacts ──
+-- Ported from monorepo onto the triage-unified base. Mirrors migrations
+-- 052-create-crm-tables (orig 047), 053-crm-businesses (orig 048).
+CREATE TABLE IF NOT EXISTS mailbox.businesses (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.departments (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  business_id INTEGER REFERENCES mailbox.businesses(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.team_members (
+  id            SERIAL PRIMARY KEY,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL DEFAULT 'human',
+  title         TEXT NOT NULL DEFAULT '',
+  department_id INTEGER REFERENCES mailbox.departments(id) ON DELETE SET NULL,
+  email         TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'active',
+  notes         TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.crm_contacts (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  company     TEXT NOT NULL DEFAULT '',
+  phones      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  emails      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  socials     JSONB NOT NULL DEFAULT '[]'::jsonb,
+  tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes       TEXT NOT NULL DEFAULT '',
+  source      TEXT NOT NULL DEFAULT 'manual',
+  external_id TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS crm_contacts_source_external_uniq
+  ON mailbox.crm_contacts (source, external_id) WHERE external_id IS NOT NULL;
+
+-- ── MBOX-462: Agent Job outcomes ledger (migration 054, orig 049) ──
+-- FK targets mailbox.businesses + mailbox.departments are created above.
+CREATE TABLE IF NOT EXISTS mailbox.job_outcomes (
+  id              BIGSERIAL PRIMARY KEY,
+  source          TEXT NOT NULL,
+  external_job_id TEXT,
+  job_name        TEXT NOT NULL,
+  profile         TEXT,
+  business_id     INTEGER REFERENCES mailbox.businesses(id) ON DELETE SET NULL,
+  department_id   INTEGER REFERENCES mailbox.departments(id) ON DELETE SET NULL,
+  outcome_type    TEXT NOT NULL DEFAULT 'other',
+  status          TEXT NOT NULL DEFAULT 'success',
+  title           TEXT NOT NULL DEFAULT '',
+  summary         TEXT NOT NULL DEFAULT '',
+  artifact_ref    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT job_outcomes_status_check
+    CHECK (status IN ('success', 'partial', 'failed', 'skipped'))
+);
+CREATE INDEX IF NOT EXISTS job_outcomes_business_occurred_idx
+  ON mailbox.job_outcomes (business_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS job_outcomes_department_occurred_idx
+  ON mailbox.job_outcomes (department_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS job_outcomes_occurred_idx
+  ON mailbox.job_outcomes (occurred_at DESC);
+
+-- ── Migration 056 (orig 050): thread_id indexes ──
+CREATE INDEX IF NOT EXISTS inbox_messages_thread_id_idx
+  ON mailbox.inbox_messages (thread_id);
+CREATE INDEX IF NOT EXISTS sent_history_thread_id_idx
+  ON mailbox.sent_history (thread_id);
+
