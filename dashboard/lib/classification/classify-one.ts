@@ -30,8 +30,12 @@
 
 import { readOllamaBaseUrl } from '@umb-advisors/llm';
 import { getPersonaContext } from '@/lib/drafting/persona';
+import { type EscalationSignal, promoteEscalation } from './escalation-promotion';
+import type { ClassificationExemplar } from './exemplars';
 import { type ClassificationResult, normalizeClassifierOutput } from './normalize';
-import { buildPrompt, MODEL_VERSION } from './prompt';
+import { buildPrompt, type Category, MODEL_VERSION } from './prompt';
+import { resolvePreclass } from './resolve-preclass';
+import type { SenderRuleHit } from './sender-rules';
 
 export interface InboxRowForClassify {
   id: number;
@@ -53,6 +57,13 @@ export interface ClassifyOneResult {
   think_stripped: boolean;
   preclass_applied: boolean;
   preclass_source: ClassificationResult['preclass_source'];
+  // Spec 002 FR4 (Stage 2b-1) — escalation-promotion metadata. `category` above
+  // already reflects a notification→escalate promotion; these surface WHY for the
+  // audit trail / urgency badge. `important` keeps a review-subtype notification
+  // surfaced in the FYI tab (not collapsed). Persisting `important` is a thin
+  // future column add — the promoted `category` is what the log row carries today.
+  escalation_signal?: EscalationSignal | null;
+  important?: boolean;
 }
 
 export interface ClassifyOneDeps {
@@ -76,6 +87,30 @@ export interface ClassifyOneDeps {
    * re-run (where the sender is allowlisted by construction).
    */
   neverSpam?: boolean;
+  /**
+   * Spec 002 FR7 (Stage 2b-1) — injected Train sender-rule resolver. Keeps
+   * classifyOne Postgres-free (the DB lookup lives in the injected fn) and
+   * unit-testable. The live callers pass
+   * `lib/classification/sender-rules.ts:senderRule` (account-scoped, fail-open,
+   * kill switch SENDER_RULES_DISABLE=1). Omitted → no Train rules apply (the
+   * unchanged default). A `force` hit short-circuits the LLM; a `bias` hit only
+   * seeds a prompt prior the model reconciles.
+   */
+  senderRuleLookup?: (rawFrom: string | undefined) => Promise<SenderRuleHit | null>;
+  /**
+   * Spec 002 FR7b (Stage 2b-2) — injected few-shot exemplar retriever. Keeps
+   * classifyOne Postgres-free (the DB read + ranking + ctx CAP live in the
+   * injected fn) and unit-testable. The live callers pass
+   * `lib/classification/exemplars.ts:retrieveClassificationExemplars`
+   * (fail-closed → [] on any DB error; cap CLASSIFY_FEWSHOT_CAP). Omitted → no
+   * few-shot (the unchanged, description-only prompt). The retriever is handed
+   * the `bias`-rule prior + the inbound subject so it can bias toward the likely
+   * bucket and rank by keyword relevance.
+   */
+  exemplarLookup?: (opts: {
+    senderPrior?: Category;
+    subject?: string | null;
+  }) => Promise<ReadonlyArray<ClassificationExemplar>>;
 }
 
 // Mirror of the live `MailBOX-Classify > Call Ollama` body. Kept here as a
@@ -95,9 +130,14 @@ interface LocalGenerateResponse {
 }
 
 // Compose the same framing the `POST /api/internal/classification-prompt`
-// route uses. Inlined rather than HTTP'd because we already share a process
-// with that route.
-async function buildFramedPrompt(row: InboxRowForClassify): Promise<string> {
+// route uses. Exported so that route can call it directly (instead of
+// reimplementing the persona → framing → buildPrompt sequence) — we already
+// share a process with that route, so this is a plain function call, not HTTP.
+export async function buildFramedPrompt(
+  row: InboxRowForClassify,
+  senderPrior?: Category,
+  exemplars?: ReadonlyArray<ClassificationExemplar>,
+): Promise<string> {
   // Mirrors `personaToClassifyFraming` in
   // app/api/internal/classification-prompt/route.ts. Three-layer fallback
   // (operator override → extraction-derived → hardcoded default) lives inside
@@ -118,6 +158,12 @@ async function buildFramedPrompt(row: InboxRowForClassify): Promise<string> {
       body: row.body ?? row.snippet ?? '',
     },
     framing,
+    // Spec 002 FR7 (Stage 2b-1): a `bias` Train rule's suggested bucket, injected
+    // as a prior the model reconciles (undefined → no hint, unchanged prompt).
+    senderPrior,
+    // Spec 002 FR7b (Stage 2b-2): retrieved + capped few-shot exemplars (empty →
+    // unchanged prompt). The retrieval/rank/CAP happened in the injected dep.
+    exemplars,
   );
 }
 
@@ -138,7 +184,42 @@ export async function classifyOne(
   const fetchImpl = deps.fetchImpl ?? fetch;
   const baseUrl = deps.llmBaseUrl ?? readOllamaBaseUrl();
 
-  const prompt = await buildFramedPrompt(row);
+  // Spec 002 FR7/FR7b (Stage 2b-1/2b-2) — force/reverb preclass precedence,
+  // shared with the two n8n-facing routes via resolve-preclass.ts (single
+  // implementation — see that module's header for the force > reverb > bias
+  // ordering rationale). `force` hard-routes BEFORE the LLM; a Reverb subject
+  // match hard-routes the same way; `bias` does NOT short-circuit — it becomes
+  // a prompt prior the model reconciles (the multi-intent-safe path).
+  const preclass = await resolvePreclass(row.from_addr ?? undefined, row.subject, {
+    senderRuleLookup: deps.senderRuleLookup,
+  });
+  if (preclass.forced) {
+    return {
+      inbox_message_id: row.id,
+      category: preclass.forced,
+      confidence: 1,
+      model_version: MODEL_VERSION,
+      latency_ms: 0,
+      raw_output: '',
+      json_parse_ok: true,
+      think_stripped: false,
+      preclass_applied: true,
+      preclass_source: preclass.preclass_source,
+      escalation_signal: null,
+      important: false,
+    };
+  }
+
+  const senderPrior = preclass.senderPrior;
+
+  // Spec 002 FR7b (Stage 2b-2) — retrieve few-shot exemplars (injected; the DB
+  // read + rank + ctx CAP live in the dep, fail-closed → []). Handed the bias
+  // prior + subject so it can bias toward the likely bucket. Omitted dep → [].
+  const exemplars = deps.exemplarLookup
+    ? await deps.exemplarLookup({ senderPrior, subject: row.subject })
+    : [];
+
+  const prompt = await buildFramedPrompt(row, senderPrior, exemplars);
 
   const body: LocalGenerateBody = {
     model: MODEL_VERSION,
@@ -177,9 +258,23 @@ export async function classifyOne(
     neverSpam: deps.neverSpam,
   });
 
+  // Spec 002 FR4 (Stage 2b-1) — escalation-promotion post-classify step. A
+  // `notification` matching an escalation_signal is promoted to `escalate`; a
+  // `notification` with a review subtype stays `notification` but flagged
+  // important. Pure + deterministic; only touches notification verdicts. Kill
+  // switch ESCALATION_PROMOTE_DISABLE=1 reverts to the raw verdict.
+  const promoted =
+    process.env.ESCALATION_PROMOTE_DISABLE === '1'
+      ? null
+      : promoteEscalation({
+          category: normalized.category,
+          subject: row.subject,
+          body: row.body ?? row.snippet,
+        });
+
   return {
     inbox_message_id: row.id,
-    category: normalized.category,
+    category: promoted?.category ?? normalized.category,
     confidence: normalized.confidence,
     model_version: MODEL_VERSION,
     latency_ms,
@@ -188,5 +283,7 @@ export async function classifyOne(
     think_stripped: normalized.think_stripped,
     preclass_applied: normalized.preclass_applied,
     preclass_source: normalized.preclass_source,
+    escalation_signal: promoted?.escalation_signal ?? null,
+    important: promoted?.important ?? false,
   };
 }

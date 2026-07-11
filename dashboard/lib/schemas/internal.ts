@@ -36,17 +36,24 @@ export const classificationPromptBodySchema = z.object({
 
 export type ClassificationPromptBody = z.infer<typeof classificationPromptBodySchema>;
 
-// POST /api/internal/classification-normalize — { raw?, from?, to?, thread_id? }.
-// `from` / `to` feed the deterministic operator-domain preclass (DR-50).
-// `thread_id` feeds the async operator-owns-thread guard (UMB-154). The n8n
-// Normalize node must add a `thread_id` line to jsonBody for UMB-154 to fire
-// in production — see deploy note in the SUMMARY. Without it the guard is
-// dormant (no thread_id → no DB query → drafts normally).
+// POST /api/internal/classification-normalize — { raw?, from?, to?, thread_id?,
+// subject?, body? }. `from` / `to` feed the deterministic operator-domain
+// preclass (DR-50). `thread_id` feeds the async operator-owns-thread guard
+// (UMB-154). The n8n Normalize node must add a `thread_id` line to jsonBody
+// for UMB-154 to fire in production — see deploy note in the SUMMARY. Without
+// it the guard is dormant (no thread_id → no DB query → drafts normally).
+//
+// `subject` / `body` (Spec 002 FR7/FR4) are OPTIONAL and additive — they feed
+// the independent, second force/reverb precheck + the escalation-promotion
+// step (see the route). Omitted (old callers) → both steps no-op, unchanged
+// backward-compatible behavior.
 export const classificationNormalizeBodySchema = z.object({
   raw: z.string().optional().default(''),
   from: z.string().optional(),
   to: z.string().optional(),
   thread_id: z.string().optional(),
+  subject: z.string().optional(),
+  body: z.string().optional(),
 });
 
 export type ClassificationNormalizeBody = z.infer<typeof classificationNormalizeBodySchema>;

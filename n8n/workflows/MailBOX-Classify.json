@@ -274,7 +274,7 @@
       "id": "htp00000-0000-0000-0000-000000000006",
       "name": "Normalize",
       "parameters": {
-        "jsonBody": "={\n  \"raw\": {{ JSON.stringify($json.response || $json.thinking || '') }},\n  \"from\": {{ JSON.stringify($('Load Inbox Row').item.json.from_addr || '') }},\n  \"to\": {{ JSON.stringify($('Load Inbox Row').item.json.to_addr || '') }}\n}",
+        "jsonBody": "={\n  \"raw\": {{ JSON.stringify($json.response || $json.thinking || '') }},\n  \"from\": {{ JSON.stringify($('Load Inbox Row').item.json.from_addr || '') }},\n  \"to\": {{ JSON.stringify($('Load Inbox Row').item.json.to_addr || '') }},\n  \"subject\": {{ JSON.stringify($('Load Inbox Row').item.json.subject || '') }},\n  \"body\": {{ JSON.stringify($('Load Inbox Row').item.json.body || $('Load Inbox Row').item.json.snippet || '') }}\n}",
         "method": "POST",
         "options": {
           "timeout": 5000

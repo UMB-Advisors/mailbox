@@ -12,6 +12,7 @@
 // generating a draft. Noreply is checked BEFORE operator-domain so a
 // noreply address that happens to live on the operator domain still drops.
 
+import type { EscalationSignal } from './escalation-promotion';
 import { type PreclassContext, precheck, precheckNoReply, precheckSelfLoop } from './preclass';
 import { CATEGORIES, type Category, type Route, routeFor } from './prompt';
 
@@ -38,11 +39,29 @@ export interface ClassificationResult {
     // the classification-normalize route + the reclassify re-run (needs a DB
     // lookup, so not in the sync preclass chain).
     | 'sender-never-spam'
+    // Spec 002 FR7 (Stage 2b-1): a `force`-mode Train sender-rule hard-routed this
+    // message to its target bucket BEFORE the LLM ran (single-purpose automated
+    // senders only). Set by classify-one when deps.senderRuleLookup returns a
+    // force hit; the DB lookup lives there, not in this sync chain.
+    | 'sender-rule-force'
+    // Spec 002 FR7 (Stage 2b-2): a Reverb sender's templated SUBJECT hard-routed
+    // this message to its bucket BEFORE the LLM ran (the multi-intent case 2b-1
+    // deferred — Reverb is never a single force rule). Set by classify-one via
+    // the pure lib/classification/reverb-routing.ts matcher.
+    | 'reverb-subject'
     | null;
   // Why the draft was suppressed (distinct from generic spam). Populated when
   // precheckSelfLoop fires ('self_loop') or when the async thread-ownership
   // guard fires ('operator_owns_thread'). null for all other paths.
   suppression_reason: 'self_loop' | 'operator_owns_thread' | null;
+  // Spec 002 FR4 — escalation-promotion metadata, set by
+  // classification-normalize's route (not by this function) when
+  // `subject`+`body` were supplied and `promoteEscalation()` ran against the
+  // (possibly force/reverb-overridden) category. Mirrors
+  // ClassifyOneResult.escalation_signal / .important exactly (classify-one.ts)
+  // so the two n8n-facing surfaces expose the same shape as the sweeper path.
+  escalation_signal?: EscalationSignal | null;
+  important?: boolean;
 }
 
 type ResultWithoutRoute = Omit<ClassificationResult, 'route'>;

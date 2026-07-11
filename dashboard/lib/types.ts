@@ -15,6 +15,9 @@
 // the schema; they describe what callers expect, not the full table shape.
 
 import type { Selectable } from 'kysely';
+// Imported only by the `_AssertCategoriesMatch` compile-time guard below, which
+// pins ClassificationCategory to the CATEGORIES tuple (the runtime SoT).
+import type { Category as PromptCategory } from '@/lib/classification/prompt';
 import type {
   AutoSendAudit as AutoSendAuditRow_,
   AutoSendRules as AutoSendRulesRow_,
@@ -58,7 +61,15 @@ export const DRAFT_SOURCES = ['local', 'cloud', 'local_qwen3', 'cloud_haiku'] as
 
 export type DraftSource = (typeof DRAFT_SOURCES)[number];
 
+// Classification enum (Spec 002 FR1, Stage 2a). MUST equal the CATEGORIES tuple
+// in lib/classification/prompt.ts — the union of the 8 legacy coarse values
+// (kept valid during the transition; historical rows are display-mapped, not
+// re-classified, per FR2) and the design taxonomy from seed/buckets.yaml.
+// The `_AssertCategoriesMatch` guard below makes any drift between this union
+// and CATEGORIES a compile-time error (`npm run typecheck`);
+// test/schema-invariants.test.ts pins both to migration 048's CHECK lists.
 export type ClassificationCategory =
+  // legacy coarse (transition)
   | 'inquiry'
   | 'reorder'
   | 'scheduling'
@@ -66,7 +77,32 @@ export type ClassificationCategory =
   | 'internal'
   | 'spam_marketing'
   | 'escalate'
-  | 'unknown';
+  | 'unknown'
+  // design taxonomy (seed/buckets.yaml)
+  | 'client_request'
+  | 'proposal_request'
+  | 'sales_lead'
+  | 'meeting_invite'
+  | 'meeting_notes'
+  | 'receipt'
+  | 'marketplace_notification'
+  | 'marketing_promo'
+  | 'vendor_partner'
+  | 'finance_legal'
+  | 'admin_account'
+  | 'invoice_payable'
+  | 'contract_legal'
+  | 'notification'
+  | 'spam';
+
+// Compile-time identity guard: ClassificationCategory ≡ CATEGORIES (prompt.ts).
+// If either side adds/removes a value without the other, `Expect<Equal<...>>`
+// resolves to a non-`true` type and `tsc --noEmit` fails here — closing the
+// dual-source drift that produced the original mis-sorts (Spec 002).
+type _Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type _Expect<T extends true> = T;
+export type _AssertCategoriesMatch = _Expect<_Equal<ClassificationCategory, PromptCategory>>;
 
 // onboarding.stage enum (migration 006). Const tuple is the SoT for the
 // zod enum in lib/schemas/internal.ts; the OnboardingStage union is derived

@@ -62,3 +62,50 @@ export async function* fetchSentViaGmail(
     yield canonical;
   }
 }
+
+// AgentBOX mailbox Phase 1 — NATIVE inbound ingestion sibling of
+// fetchSentViaGmail. Streams UNREAD inbound messages over a bounded recent
+// window as CanonicalMessages tagged direction:'inbound' and carrying Gmail's
+// native threadId (the Sent path doesn't need a thread id; inbound ingestion
+// does, so the inbox row threads correctly). Read-only: gmail.readonly + a
+// list/get over users/me — never sends or modifies. Best-effort per-message
+// skip mirrors the Sent path. BOUNDED by maxMessages (the caller caps this for
+// the single-account validation).
+export async function* fetchInboxViaGmail(
+  accessToken: string,
+  opts: GmailFetchOptions,
+): AsyncIterable<CanonicalMessage> {
+  // newer_than:Nd is Gmail's relative-window operator; derive whole days from
+  // the lookback hours (min 1) so the validation's 7d window maps cleanly.
+  const days = Math.max(1, Math.ceil(opts.lookbackHours / 24));
+  // is:unread in:inbox -from:me — only fresh inbound, exclude our own sends that
+  // Gmail also files under the conversation. Bounded by newer_than to keep the
+  // list small on a busy mailbox.
+  const q = encodeURIComponent(`is:unread in:inbox -from:me newer_than:${days}d`);
+  const list = await gmailGet<{ messages?: Array<{ id: string }> }>(
+    `/messages?q=${q}&maxResults=${opts.maxMessages}`,
+    accessToken,
+  );
+  const ids = (list.messages ?? []).slice(0, opts.maxMessages);
+  const now = new Date();
+  for (const { id } of ids) {
+    let msg: GmailMessageWithThread;
+    try {
+      msg = await gmailGet<GmailMessageWithThread>(`/messages/${id}?format=full`, accessToken);
+    } catch {
+      continue; // skip a message we couldn't fetch — never abort the sweep
+    }
+    const canonical = gmailMessageToCanonical(msg, now);
+    if (!canonical.provider_message_id || !canonical.body) continue;
+    // gmailMessageToCanonical hardcodes the Sent-path values (thread_id:null,
+    // direction:'outbound'); inbound ingestion needs the real threadId so the
+    // inbox row threads, and the inbound direction.
+    yield { ...canonical, thread_id: msg.threadId ?? null, direction: 'inbound' };
+  }
+}
+
+// users.messages.get?format=full also returns a top-level threadId that the
+// pure gmail-parse mapper (Sent-only, thread-id-agnostic) doesn't model.
+interface GmailMessageWithThread extends GmailMessage {
+  threadId?: string;
+}

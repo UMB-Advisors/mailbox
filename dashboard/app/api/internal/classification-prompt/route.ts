@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { buildPrompt, MODEL_VERSION } from '@/lib/classification/prompt';
-import { getPersonaContext } from '@/lib/drafting/persona';
+import { buildFramedPrompt } from '@/lib/classification/classify-one';
+import { retrieveClassificationExemplars } from '@/lib/classification/exemplars';
+import { MODEL_VERSION } from '@/lib/classification/prompt';
+import { resolvePreclass } from '@/lib/classification/resolve-preclass';
+import { senderRule } from '@/lib/classification/sender-rules';
 import { parseJson } from '@/lib/middleware/validate';
 import { classificationPromptBodySchema } from '@/lib/schemas/internal';
 
@@ -17,15 +20,43 @@ export const dynamic = 'force-dynamic';
 // instead of hardcoded "small CPG brand operator". Pulls business_description
 // from the operator's persona override (set during onboarding) and templates
 // it into the classifier prompt. Falls back to generic "small business
-// operator" framing when business_description is empty.
+// operator" framing when business_description is empty. This is now handled
+// by the shared `buildFramedPrompt` (lib/classification/classify-one.ts) —
+// the sweeper/backfill path and this route render the identical framing.
+//
+// Spec 002 FR7/FR7b — n8n's fixed node chain always calls this route BEFORE
+// `classification-normalize` runs, so a `force`-mode sender rule doesn't
+// change what we do here: we still build and return a normal, valid prompt
+// (n8n's `Call Ollama` node downstream has nothing to send otherwise).
+// Correctness for a force sender doesn't depend on this prompt — the
+// normalize route independently re-resolves force/reverb and overrides the
+// category regardless of what the LLM said. A `bias`-mode rule DOES change
+// what we do here: its suggested bucket is injected as a senderPrior hint,
+// and the exemplar retrieval is biased toward it.
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, classificationPromptBodySchema);
   if (!b.ok) return b.response;
 
   try {
-    const persona = await getPersonaContext();
-    const framing = personaToClassifyFraming(persona);
-    const prompt = buildPrompt(b.data, framing);
+    const preclass = await resolvePreclass(b.data.from, b.data.subject, {
+      senderRuleLookup: senderRule,
+    });
+    const exemplars = await retrieveClassificationExemplars({
+      senderPrior: preclass.senderPrior,
+      subject: b.data.subject,
+    });
+    const prompt = await buildFramedPrompt(
+      {
+        id: 0,
+        from_addr: b.data.from,
+        to_addr: null,
+        subject: b.data.subject,
+        body: b.data.body,
+        snippet: null,
+      },
+      preclass.senderPrior,
+      exemplars,
+    );
     return NextResponse.json({ prompt, model: MODEL_VERSION });
   } catch (error) {
     console.error('POST /api/internal/classification-prompt failed:', error);
@@ -34,22 +65,4 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
-}
-
-// Industry-aware framing for the classifier system prompt. Cleaner than
-// inlining inside the route — reusable from the scoring script too if/when
-// scripts/heron-labs-score.mjs grows persona awareness.
-function personaToClassifyFraming(persona: {
-  operator_brand: string;
-  business_description: string;
-}): string {
-  const desc = persona.business_description?.trim();
-  const brand = persona.operator_brand?.trim();
-  if (desc && brand && brand !== "the operator's business") {
-    return `${brand} — ${desc}`;
-  }
-  if (desc) {
-    return desc;
-  }
-  return ''; // buildPrompt falls back to "a small business operator"
 }

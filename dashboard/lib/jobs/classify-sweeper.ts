@@ -22,7 +22,9 @@
 
 import { sql } from 'kysely';
 import { classifyOne, type InboxRowForClassify } from '@/lib/classification/classify-one';
+import { retrieveClassificationExemplars } from '@/lib/classification/exemplars';
 import { MODEL_VERSION } from '@/lib/classification/prompt';
+import { senderRule } from '@/lib/classification/sender-rules';
 import { getKysely } from '@/lib/db';
 import { withJobRun } from '@/lib/jobs/job-runs';
 
@@ -79,8 +81,11 @@ export async function runSweeperTick(): Promise<SweeperResult> {
   }
 
   try {
-    const queryResult = await sql<InboxRow>`
-      SELECT m.id, m.from_addr, m.to_addr, m.subject, m.body, m.snippet
+    // Phase 1b — carry m.account_id so the classification_log row is tagged with
+    // the SAME mailbox as its inbox row (multi-account correctness). classifyOne
+    // ignores the extra field; only the log INSERT below consumes it.
+    const queryResult = await sql<InboxRow & { account_id: number }>`
+      SELECT m.id, m.from_addr, m.to_addr, m.subject, m.body, m.snippet, m.account_id
         FROM mailbox.inbox_messages m
    LEFT JOIN mailbox.classification_log c ON c.inbox_message_id = m.id
        WHERE c.id IS NULL
@@ -93,11 +98,32 @@ export async function runSweeperTick(): Promise<SweeperResult> {
     result.checked = queryResult.rows.length;
     for (const row of queryResult.rows) {
       try {
-        const outcome = await classifyOne(row, { fetchImpl: sharedFetch });
+        // Spec 002 FR7 (Stage 2b-1) — pass the Train sender-rule resolver so
+        // force/bias rules apply on this (live, timer-driven) classify path.
+        // Empty sender_rules table → no-op; fail-open + kill switch live in
+        // senderRule. The n8n classification-normalize route is intentionally
+        // NOT wired here (no n8n change — see MANIFEST).
+        const outcome = await classifyOne(row, {
+          fetchImpl: sharedFetch,
+          senderRuleLookup: senderRule,
+          // Spec 002 FR7b (Stage 2b-2) — few-shot exemplar retrieval (fail-closed
+          // → [] inside the retriever; empty table → no-op; ctx CAP enforced
+          // there). Biased toward the bias-rule prior + ranked by subject overlap.
+          exemplarLookup: ({ senderPrior, subject }) =>
+            retrieveClassificationExemplars({
+              senderPrior,
+              subject,
+              account_id: row.account_id,
+            }),
+        });
         await db
           .insertInto('classification_log')
           .values({
             inbox_message_id: row.id,
+            // Phase 1b — tag the log with the inbox row's owning account so
+            // per-account classification analytics are correct. Was previously
+            // omitted → fell to the column DEFAULT (account 1).
+            account_id: row.account_id,
             category: outcome.category,
             confidence: outcome.confidence,
             model_version: MODEL_VERSION,

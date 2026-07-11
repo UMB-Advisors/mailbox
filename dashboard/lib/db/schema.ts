@@ -79,6 +79,14 @@ export interface AutoSendRules {
   updated_at: Generated<string>;
 }
 
+export interface Businesses {
+  created_at: Generated<string>;
+  description: Generated<string>;
+  id: Generated<number>;
+  name: string;
+  updated_at: Generated<string>;
+}
+
 export interface ChatConversations {
   account_id: Generated<number>;
   created_at: Generated<string>;
@@ -101,6 +109,21 @@ export interface ChatMessages {
   role: string;
 }
 
+// Spec 002 FR7b (Stage 2b-2), migration 050. Hand-maintained mirror of the
+// `npm run db:codegen` output (the appliance regenerates this from the migration).
+export interface ClassificationExemplars {
+  account_id: number;
+  bucket: string;
+  company: string | null;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  reason: string | null;
+  snippet: string;
+  source_msg_id: string | null;
+}
+
 export interface ClassificationLog {
   account_id: Generated<number>;
   category: string;
@@ -113,6 +136,29 @@ export interface ClassificationLog {
   model_version: string;
   raw_output: string | null;
   think_stripped: Generated<boolean>;
+}
+
+export interface CrmContacts {
+  company: Generated<string>;
+  created_at: Generated<string>;
+  emails: Generated<Json>;
+  external_id: string | null;
+  id: Generated<number>;
+  name: string;
+  notes: Generated<string>;
+  phones: Generated<Json>;
+  socials: Generated<Json>;
+  source: Generated<string>;
+  tags: Generated<Json>;
+  updated_at: Generated<string>;
+}
+
+export interface Departments {
+  business_id: number | null;
+  created_at: Generated<string>;
+  id: Generated<number>;
+  name: string;
+  updated_at: Generated<string>;
 }
 
 export interface DigestSends {
@@ -203,6 +249,9 @@ export interface InboxMessages {
   subject: string | null;
   thread_id: string | null;
   to_addr: string | null;
+  triage_state: Generated<string>;
+  triage_state_updated_at: string | null;
+  triage_state_updated_by: string | null;
 }
 
 export interface JobInstances {
@@ -352,6 +401,21 @@ export interface SenderNeverSpam {
   updated_at: Generated<string>;
 }
 
+// Spec 002 FR7 (Stage 2b-1), migration 049. Hand-maintained mirror of the
+// `npm run db:codegen` output (the appliance regenerates this from the migration).
+export interface SenderRules {
+  account_id: number;
+  created_at: Generated<string>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  id: Generated<number>;
+  kind: string;
+  match: string;
+  mode: Generated<string>;
+  reason: string | null;
+  target_bucket: string;
+}
+
 export interface SentHistory {
   account_id: Generated<number>;
   action_items: Generated<Json>;
@@ -398,6 +462,19 @@ export interface SystemState {
   id: Generated<number>;
 }
 
+export interface TeamMembers {
+  created_at: Generated<string>;
+  department_id: number | null;
+  email: Generated<string>;
+  id: Generated<number>;
+  kind: Generated<string>;
+  name: string;
+  notes: Generated<string>;
+  status: Generated<string>;
+  title: Generated<string>;
+  updated_at: Generated<string>;
+}
+
 export interface UserFilterPreferences {
   id: Generated<number>;
   key: string;
@@ -439,9 +516,13 @@ export interface DB {
   alert_sends: AlertSends;
   auto_send_audit: AutoSendAudit;
   auto_send_rules: AutoSendRules;
+  businesses: Businesses;
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
+  classification_exemplars: ClassificationExemplars;
   classification_log: ClassificationLog;
+  crm_contacts: CrmContacts;
+  departments: Departments;
   digest_sends: DigestSends;
   draft_feedback: DraftFeedback;
   drafts: Drafts;
@@ -459,9 +540,11 @@ export interface DB {
   prompt_rules: PromptRules;
   rejected_history: RejectedHistory;
   sender_never_spam: SenderNeverSpam;
+  sender_rules: SenderRules;
   sent_history: SentHistory;
   state_transitions: StateTransitions;
   system_state: SystemState;
+  team_members: TeamMembers;
   user_filter_preferences: UserFilterPreferences;
   v_drafting_metrics: VDraftingMetrics;
   v_override_rate: VOverrideRate;

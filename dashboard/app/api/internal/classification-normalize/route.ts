@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { promoteEscalation } from '@/lib/classification/escalation-promotion';
 import { normalizeClassifierOutput } from '@/lib/classification/normalize';
+import { routeFor } from '@/lib/classification/prompt';
+import { resolvePreclass } from '@/lib/classification/resolve-preclass';
 import { isNeverSpamSender } from '@/lib/classification/sender-allowlist';
+import { senderRule } from '@/lib/classification/sender-rules';
 import { operatorOwnsThread } from '@/lib/classification/thread-ownership';
 import { parseJson } from '@/lib/middleware/validate';
 import { classificationNormalizeBodySchema } from '@/lib/schemas/internal';
@@ -31,10 +35,27 @@ export const dynamic = 'force-dynamic';
 // model spam verdict surfaced to `unknown`) and SKIP the owns-thread guard. The DB
 // lookup is gated to the could-be-suppressed path, so a normal non-spam classify
 // (no thread_id, non-spam) stays query-free.
+//
+// Spec 002 FR7/FR7b/FR4 — `subject` / `body` are OPTIONAL (backward compatible
+// with old callers that omit them). When present, immediately before the
+// final response:
+//   (a) independently re-run the SAME force/reverb precedence check
+//       (resolve-preclass.ts, shared with classify-one.ts and the prompt
+//       route) using `from` + `subject`. This is a SECOND, independent
+//       recompute — n8n's fixed node chain can't thread data between
+//       non-adjacent nodes, so classification-prompt's resolution can't be
+//       passed here. A forced hit overrides `result.category` regardless of
+//       what the LLM said.
+//   (b) run promoteEscalation() on the (possibly force/reverb-overridden)
+//       category — only when both subject+body were supplied. A
+//       notification→escalate promotion overrides the category again.
+// Both steps respect their existing kill switches (SENDER_RULES_DISABLE,
+// REVERB_ROUTING_DISABLE inside resolvePreclass; ESCALATION_PROMOTE_DISABLE
+// here, same check classify-one.ts uses).
 export async function POST(req: NextRequest) {
   const b = await parseJson(req, classificationNormalizeBodySchema);
   if (!b.ok) return b.response;
-  const { raw, from, to, thread_id } = b.data;
+  const { raw, from, to, thread_id, subject, body } = b.data;
 
   try {
     const result = normalizeClassifierOutput(raw, { from, to });
@@ -75,6 +96,39 @@ export async function POST(req: NextRequest) {
       console.log(
         `[classify] suppressed draft reason=self_loop from=${from ?? ''} to=${to ?? ''} thread=${thread_id ?? ''}`,
       );
+    }
+
+    // Spec 002 FR7/FR7b (a) — SECOND, independent force/reverb precheck. Only
+    // meaningful when `subject` is present (a force-mode sender rule doesn't
+    // need it, but reverbRoute does); a `from` with no `subject` still runs a
+    // force-mode sender-rule check (subject is simply ignored by reverbRoute).
+    const preclass = await resolvePreclass(from, subject, { senderRuleLookup: senderRule });
+    if (preclass.forced) {
+      result.category = preclass.forced;
+      result.confidence = 1;
+      result.preclass_applied = true;
+      result.preclass_source = preclass.preclass_source;
+      result.route = routeFor(preclass.forced, 1);
+    }
+
+    // Spec 002 FR4 (b) — escalation-promotion, run on the (possibly
+    // force/reverb-overridden) category above. Only when both subject+body
+    // were supplied (optional-field backward compat — old callers omitting
+    // either get a no-op here). Mirrors classify-one.ts's application of the
+    // promotion result exactly (category override + escalation_signal +
+    // important), gated by the same ESCALATION_PROMOTE_DISABLE kill switch.
+    if (
+      subject !== undefined &&
+      body !== undefined &&
+      process.env.ESCALATION_PROMOTE_DISABLE !== '1'
+    ) {
+      const promoted = promoteEscalation({ category: result.category, subject, body });
+      if (promoted.promoted) {
+        result.category = promoted.category;
+        result.route = routeFor(promoted.category, result.confidence);
+      }
+      result.escalation_signal = promoted.escalation_signal;
+      result.important = promoted.important;
     }
 
     return NextResponse.json(result);

@@ -53,7 +53,7 @@ CREATE TABLE mailbox.classification_log (
     json_parse_ok boolean NOT NULL,
     think_stripped boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT classification_log_category_check CHECK ((category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text])))
+    CONSTRAINT classification_log_category_check CHECK ((category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text, 'client_request'::text, 'proposal_request'::text, 'sales_lead'::text, 'meeting_invite'::text, 'meeting_notes'::text, 'receipt'::text, 'marketplace_notification'::text, 'marketing_promo'::text, 'vendor_partner'::text, 'finance_legal'::text, 'admin_account'::text, 'invoice_payable'::text, 'contract_legal'::text, 'notification'::text, 'spam'::text])))
 );
 
 
@@ -109,7 +109,7 @@ CREATE TABLE mailbox.drafts (
     thread_id text,
     in_reply_to text,
     "references" text,
-    CONSTRAINT drafts_classification_category_check CHECK (((classification_category IS NULL) OR (classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text])))),
+    CONSTRAINT drafts_classification_category_check CHECK (((classification_category IS NULL) OR (classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text, 'client_request'::text, 'proposal_request'::text, 'sales_lead'::text, 'meeting_invite'::text, 'meeting_notes'::text, 'receipt'::text, 'marketplace_notification'::text, 'marketing_promo'::text, 'vendor_partner'::text, 'finance_legal'::text, 'admin_account'::text, 'invoice_payable'::text, 'contract_legal'::text, 'notification'::text, 'spam'::text])))),
     CONSTRAINT drafts_draft_source_check CHECK (((draft_source IS NULL) OR (draft_source = ANY (ARRAY['local'::text, 'cloud'::text, 'local_qwen3'::text, 'cloud_haiku'::text])))),
     CONSTRAINT drafts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'awaiting_cloud'::text, 'approved'::text, 'rejected'::text, 'edited'::text, 'sent'::text])))
 );
@@ -282,7 +282,7 @@ CREATE TABLE mailbox.rejected_history (
     draft_original text,
     rejected_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT rejected_history_category_check CHECK ((classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text])))
+    CONSTRAINT rejected_history_category_check CHECK ((classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text, 'client_request'::text, 'proposal_request'::text, 'sales_lead'::text, 'meeting_invite'::text, 'meeting_notes'::text, 'receipt'::text, 'marketplace_notification'::text, 'marketing_promo'::text, 'vendor_partner'::text, 'finance_legal'::text, 'admin_account'::text, 'invoice_payable'::text, 'contract_legal'::text, 'notification'::text, 'spam'::text])))
 );
 
 
@@ -326,7 +326,7 @@ CREATE TABLE mailbox.sent_history (
     rag_context_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
     sent_at timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT sent_history_category_check CHECK ((classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text]))),
+    CONSTRAINT sent_history_category_check CHECK ((classification_category = ANY (ARRAY['inquiry'::text, 'reorder'::text, 'scheduling'::text, 'follow_up'::text, 'internal'::text, 'spam_marketing'::text, 'escalate'::text, 'unknown'::text, 'client_request'::text, 'proposal_request'::text, 'sales_lead'::text, 'meeting_invite'::text, 'meeting_notes'::text, 'receipt'::text, 'marketplace_notification'::text, 'marketing_promo'::text, 'vendor_partner'::text, 'finance_legal'::text, 'admin_account'::text, 'invoice_payable'::text, 'contract_legal'::text, 'notification'::text, 'spam'::text]))),
     CONSTRAINT sent_history_draft_source_check CHECK ((draft_source = ANY (ARRAY['local'::text, 'cloud'::text, 'local_qwen3'::text, 'cloud_haiku'::text])))
 );
 
@@ -1167,7 +1167,10 @@ CREATE TABLE IF NOT EXISTS mailbox.auto_send_rules (
   CONSTRAINT auto_send_rules_category_check
     CHECK (category IS NULL OR category IN (
       'inquiry', 'reorder', 'scheduling', 'follow_up',
-      'internal', 'spam_marketing', 'escalate', 'unknown')),
+      'internal', 'spam_marketing', 'escalate', 'unknown',
+      'client_request', 'proposal_request', 'sales_lead', 'meeting_invite', 'meeting_notes',
+      'receipt', 'marketplace_notification', 'marketing_promo', 'vendor_partner', 'finance_legal',
+      'admin_account', 'invoice_payable', 'contract_legal', 'notification', 'spam')),
   CONSTRAINT auto_send_rules_min_confidence_range
     CHECK (min_confidence IS NULL OR (min_confidence >= 0 AND min_confidence <= 1)),
   CONSTRAINT auto_send_rules_time_window_range
@@ -1430,6 +1433,24 @@ CREATE INDEX IF NOT EXISTS inbox_messages_snooze_until_idx
   ON mailbox.inbox_messages (snooze_until)
   WHERE snooze_until IS NOT NULL;
 
+
+--
+-- ── Spec 003 FR2/FR3 (migration 051): per-message triage lifecycle state ─────
+-- Hand-applied to fixture pending next pg_dump refresh. triage_state drives the
+-- Triage action surface's per-tab/per-state filtering; the 'snoozed' case reuses
+-- snooze_until above. See dashboard/migrations/051-add-inbox-triage-state.
+ALTER TABLE mailbox.inbox_messages
+  ADD COLUMN IF NOT EXISTS triage_state            TEXT NOT NULL DEFAULT 'needs_action',
+  ADD COLUMN IF NOT EXISTS triage_state_updated_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS triage_state_updated_by TEXT NULL;
+ALTER TABLE mailbox.inbox_messages
+  DROP CONSTRAINT IF EXISTS inbox_messages_triage_state_check;
+ALTER TABLE mailbox.inbox_messages
+  ADD CONSTRAINT inbox_messages_triage_state_check
+  CHECK (triage_state IN ('needs_action', 'accepted', 'denied', 'done', 'snoozed'));
+CREATE INDEX IF NOT EXISTS inbox_messages_account_triage_state_idx
+  ON mailbox.inbox_messages (account_id, triage_state);
+
 -- ── MBOX-162 P5b (migration 044): operator drafting guidelines (prompt_rules) ─
 -- Hand-applied to fixture pending next pg_dump refresh. Account-scoped operator
 -- rules rendered into the per-operator system prompt by rulesSystemBlock. New
@@ -1506,4 +1527,148 @@ CREATE TABLE IF NOT EXISTS mailbox.job_instances (
 );
 CREATE INDEX IF NOT EXISTS job_instances_enabled_idx
   ON mailbox.job_instances (enabled);
+
+-- ── Spec 002 FR7 (migration 049): Train sender-rules (force/bias) ──
+-- Hand-applied to fixture pending next pg_dump refresh. Mirrors
+-- dashboard/migrations/049-sender-rules-train-table-2026-06-30.sql so
+-- `npm run db:codegen` emits the SenderRules interface in lib/db/schema.ts.
+-- New empty table → account_id is NOT NULL with no DEFAULT (the write path
+-- supplies it via getDefaultAccountId()). target_bucket CHECK is the same
+-- 23-value union as migration 048's category CHECK + prompt.ts CATEGORIES.
+CREATE TABLE IF NOT EXISTS mailbox.sender_rules (
+  id             SERIAL PRIMARY KEY,
+  account_id     INTEGER NOT NULL,
+  "match"        TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  target_bucket  TEXT NOT NULL,
+  mode           TEXT NOT NULL DEFAULT 'bias',
+  enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+  reason         TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by     TEXT,
+  CONSTRAINT sender_rules_kind_check CHECK (kind IN ('email', 'domain')),
+  CONSTRAINT sender_rules_mode_check CHECK (mode IN ('force', 'bias')),
+  CONSTRAINT sender_rules_match_not_blank CHECK (length(trim("match")) > 0),
+  CONSTRAINT sender_rules_target_bucket_check CHECK (target_bucket = ANY (ARRAY[
+    'inquiry','reorder','scheduling','follow_up','internal','spam_marketing','escalate','unknown',
+    'client_request','proposal_request','sales_lead','meeting_invite','meeting_notes',
+    'receipt','marketplace_notification','marketing_promo','vendor_partner','finance_legal',
+    'admin_account','invoice_payable','contract_legal','notification','spam'
+  ]))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sender_rules_account_match_kind_uidx
+  ON mailbox.sender_rules(account_id, "match", kind);
+CREATE INDEX IF NOT EXISTS sender_rules_account_enabled_idx
+  ON mailbox.sender_rules(account_id) WHERE enabled;
+
+-- ── Spec 002 FR7b (migration 050): classifier few-shot exemplars ──
+-- Hand-applied to fixture pending next pg_dump refresh. Mirrors
+-- dashboard/migrations/050-classification-exemplars-table-2026-06-30.sql so
+-- `npm run db:codegen` emits the ClassificationExemplars interface in
+-- lib/db/schema.ts. New empty table → account_id is NOT NULL with no DEFAULT
+-- (the write path supplies it via getDefaultAccountId()). bucket CHECK is the
+-- same 23-value union as migrations 048/049 + prompt.ts CATEGORIES.
+CREATE TABLE IF NOT EXISTS mailbox.classification_exemplars (
+  id             SERIAL PRIMARY KEY,
+  account_id     INTEGER NOT NULL,
+  snippet        TEXT NOT NULL,
+  bucket         TEXT NOT NULL,
+  company        TEXT,
+  source_msg_id  TEXT,
+  enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+  reason         TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by     TEXT,
+  CONSTRAINT classification_exemplars_snippet_not_blank CHECK (length(trim(snippet)) > 0),
+  CONSTRAINT classification_exemplars_bucket_check CHECK (bucket = ANY (ARRAY[
+    'inquiry','reorder','scheduling','follow_up','internal','spam_marketing','escalate','unknown',
+    'client_request','proposal_request','sales_lead','meeting_invite','meeting_notes',
+    'receipt','marketplace_notification','marketing_promo','vendor_partner','finance_legal',
+    'admin_account','invoice_payable','contract_legal','notification','spam'
+  ]))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS classification_exemplars_account_source_uidx
+  ON mailbox.classification_exemplars(account_id, source_msg_id)
+  WHERE source_msg_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS classification_exemplars_account_bucket_idx
+  ON mailbox.classification_exemplars(account_id, bucket) WHERE enabled;
+
+-- ── AgentBOX CRM: Businesses, Departments, Team (humans+agents), Contacts ──
+-- Ported from monorepo onto the triage-unified base. Mirrors migrations
+-- 052-create-crm-tables (orig 047), 053-crm-businesses (orig 048).
+CREATE TABLE IF NOT EXISTS mailbox.businesses (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.departments (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  business_id INTEGER REFERENCES mailbox.businesses(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.team_members (
+  id            SERIAL PRIMARY KEY,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL DEFAULT 'human',
+  title         TEXT NOT NULL DEFAULT '',
+  department_id INTEGER REFERENCES mailbox.departments(id) ON DELETE SET NULL,
+  email         TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'active',
+  notes         TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS mailbox.crm_contacts (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  company     TEXT NOT NULL DEFAULT '',
+  phones      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  emails      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  socials     JSONB NOT NULL DEFAULT '[]'::jsonb,
+  tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes       TEXT NOT NULL DEFAULT '',
+  source      TEXT NOT NULL DEFAULT 'manual',
+  external_id TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS crm_contacts_source_external_uniq
+  ON mailbox.crm_contacts (source, external_id) WHERE external_id IS NOT NULL;
+
+-- ── MBOX-462: Agent Job outcomes ledger (migration 054, orig 049) ──
+-- FK targets mailbox.businesses + mailbox.departments are created above.
+CREATE TABLE IF NOT EXISTS mailbox.job_outcomes (
+  id              BIGSERIAL PRIMARY KEY,
+  source          TEXT NOT NULL,
+  external_job_id TEXT,
+  job_name        TEXT NOT NULL,
+  profile         TEXT,
+  business_id     INTEGER REFERENCES mailbox.businesses(id) ON DELETE SET NULL,
+  department_id   INTEGER REFERENCES mailbox.departments(id) ON DELETE SET NULL,
+  outcome_type    TEXT NOT NULL DEFAULT 'other',
+  status          TEXT NOT NULL DEFAULT 'success',
+  title           TEXT NOT NULL DEFAULT '',
+  summary         TEXT NOT NULL DEFAULT '',
+  artifact_ref    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT job_outcomes_status_check
+    CHECK (status IN ('success', 'partial', 'failed', 'skipped'))
+);
+CREATE INDEX IF NOT EXISTS job_outcomes_business_occurred_idx
+  ON mailbox.job_outcomes (business_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS job_outcomes_department_occurred_idx
+  ON mailbox.job_outcomes (department_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS job_outcomes_occurred_idx
+  ON mailbox.job_outcomes (occurred_at DESC);
+
+-- ── Migration 056 (orig 050): thread_id indexes ──
+CREATE INDEX IF NOT EXISTS inbox_messages_thread_id_idx
+  ON mailbox.inbox_messages (thread_id);
+CREATE INDEX IF NOT EXISTS sent_history_thread_id_idx
+  ON mailbox.sent_history (thread_id);
 
