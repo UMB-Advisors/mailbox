@@ -1,220 +1,170 @@
 # Feature Research
 
-**Domain:** AI email agent appliance for B2B operational email (small CPG brands)
-**Researched:** 2026-04-02
-**Confidence:** MEDIUM-HIGH — based on current competitor analysis (Front, Help Scout, Superhuman, Shortwave, SaneBox, Lindy, Fyxer) and B2B email automation patterns. CPG-specific operational context is inference from general B2B patterns; direct user research not yet conducted.
+**Domain:** Entity/organization auto-provisioning + single-source-of-truth entity picker (multi-business email appliance CRM) — **Unified Entities milestone**
+**Researched:** 2026-07-11
+**Confidence:** MEDIUM (patterns cross-checked against Front, HubSpot, WorkOS/Clerk docs via web search + grounded in this repo's actual schema; no vendor source was deep-crawled, so treat specifics as directional, not gospel)
 
----
+> Note: this file replaces the prior milestone's FEATURES.md (product-level competitor research for the base email-agent appliance, dated 2026-04-02). That research is superseded for the current milestone; if it's needed for reference, retrieve it from git history.
+
+## Grounding: what already exists in this codebase
+
+Before the feature landscape, the concrete substrate this milestone builds on/around:
+
+- `mailbox.accounts` (migration 033) — one row per connected mailbox identity: `id`, `email_address UNIQUE`, `display_label`, `is_default`, `provider` (`gmail|imap|microsoft`), `provider_config`. **No `business_id` column today** — this is the missing link the milestone must add.
+- `mailbox.businesses` (migration 053) — `id`, `name UNIQUE`, `description`. Already supports "a business with no inbox" structurally (nothing requires an account to reference it).
+- `mailbox.departments` — `business_id` nullable FK, `ON DELETE SET NULL`. This is the exact un-mapping pattern (FK to businesses, nullable, non-cascading) the new `accounts.business_id` should copy.
+- OAuth callback (`dashboard/app/api/oauth/google/callback/route.ts`) currently only exchanges the code, saves the token, and redirects — it does **not** touch `businesses` at all. This is the exact insertion point for auto-provisioning.
+- **Two parallel "entity" concepts exist today and must be reconciled per the milestone:**
+  1. CRM `mailbox.businesses` (this repo, real DB rows, id-keyed) — the target source of truth.
+  2. gbrain digest entity slugs — a fixed string taxonomy (`heron`, `state`, `cde`, `krunchy`, ...) hardcoded in the sidecar's `ENTITY_OPTIONS` (`agentbox-sidecar/web/src/lib/entities.ts`) and mirrored server-side in `agentbox-sidecar/src/agentbox_sidecar/features/digest.py`, itself sourced from `AGENTBOX_ENTITY_SLUGS` env or `$HERMES_HOME/entities.json` (written by the separate `agentbox-seed` org-layer repo, ultimately derived from `gbrain-ingest/entity_map.yaml`). This is a **different, older, org-config-driven axis** — not a CRM table, not owned by this repo, and not trivially mergeable in one milestone.
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = product feels incomplete.
-
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Email classification / triage | Every competitor does this; without it the product is just a relay | MEDIUM | 8-category taxonomy already defined in PROJECT.md. Must work well out of box — accuracy expectation is 80%+. |
-| Draft generation for queue | The core value proposition. If it can't draft a decent reply, it's useless | HIGH | Hybrid local (Qwen3-4B) + cloud (Claude Haiku) path. Quality bar is "better than blank screen," not "send immediately." |
-| Approval queue (human-in-the-loop) | Users will not trust auto-send on day 1. An approval queue is the minimum trust surface | LOW | This is the central UX. Every competitor with AI draft features gates behind review. Build queue-first. |
-| Approve / edit / reject / escalate actions | Basic triage actions on queued drafts | LOW | Four core verbs. Missing any one feels broken. |
-| Email thread history in context | Drafts without thread context are generic and embarrassing | MEDIUM | RAG over sent history + Qdrant retrieval addresses this. Recency weighting matters. |
-| Daily digest notification | Users need pull-based summary even if not watching queue | LOW | Email-only for v1 is sufficient. Alert when queue threshold exceeded. |
-| Knowledge base (document upload) | Users expect to give the agent their price lists, product specs, policies | MEDIUM | File ingestion into Qdrant. PDF + plain text minimum. Already in requirements. |
-| First-boot / onboarding wizard | Without structured onboarding the product is inert. Competitors with appliance-like UX all do guided setup | MEDIUM | Create admin, connect email, ingest 6 months history. Already required. |
-| Sent history log | "What did it send on my behalf?" is a baseline accountability expectation | LOW | Log all sent emails with classification, draft source, and timestamp. |
-| Classification log / audit trail | For trust-building, users need to see why the agent categorized something a certain way | LOW | Show confidence score and classification rationale alongside each email. |
-| System status visibility | Hardware appliance users need to know if the box is healthy | LOW | Dashboard: service health, queue depth, last-processed timestamp. |
+| Auto-create a business when a Gmail account is authorized (default ON) | Standard "connect account → provisions a workspace" pattern (WorkOS AuthKit JIT org provisioning, Slack/Notion first-workspace-on-signup). Users expect *not* to hit a dead end after OAuth with nowhere for the account to live. | LOW | Insert into OAuth callback (`route.ts:58-69`) right after `saveToken`. Needs `accounts.business_id` column first (new migration). |
+| Domain/duplicate check before auto-creating | If the operator reconnects the same email, or connects a second account on a domain that already has a business, silently creating a second "Heron Labs" business is the #1 complaint pattern in JIT-provisioning designs (WorkOS explicitly matches on verified domain before creating new). | LOW-MEDIUM | Match on `email_address` domain against existing `businesses` (needs a domain or slug field, or a join through existing accounts) before INSERT. |
+| Renaming an auto-created business | Every workspace/org-auto-name pattern (Slack channel names, Notion workspaces, WorkOS orgs) treats the auto-name as a *starting point*, never final. The CRUD UI for businesses already exists — this is "make sure auto-created rows are indistinguishable from manually created ones." | LOW | Already have `PATCH /api/crm/businesses/[id]`. Just needs the auto-created row to not be special-cased/locked. |
+| Adding departments to an auto-created business | Same reasoning — auto-created must be a first-class citizen, not a stub. | LOW | Already works via existing `departments` CRUD; only needs `business_id` populated. |
+| Manually creating a business with no inbox | Required for holding companies / departments-only businesses (this appliance already models multi-business operators — Ekim-style holding structures are the exact use case). Front/HubSpot analog: you can create a team/inbox shell before connecting any channel. | LOW | `businesses` table already supports this — no schema change, just a "New Business" entry point independent of the OAuth flow. |
+| Re-mapping an account to a different business | Operators mis-click, restructure, or want to consolidate. HubSpot models this as a distinct explicit action (Disconnect ≠ Reassign); the underlying primitive is "connection record and org record are separate, linked objects." | LOW-MEDIUM | `UPDATE accounts SET business_id = ? WHERE id = ?` + UI. No cascading side effects if `departments`/other data stays keyed by `business_id`, not `account_id`. |
+| Every business/department picker reads the one CRM source | This *is* the milestone's stated core bug (`ENTITY_OPTIONS` hardcode in `agentbox-sidecar/web/src/lib/entities.ts` + `CronPage.tsx`). Table stakes because a picker showing options that don't match what's assignable elsewhere is a correctness bug, not a feature gap. | MEDIUM | Requires the sidecar to fetch from `GET /api/crm/businesses` (dashboard side, this repo) instead of importing a static array — this is a cross-repo change (sidecar lives in `UMB-Advisors/agentbox-sidecar`). |
+| Un-mapping an account without deleting the business | Mirrors the `departments.business_id` `ON DELETE SET NULL` pattern already in this schema. Deleting a business because its last account was disconnected would orphan departments/team/history — a data-loss anti-pattern the HubSpot "Disconnect ≠ delete the CRM object" split explicitly avoids. | LOW | `accounts.business_id` should be nullable, `ON DELETE SET NULL` — un-mapping just nulls it; business row and its departments/team persist. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set the product apart. Not expected but valued.
-
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Local-first privacy (all data on device) | CPG operators share sensitive pricing, margin, and retailer relationship data. "Nothing leaves the box" is a meaningful trust differentiator vs cloud-only tools | HIGH | Already a core architectural commitment. Market this explicitly. Cloud path sends only current email context, never the corpus. |
-| Persona tuning from sent history | Ghostwriter-style voice extraction (a la Shortwave) makes drafts sound like the operator, not a chatbot. This closes the "generic AI voice" objection | HIGH | Extract voice profile from 6 months sent history at onboarding. Few-shot examples per category. Requires Qwen3-4B + embedding analysis. |
-| CPG-specific classification taxonomy | Generic email tools use "urgent/not urgent." An agent that natively understands reorder requests, broker follow-ups, co-man scheduling, and retailer escalations is immediately more useful | MEDIUM | The 8-category schema (inquiry, reorder, scheduling, follow-up, internal, spam, escalate, unknown) is the differentiator. Competitors have none of this vertical specificity. |
-| Graduated auto-send (per-category opt-in) | Trust is built incrementally. Letting operators unlock auto-send for low-risk categories (e.g. "meeting scheduling confirmations") after observing accuracy builds confidence without risk | MEDIUM | Default OFF. Category-level unlock after N approved drafts in that category with low edit rate. Competitors either always require approval or allow global auto-send with no granularity. |
-| Confidence threshold display on drafts | Showing "90% confident" vs "55% confident" lets users triage their own review effort. High-confidence drafts get light review, low-confidence get full attention | LOW | Surface classification confidence and draft generation confidence separately on queue items. |
-| Relationship context in drafts | Knowing that "Whole Foods buyer Sarah" has a 6-week reorder pattern and last ordered 3 pallets informs a better draft than a generic reply | HIGH | Phase 2 (SQLite relationship graph). v1 uses vector similarity over history — partial benefit. Full relationship graph deferred. |
-| Appliance UX (plug in, it works) | No cloud account to manage, no SaaS subscription friction, no data portability concerns. Setup is physical + wizard, not onboarding email funnels | HIGH | The hardware form factor is the differentiator. Competitors are all SaaS overlays requiring cloud trust. |
-| Graceful degradation (works offline) | SaaS tools fail silently when cloud is down. The appliance queues locally and degrades to local-only drafts | MEDIUM | Already in requirements. Draft locally with Qwen3-4B if cloud API unreachable. Surface to user which drafts used which path. |
-| OTA updates under operator control | Enterprise B2B operators hate surprise updates. Customer-initiated OTA via GHCR builds trust and fits a "my box, my rules" mental model | LOW | Already in requirements. Surface available update notification prominently on dashboard. |
+| Smart default name from `display_label` / domain (not just raw domain string) | `display_label` is already operator-set text (e.g. "Primary (backfilled)" per migration 033 comments) — using it when present, falling back to a Title-Cased domain-minus-TLD heuristic when absent, produces a materially better first impression than "heronlabsinc-com" as a business name. | LOW-MEDIUM | Naming precedence: `accounts.display_label` (if set and not a generic placeholder like "Primary") → derived-from-domain heuristic → generic "New Business N". Surface an inline rename nudge post-create rather than assuming the heuristic is right. |
+| "Link to existing business?" suggestion instead of silent auto-create | When a newly connected account's domain matches an existing business's account domain, prompting rather than auto-creating avoids the most common duplicate-org failure mode (per general SaaS multi-tenant provisioning guidance: match on a stable attribute to an existing tenant before creating a new one). | MEDIUM | Needs a domain-derivable signal on `businesses` (a domain column, or infer from constituent accounts' email domains at check-time). |
+| Business merge (combine two businesses, reparent departments/team/accounts) | Real operators will create a duplicate at some point (typo, mis-click, or before the domain-check ships) and want a way out short of manual SQL. | HIGH | Requires reparenting every FK-referencing table (`departments`, and once `accounts.business_id` exists, `accounts` too) in one transaction, plus a UI to pick which name/description "wins." Defer past MVP. |
+| One-way bridge from CRM `businesses` to the gbrain digest entity axis (e.g., an optional `slug` column mapping a business to its digest `entity` filter value) | Lets the Daily Brief / digest entity filter eventually read real CRM businesses instead of the separate hardcoded slug list, without requiring a full merge of two independently-owned config systems. | MEDIUM-HIGH | This is the "reconcile" line item in requirements. A full two-way sync with `gbrain-ingest/entity_map.yaml` (owned by a different repo, `agentbox-seed`) is out of reach for one milestone — a derived, one-directional bridge (CRM business → optional digest slug) is the realistic scope. Flag for deeper phase-specific research; this is exactly the kind of cross-repo config-ownership question a roadmap phase should scope tightly. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems.
-
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Global auto-send (all categories, no approval) | "I just want it to handle email for me" is the dream | Auto-send errors are irreversible. A draft sent to a Whole Foods buyer with wrong pricing destroys a relationship. Trust collapses on first mistake. Low-confidence drafts sent blindly are worse than no drafts. | Graduated auto-send by category with confidence threshold gates. Always default OFF. Build trust through transparency, not automation speed. |
-| CRM / Shopify / EDI integration (v1) | Operators want full automation — "update my order in Shopify when a reorder comes in" | Each integration 3x's the implementation surface area and the failure modes. A broken Shopify sync that creates phantom orders is a disaster. | Defer integrations to v2. Focus on email-only accuracy first. Log structured data (reorder amounts, SKUs) in draft metadata for future integration hooks. |
-| SMS / Slack / mobile push notifications | "I want to know instantly when something urgent arrives" | Notification overload trains users to ignore the system. Multiple channels create acknowledgment confusion (did I approve this on Slack or in the queue?). | Email-only notifications for v1. Single channel, single action surface. Revisit after dogfood shows notification patterns. |
-| Full email client (send/compose arbitrary email) | "Make it my primary email client" | Scope explosion. The product is an agent that handles inbound operational email — not an email client. Building compose, contacts, calendar, search, folders competes with Gmail/Outlook and loses. | Keep the dashboard as approval surface only. No compose interface — users compose in their existing client. Inbound agent only. |
-| Multi-user / role-based access | "My assistant needs to approve drafts too" | RBAC adds auth complexity, audit trail branching, and "who approved this?" ambiguity. v1 has one operator. | Single admin user in v1. Multi-user is v2 after core email pipeline is validated. |
-| Real-time email push (WebSocket inbox) | "Show me emails as they arrive" | IMAP polling at 60s is sufficient for operational email. Real-time push requires persistent connections and adds complexity for minimal benefit in a context where emails are not chat. | 60-second poll default. Configurable interval. Not real-time. |
-| Learning from approval edits (active fine-tuning) | "It should get smarter from my corrections" | Online fine-tuning of local models is complex, resource-intensive on 8GB VRAM, and can degrade model quality if done incorrectly. | Use edits as few-shot examples added to the persona profile. No model weight updates in v1. This is a meaningful v2 capability. |
-| Marketing / outbound campaigns | "While you're at it, send my newsletter" | Completely different product. SPF/DKIM/deliverability management, list segmentation, unsubscribe compliance, and campaign analytics are out of scope and dilute the inbound agent value prop. | Explicitly not this. Route these to Mailchimp or similar. |
-| Voice / phone integration | "Can it handle my voicemails too?" | Different modality, different infrastructure (ASR, telephony), different regulatory surface. No overlap with email pipeline. | Defer indefinitely. Focus email. |
-
----
+| Auto-delete business when its last/only account is disconnected | Feels like "cleanup" | Orphans departments, team members, and historical drafts/classification rows tied to that business via departments — a hard data-loss footgun (this is precisely the soft-delete-then-restore duplication trap called out in general multi-tenant provisioning guidance). | Un-map only (null the FK). Deletion is a separate, explicit, confirmed action on the business itself, independent of account lifecycle. |
+| Silent automatic merge of businesses sharing an email domain | Seems like the "smart" thing to do given the domain-match signal above | A holding company (this operator's own Ekim Holdings / KMK Holdings structure is the live example) can legitimately run several *distinct* businesses off variants of one domain, or one business can legitimately have multiple unrelated domains. Auto-merging on a heuristic risks silently combining two real, separate entities. | Suggest-and-confirm only, never silent. Merge is always an explicit operator action (see Differentiators). |
+| Full two-way sync / unification of CRM `businesses` with the gbrain `entity_map.yaml` / `AGENTBOX_ENTITY_SLUGS` config in this milestone | The requirement says "reconcile" and it's tempting to just fully replace one with the other | `entity_map.yaml` is owned and written by a separate repo (`agentbox-seed`, the "org layer"), consumed by yet another repo (the sidecar/gbrain). Rewriting that ownership boundary is a cross-repo architecture change, not a feature — doing it inside this milestone risks scope blowout and breaking a system this repo doesn't own. | Ship a one-way, additive bridge (CRM business carries an optional digest-slug reference) and leave `entity_map.yaml` as the authority for the digest axis until a dedicated cross-repo phase addresses full unification. |
+| Building general multi-tenant auth boundaries (per-business RBAC, SSO, tenant isolation) à la WorkOS/Auth0 Organizations | The "organization" language in comparable products implies a full multi-tenant identity layer | This appliance has exactly one operator/admin per device (per root `CLAUDE.md`: "single admin user in v1" is an explicit non-goal elsewhere in this project). Businesses here are a *classification/filter* dimension, not a security boundary — there is no multi-user access control problem to solve. | Keep `businesses` as a plain reference table with CRUD, no auth semantics attached. |
 
 ## Feature Dependencies
 
 ```
-[Email Connectivity (IMAP/SMTP OAuth)]
-    └──required by──> [Email Classification]
-                          └──required by──> [Draft Generation]
-                                                └──required by──> [Approval Queue]
-                                                                      └──required by──> [Auto-Send Rules]
+accounts.business_id column (new migration, nullable FK ON DELETE SET NULL)
+    └──requires──> mailbox.businesses table (exists, migration 053)
 
-[Email History Ingestion]
-    └──required by──> [RAG Context Retrieval]
-                          └──enhances──> [Draft Generation]
+Auto-create business on Gmail OAuth
+    └──requires──> accounts.business_id column
+    └──requires──> naming heuristic (display_label → domain fallback)
+    └──enhances──> Domain/duplicate check (should land in the SAME phase — shipping
+                    auto-create without the duplicate check guarantees duplicate
+                    businesses on every re-auth/second-account connect)
 
-[Document Upload / Knowledge Base]
-    └──enhances──> [RAG Context Retrieval]
+Manual business creation (no inbox)
+    └──requires──> mailbox.businesses table only (already works structurally)
 
-[Persona Tuning (voice profile)]
-    └──enhances──> [Draft Generation]
-    └──requires──> [Email History Ingestion]
+Re-mapping an account to a different business
+    └──requires──> accounts.business_id column
+    └──enhances──> Un-mapping (same UI surface, same column)
 
-[Classification Confidence Score]
-    └──enables──> [Graduated Auto-Send]
-    └──enhances──> [Approval Queue] (lets user prioritize review effort)
+Single-source-of-truth entity pickers (Agent Jobs / CronPage, Daily Brief, Proposals, mail triage)
+    └──requires──> GET /api/crm/businesses exposed and stable (exists, this repo)
+    └──requires──> sidecar-side removal of ENTITY_OPTIONS hardcode (cross-repo:
+                    UMB-Advisors/agentbox-sidecar)
+    └──conflicts with──> leaving the digest entity slug list as a SEPARATE,
+                    un-derived hardcoded list (the two pickers would show
+                    different option sets to the operator — must not ship both
+                    "fixed" pickers and an unreconciled digest picker in the same
+                    release)
 
-[Approval Queue]
-    └──required by──> [Sent History Log]
-    └──required by──> [Classification Log / Audit Trail]
+Digest entity axis reconciliation (CRM businesses <-> gbrain entity slugs)
+    └──requires──> a stable business identifier the digest layer can key off
+                    (e.g. an optional slug field on businesses)
+    └──is a precondition for──> fully retiring AGENTBOX_ENTITY_SLUGS/entities.json
+                    as a parallel source (explicitly OUT of this milestone's
+                    realistic scope per Anti-Features above)
 
-[First-Boot Wizard]
-    └──required by──> [Email History Ingestion]
-    └──required by──> [Persona Tuning]
-
-[System Status Dashboard]
-    └──enhances──> [OTA Update Management]
-
-[Graduated Auto-Send] ──conflicts──> [Global Auto-Send]
-    (build graduated trust, not blind automation)
-
-[Full Email Client] ──conflicts──> [Appliance UX]
-    (scope expansion undermines the "plug in, it works" position)
+Business merge
+    └──requires──> accounts.business_id AND departments.business_id both live
+                    (reparents both in one transaction)
+    └──is deferred past MVP (see MVP Definition)
 ```
 
 ### Dependency Notes
 
-- **Email Connectivity requires OAuth2 setup**: Gmail and Outlook both use OAuth2. Credential handling is the first gate — nothing works without it. Must be in Phase 1.
-- **Draft Generation requires RAG Context**: Drafts without email history context are generic and embarrassing. History ingestion must happen at or before first draft generation.
-- **Persona Tuning enhances Draft Generation**: Voice extraction from sent history is optional for MVP but meaningfully improves quality. Can be done at onboarding without blocking draft generation.
-- **Graduated Auto-Send requires Classification Confidence**: Auto-send unlock logic depends on knowing per-category accuracy rates, which requires tracking approval/edit/reject outcomes over time.
-- **OTA Updates is independent**: Can be built at any phase without blocking the core pipeline.
-
----
+- **Auto-create requires the duplicate check in the same phase, not a later one:** shipping auto-provisioning without duplicate/domain matching guarantees the exact failure mode research flagged (WorkOS JIT provisioning explicitly checks the verified-domain match *before* creating a new org). Splitting these into separate phases would ship a known bug window.
+- **Single-source pickers conflict with an unreconciled digest slug list:** if Agent Jobs/Daily Brief/Proposals all switch to reading live CRM businesses while the Daily Brief's own *entity filter* (the digest axis) still reads the old hardcoded slug list, the operator sees two different, inconsistent "business" option sets in the same dashboard. The roadmap should either bridge the digest axis in the same milestone (at least additively) or explicitly and visibly scope the digest filter out with a note, not leave it silently stale.
+- **Merge is the one high-complexity item safe to defer:** nothing else in the requirements depends on merge existing; the duplicate-prevention feature (domain check at auto-create time) is what keeps merge from being needed on day one.
 
 ## MVP Definition
 
-### Launch With (v1 — Dogfood target: 2026-04-03)
+### Launch With (v1)
 
-Minimum viable product for the Heron Labs dogfood.
-
-- [ ] Email connectivity (Gmail OAuth2 or IMAP/SMTP manual) — nothing works without it
-- [ ] Email classification into 8 categories — core intelligence surface
-- [ ] Draft generation (local + cloud hybrid) — the value proposition
-- [ ] Approval queue with approve / edit / reject / escalate — minimum trust surface
-- [ ] Email thread history in RAG context — drafts need context to be non-generic
-- [ ] Document upload (knowledge base) — price lists, policies, product specs
-- [ ] Persona tuning from sent history — voice profile at onboarding
-- [ ] Daily digest + queue threshold alert (email notification) — pull-based awareness
-- [ ] First-boot wizard (connect email, ingest history) — appliance onboarding
-- [ ] Sent history log + classification log — audit trail for trust-building
-- [ ] System status dashboard — appliance health visibility
-- [ ] Confidence score display on queue items — helps user prioritize review effort
+- [ ] `accounts.business_id` migration (nullable FK, `ON DELETE SET NULL`, mirroring the existing `departments.business_id` pattern) — everything else depends on this
+- [ ] Auto-create business on Gmail OAuth connect, default ON, naming precedence `display_label` → domain-derived Title Case → "New Business N" fallback
+- [ ] Domain-match duplicate check at auto-create time (prompt "link to existing business?" instead of silently creating a new one) — must ship alongside auto-create, not after
+- [ ] Manual "New Business" creation flow independent of OAuth (no-inbox business)
+- [ ] Re-map / un-map account-to-business UI (sets or nulls `business_id`)
+- [ ] Agent Jobs (`CronPage` in `agentbox-sidecar`) entity picker reads `GET /api/crm/businesses` instead of `ENTITY_OPTIONS` — this is the concrete, named-in-scope bug fix
+- [ ] Daily Brief and Proposals surfaces' business/department pickers wired the same way
 
 ### Add After Validation (v1.x)
 
-Features to add once core pipeline is validated against real Heron Labs email.
-
-- [ ] Graduated auto-send per category — unlock after N approved drafts with low edit rate; trigger: user requests it after 2+ weeks of operation
-- [ ] Classification accuracy reporting — per-category stats, edit rate trend; trigger: user asks "is it getting better?"
-- [ ] OTA update management — surface available updates; trigger: first real update to ship
-- [ ] Offline / graceful degradation UX — surface which drafts used local vs cloud path; already in requirements, needs UI surfacing
+- [ ] Digest entity axis bridge — additive optional slug/mapping field on `businesses` so the digest filter *can* derive from CRM data, without retiring `entity_map.yaml` as the org-layer authority yet
+- [ ] Rename nudge/toast on auto-created businesses ("We created **X** from your connected account — rename it?") — trigger: operator feedback that the domain-derived name is frequently wrong
+- [ ] Business merge tool — trigger: a real duplicate-business support request occurs despite the duplicate check
 
 ### Future Consideration (v2+)
 
-Features to defer until product-market fit is established.
-
-- [ ] Relationship graph (SQLite contact/company context) — richer draft context; deferred because v1 vector-only RAG gets 80% of the value
-- [ ] Remote access via Tailscale — LAN-only is v1 constraint; add when operators need mobile-away-from-WiFi access
-- [ ] Multi-user / RBAC — single admin in v1; add when customers have assistants or operations staff needing queue access
-- [ ] Active learning from edits (fine-tuning from corrections) — meaningful capability but model update complexity is high; v2 when core pipeline stable
-- [ ] CRM / Shopify / EDI integration hooks — v2 when operators validated the email intelligence is trustworthy
-- [ ] SMS / Slack notifications — email-only sufficient for v1; add if dogfood shows operators missing urgent items
-
----
+- [ ] Full two-way unification of CRM businesses with `gbrain-ingest/entity_map.yaml` / `agentbox-seed` — defer until the org-layer repo ownership question is explicitly scoped as its own cross-repo initiative
+- [ ] Any RBAC/multi-tenant auth semantics on top of businesses — defer indefinitely; out of scope for a single-operator appliance per project constraints
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Email connectivity (IMAP/SMTP/OAuth2) | HIGH | MEDIUM | P1 |
-| Email classification (8 categories) | HIGH | MEDIUM | P1 |
-| Draft generation (hybrid local+cloud) | HIGH | HIGH | P1 |
-| Approval queue (approve/edit/reject/escalate) | HIGH | LOW | P1 |
-| Email history ingestion + RAG retrieval | HIGH | HIGH | P1 |
-| Document upload / knowledge base | HIGH | MEDIUM | P1 |
-| Persona tuning from sent history | HIGH | HIGH | P1 |
-| First-boot wizard | HIGH | MEDIUM | P1 |
-| Sent history log + classification log | MEDIUM | LOW | P1 |
-| System status dashboard | MEDIUM | LOW | P1 |
-| Daily digest + threshold alert | MEDIUM | LOW | P1 |
-| Confidence score display | MEDIUM | LOW | P1 |
-| Graceful degradation (offline queue) | MEDIUM | MEDIUM | P2 |
-| Graduated auto-send per category | HIGH | MEDIUM | P2 |
-| OTA update management UI | MEDIUM | LOW | P2 |
-| Accuracy / edit-rate reporting | MEDIUM | MEDIUM | P2 |
-| Relationship graph (contact context) | HIGH | HIGH | P3 |
-| Remote access (Tailscale) | MEDIUM | MEDIUM | P3 |
-| Multi-user / RBAC | MEDIUM | HIGH | P3 |
-| Active learning from edits | HIGH | HIGH | P3 |
-| CRM / Shopify integration | MEDIUM | HIGH | P3 |
+| `accounts.business_id` migration | HIGH | LOW | P1 |
+| Auto-create business on Gmail connect | HIGH | LOW | P1 |
+| Domain-match duplicate check | HIGH | LOW-MEDIUM | P1 |
+| Manual business creation (no inbox) | MEDIUM | LOW | P1 |
+| Re-map / un-map account | HIGH | LOW-MEDIUM | P1 |
+| Sidecar CronPage picker → live CRM data | HIGH | MEDIUM | P1 |
+| Daily Brief / Proposals picker → live CRM data | HIGH | MEDIUM | P1 |
+| Rename-on-create UX nudge | MEDIUM | LOW | P2 |
+| Digest entity axis bridge (one-way) | MEDIUM | MEDIUM-HIGH | P2 |
+| Business merge tool | LOW-MEDIUM | HIGH | P3 |
+| Full digest/CRM two-way unification | LOW (near-term) | HIGH | P3 |
 
 **Priority key:**
-- P1: Must have for v1 dogfood launch
-- P2: Should have; add after core pipeline validated
-- P3: Future consideration; v2+ after product-market fit
-
----
+- P1: Must have for this milestone
+- P2: Should have, add when possible within milestone or immediately after
+- P3: Nice to have, explicitly deferred
 
 ## Competitor Feature Analysis
 
-| Feature | Front / Help Scout | Superhuman / Shortwave | SaneBox / Fyxer | MailBox One Approach |
-|---------|-------------------|------------------------|-----------------|----------------------|
-| Email classification | AI-assisted topic routing; general categories | AI labels (priority, newsletter, etc.) — not domain-specific | Importance sorting (SaneBox); auto-label to-respond (Fyxer) | 8-category CPG-specific taxonomy (reorder, broker, co-man, etc.) — vertical depth no competitor has |
-| Draft generation | AI Drafts (Help Scout), Copilot (Front); cloud-only | AI compose with tone options; cloud-only | Fyxer drafts in your style; cloud-only | Hybrid local (80%+) + cloud; privacy-first |
-| Approval queue | Conversation assignment + internal notes; no draft queue concept | No structured draft queue; compose is immediate | No draft queue | Dedicated approval queue with 4 triage actions; core UX surface |
-| Voice / persona | None | Shortwave Ghostwriter — best in class for voice cloning from sent history | Fyxer claims "your tone" but shallow | Persona profile from sent history at onboarding; few-shot examples per category |
-| Knowledge base | Help docs / article library (customer-facing); not agent context | None | None | Document upload directly into agent RAG context — operator-specific price lists, policies, specs |
-| Privacy / data residency | All data in cloud (Front: US/EU); trust their servers | All data in cloud | All data in cloud | All data on local NVMe; cloud sees only current email context |
-| Auto-send | Front: rules-based auto-reply; no confidence gating | None | None | Graduated auto-send by category with confidence gate; default OFF |
-| Hardware / appliance | SaaS only | SaaS only | SaaS overlay | Physical appliance; plug-in onboarding; no cloud account required |
-| Vertical focus | Horizontal (any B2B team) | Horizontal (individual power user) | Horizontal (any inbox) | Vertical CPG operational email — terminology, categories, relationship types are native |
-| Offline operation | Fails if cloud down | Fails if cloud down | Fails if cloud down | Queues locally; degrades to local-only drafts; fully functional on LAN |
-
----
+| Feature | Front (shared inbox SaaS) | HubSpot (CRM connected inbox) | WorkOS/Clerk (B2B auth-as-a-service) | Our Approach |
+|---------|---------------------------|-------------------------------|----------------------------------------|--------------|
+| Account-to-org mapping model | Inbox = organizational container; channels (email/SMS/chat) connect INTO an inbox; no separate "team inbox" object — it's a shared inbox with restricted access | Personal email connection and team/conversations-inbox connection are separate, explicitly distinct actions | Users/orgs are the core primitive; JIT-provision into an org on verified-domain match, else create new | Business = organizational container; accounts (Gmail/IMAP/Microsoft) connect INTO a business via `business_id` FK — same shape as Front's inbox model |
+| Auto-provisioning on connect | Not really — inboxes are created explicitly, channels attached after | Not applicable — HubSpot orgs are seat/billing based, not per-connect | Yes — JIT org provisioning on signup/domain match is a first-class documented pattern | Yes, default ON per requirement — closest to the WorkOS JIT pattern, applied to a lighter-weight internal CRM concept |
+| Disconnect vs delete | Transfer inbox to another teammate; inbox itself persists | Disconnect (personal) and Disconnect (team) are explicit, separate actions from the CRM company record | Not directly researched (no clear rename/merge/dedup docs surfaced) | Un-map (null FK) always separate from delete; delete requires explicit confirmed action on the business itself |
+| Duplicate prevention | Not applicable (inboxes are manually named, not auto-created) | Not applicable | Match to existing org via verified email domain before creating new | Same domain-match-before-create approach, scaled down for a single-appliance CRM (no verified-domain infrastructure needed, just email-domain string match) |
 
 ## Sources
 
-- Competitor feature pages and reviews: Superhuman blog, Shortwave docs, Help Scout features, Front pricing/features, SaneBox plans, Fyxer product, Lindy email automation
-- AI email triage patterns: instantly.ai, budibase.com, n8n workflow templates, stackai.com, eesel.ai Help Scout overview
-- Human-in-the-loop patterns: zapier.com HITL guide, stackai.com HITL design, uipath.com agentic automation
-- AI email failure modes: galileo.ai agent failures, lakera.ai hallucinations, evidently.ai LLM hallucination examples
-- CPG operational context: PROJECT.md requirements (validated by Dustin / Heron Labs context), spoileralert.com CPG buyers
-- Graduated autonomy / trust-building: mymobilelyfe.com email triage playbook, virtualworkforce.ai inbox agents, beam.ai agent template
-
-*Confidence notes: Competitor feature analysis is MEDIUM confidence — based on public documentation as of early 2026; features evolve rapidly. CPG-specific email category taxonomy is HIGH confidence — derived directly from PROJECT.md validated requirements. Auto-send trust-building patterns are MEDIUM confidence — based on multiple independent B2B automation sources agreeing on "default OFF, graduated unlock" as best practice.*
+- [Add and use shared inboxes — Front Help](https://help.front.com/en/articles/2057)
+- [Explaining Front inboxes, empty inboxes, and channels](https://help.front.com/en/articles/2137)
+- [How to transfer a shared inbox to a teammate](https://help.front.com/en/articles/2182)
+- [HubSpot connected inboxes — FAQ](https://knowledge.hubspot.com/connected-email/hubspot-crm-email-integration-faq)
+- [Disconnect or reconnect your inbox from HubSpot](https://knowledge.hubspot.com/connected-email/disconnect-your-inbox-from-hubspot)
+- [Users and Organizations — AuthKit — WorkOS Docs](https://workos.com/docs/authkit/users-organizations)
+- [Configure Organization settings in Clerk Dashboard](https://clerk.com/docs/guides/organizations/configure)
+- [Create and manage Organizations with Clerk](https://clerk.com/docs/guides/organizations/create-and-manage)
+- Repo grounding (not web sources, read directly): `dashboard/migrations/033-add-account-id-multi-account-v1-2026-05-28.sql`, `dashboard/migrations/052-create-crm-tables-v1-2026-06-04.sql`, `dashboard/migrations/053-crm-businesses-v1-2026-06-05.sql`, `dashboard/app/api/oauth/google/callback/route.ts`, `agentbox-sidecar/web/src/lib/entities.ts`, `agentbox-sidecar/src/agentbox_sidecar/features/digest.py`
 
 ---
-
-*Feature research for: MailBox One — AI email agent appliance, small CPG brands, B2B operational email*
-*Researched: 2026-04-02*
+*Feature research for: Unified Entities milestone (AgentBOX fork) — entity auto-provisioning + single-source-of-truth CRM entity model*
+*Researched: 2026-07-11*
