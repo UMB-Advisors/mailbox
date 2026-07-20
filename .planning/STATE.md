@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: M5
 milestone_name: Unified Entities (AgentBOX)
 status: planning
-last_updated: "2026-07-12T00:25:47.658Z"
-last_activity: 2026-07-12
+last_updated: "2026-07-20T00:00:00.000Z"
+last_activity: 2026-07-20
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -23,14 +23,31 @@ See: prd-email-agent-appliance.md (canonical PRD)
 
 **Core value:** Inbound operational email for small CPG brands gets triaged, drafted, and (with human approval) sent — without the founder spending 1-3 hours/day on email.
 
-**Current focus:** M3 customer-#2 polish — Jetson install automation (`docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md`) + 02-08 onboarding wizard finish. Phase 2 drafting + RAG + persona substance shipped via Linear; only 02-08 remains open in the GSD ledger.
+**Current focus:** M5 — Unified Entities (AgentBOX fork). ROADMAP.md now defines Phases 5-8 (backend data model + auto-create, CRM API + management, sidecar filter unification, gbrain digest bridge) covering all 19 M5 requirements (`ENT-*`/`MAP-*`/`MANAGE-*`/`FILT-*`/`DIGEST-*`). This is a separate cross-repo track (`mailbox` + `UMB-Advisors/agentbox-sidecar`) from the Heron Labs product line below — the M3 customer-#2 polish work (02-08 onboarding wizard) remains open in parallel on that track; see "Next Action" for both.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 5 (Backend Data Model & Auto-Create) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-12 — Milestone M5 started
+Status: Roadmap defined; ready for discuss-phase/plan-phase
+Last activity: 2026-07-20 — ROADMAP.md created for M5 (Phases 5-8), REQUIREMENTS.md traceability updated, 100% coverage (19/19)
+
+## Milestone M5 Roadmap (created 2026-07-20)
+
+Four phases, strictly ordered, spanning two repos with independent deploy pipelines:
+
+| Phase | Repo | Requirements | Hard dependency |
+|-------|------|--------------|------------------|
+| 5. Backend Data Model & Auto-Create | mailbox | ENT-01/02/03/05, MAP-01/04, FILT-05 | none (first M5 phase) |
+| 6. CRM Accounts API & Management | mailbox | ENT-04, MANAGE-01/02/03, MAP-02/03 | Phase 5 |
+| 7. Sidecar Filter Unification | agentbox-sidecar (TS/React) | FILT-01/02/03/04/06 | Phase 5 deployed + verified live (slug seed) |
+| 8. gbrain Digest Bridge | agentbox-sidecar (Python) | DIGEST-01 | Phase 6 (stable business list) |
+
+Two open research flags carried into discuss-phase (per `research/SUMMARY.md`):
+- **Phase 5**: auto-create hook-point discrepancy (OAuth callback + 2 call sites vs. `createAccount`/`createImapAccount`/`createMicrosoftAccount` only) — resolve before planning.
+- **Phase 8**: gbrain sync-trigger design (startup vs. interval vs. CRM-mutation webhook) — needs its own scoped research/discuss pass.
+
+Cross-repo deploy rule (both Phase 7 and Phase 8 depend on this): `mailbox` and `agentbox-sidecar` deploy independently (`docker compose` on Jetson vs. `rsync`+`systemd` on a different host) with no shared CI — always confirm mailbox is live and verified before shipping the corresponding sidecar build.
 
 ## Completed Work
 
@@ -224,13 +241,19 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 
 ## Next Action
 
+### M5 — Unified Entities (AgentBOX fork): Phase 5 next
+
+ROADMAP.md now defines Phases 5-8 for M5 (see "Milestone M5 Roadmap" above). Phase 5 (Backend Data Model & Auto-Create, `mailbox` repo) is next up: run `/gsd-discuss-phase 5` to resolve the two open research flags (auto-create hook-point discrepancy; IMAP/Microsoft parity confirmation) before `/gsd-plan-phase 5`. Phases 6-8 are sequenced strictly after (6 depends on 5; 7 hard-depends on 5's slug seed being deployed+verified; 8 depends on 6).
+
+### M3 — Heron customer-#2 polish (parallel track, Heron Labs product line)
+
 **Single track now: M3 customer-#2 polish.** The M2 dual-track structure
 (02-07 finish + parallel security track) is closed. M2 shipped on 2026-05-05;
 the security track delivered (STAQPRO-130 ports, 131 basic_auth — both live in
 Caddy on both appliances). Phase 2's drafting/RAG/persona substance shipped via
 Linear with retroactive SUMMARYs (2026-05-07).
 
-### Open Phase 2 work — 02-08 onboarding wizard
+#### Open Phase 2 work — 02-08 onboarding wizard
 
 The onboarding wizard remains the open Phase 2 plan. State:
 
@@ -242,7 +265,7 @@ The onboarding wizard remains the open Phase 2 plan. State:
 
 Decision still open: do we promote `02-08-PLAN-v2-2026-04-27-STUB.md` to a full PLAN, or is the install-automation plan + Linear ticket trail sufficient closure for this slot? Lean-execution precedent says the latter is fine; formal-closure precedent (the way 02-07 was promoted) says the former. Defer until the wizard work resumes.
 
-### Resume sequence
+#### Resume sequence
 
 1. Continue M3 install automation: post-install follow-ups for v0.2 (`memory/project_post_install_followups.md` — front-matter `git pull`, stale nested `mailbox/` cleanup, STAQPRO-228 scope drift).
 2. Finish wizard wiring against the live-gate boundary; ship through the customer-#2 success-criteria runbook.
@@ -252,8 +275,10 @@ Resume file: `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` (live i
 
 ## Session Continuity
 
-Last session: 2026-05-07T19:00:00Z (this reconciliation pass)
-Stopped at: GSD ↔ Linear reconciliation complete — STATE.md + ROADMAP.md aligned with shipped work; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07. Active workstream is M3 install automation polish + 02-08 onboarding wizard finish. Working tree clean.
-Last commits: 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
+Last session: 2026-07-20T00:00:00.000Z (M5 roadmap creation)
+Stopped at: ROADMAP.md, STATE.md, and REQUIREMENTS.md updated for M5 — Phases 5-8 defined with 100% requirement coverage (19/19). Next up: `/gsd-discuss-phase 5`.
+Prior session: 2026-05-07T19:00:00Z — GSD ↔ Linear reconciliation complete for the Heron product track; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07.
+Last commits (Heron track, prior session): 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
 Prior session ground-truth commits: c50f77a (op-sync-from-env.py for 1Password), 436a5b4 (dashboard nav prefix fix), aca5455 (install session 2 log — Phase 13 OAuth), 0c857e2 (classify $json.response/thinking parser fix).
-Resume file: `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` for install automation; `02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` for wizard architectural intent.
+Resume file (M5): none yet — Phase 5 discuss-phase/plan-phase not yet started.
+Resume file (M3, parallel track): `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` for install automation; `02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` for wizard architectural intent.

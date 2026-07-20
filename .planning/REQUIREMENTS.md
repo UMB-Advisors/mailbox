@@ -46,7 +46,33 @@
 - Inline "attach to existing vs create new" prompt at connect time — rejected in favor of silent+editable (ENT-05).
 
 ### Traceability
-_(filled by roadmap — each REQ maps to exactly one phase)_
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ENT-01 | Phase 5 | Pending |
+| ENT-02 | Phase 5 | Pending |
+| ENT-03 | Phase 5 | Pending |
+| ENT-04 | Phase 6 | Pending |
+| ENT-05 | Phase 5 | Pending |
+| MAP-01 | Phase 5 | Pending |
+| MAP-02 | Phase 6 | Pending |
+| MAP-03 | Phase 6 | Pending |
+| MAP-04 | Phase 5 | Pending |
+| MANAGE-01 | Phase 6 | Pending |
+| MANAGE-02 | Phase 6 | Pending |
+| MANAGE-03 | Phase 6 | Pending |
+| FILT-01 | Phase 7 | Pending |
+| FILT-02 | Phase 7 | Pending |
+| FILT-03 | Phase 7 | Pending |
+| FILT-04 | Phase 7 | Pending |
+| FILT-05 | Phase 5 | Pending |
+| FILT-06 | Phase 7 | Pending |
+| DIGEST-01 | Phase 8 | Pending |
+
+**Coverage:**
+- M5 requirements: 19 total
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 
@@ -260,6 +286,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 - Mapped to phases: 61
 - Unmapped: 0
 
+See "Milestone M5" section above for the M5 requirement-to-phase traceability table (Phases 5-8).
+
 ---
 *Requirements defined: 2026-04-02*
-*Last updated: 2026-04-02 after roadmap creation*
+*Last updated: 2026-07-20 after M5 roadmap creation (Phases 5-8 traceability added).*
