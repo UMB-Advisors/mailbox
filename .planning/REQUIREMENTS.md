@@ -24,7 +24,7 @@
 - [x] **MAP-01**: New nullable `mailbox.accounts.business_id` FK → `businesses.id`, `ON DELETE SET NULL` (mirrors shipped `departments.business_id`, migration 053).
 - [ ] **MAP-02**: User can re-map a connected account to a different business.
 - [ ] **MAP-03**: Disconnecting/un-mapping an account never deletes the business (set null, not cascade).
-- [ ] **MAP-04**: Migration backfills the existing accounts↔businesses linkage (6 accounts, 3 businesses live) sensibly (domain match, else unlinked).
+- [x] **MAP-04**: Migration backfills the existing accounts↔businesses linkage (6 accounts, 3 businesses live) sensibly (domain match, else unlinked).
 
 ### Entity Management (`MANAGE`)
 
@@ -63,7 +63,7 @@
 | MAP-01 | Phase 5 | Complete |
 | MAP-02 | Phase 6 | Pending |
 | MAP-03 | Phase 6 | Pending |
-| MAP-04 | Phase 5 | Pending |
+| MAP-04 | Phase 5 | Complete |
 | MANAGE-01 | Phase 6 | Pending |
 | MANAGE-02 | Phase 6 | Pending |
 | MANAGE-03 | Phase 6 | Pending |

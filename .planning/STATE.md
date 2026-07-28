@@ -4,16 +4,16 @@ milestone: M5
 milestone_name: Unified Entities (AgentBOX)
 current_phase: 05
 current_phase_name: Backend Data Model & Auto-Create
-status: executing
+status: verifying
 stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-07-28T21:07:21.716Z"
+last_updated: "2026-07-28T21:25:41.768Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 05 execution started
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 23
-  completed_plans: 12
+  completed_plans: 13
   percent: 13
 ---
 
@@ -32,8 +32,8 @@ See: prd-email-agent-appliance.md (canonical PRD)
 ## Current Position
 
 Phase: 05 (Backend Data Model & Auto-Create) — EXECUTING
-Plan: 3 of 4
-Status: Ready to execute
+Plan: 4 of 4
+Status: Phase complete — ready for verification
 Last activity: 2026-07-28 — Phase 05 execution started
 
 ## Milestone M5 Roadmap (created 2026-07-20)
@@ -280,7 +280,7 @@ Resume file: .planning/phases/05-backend-data-model-auto-create/05-02-PLAN.md
 
 ## Session Continuity
 
-Last session: 2026-07-28T21:07:02.767Z
+Last session: 2026-07-28T21:25:06.395Z
 Stopped at: Completed 05-01-PLAN.md
 Prior session: 2026-05-07T19:00:00Z — GSD ↔ Linear reconciliation complete for the Heron product track; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07.
 Last commits (Heron track, prior session): 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
@@ -294,6 +294,7 @@ Resume file (M3, parallel track): `docs/plan-jetson-02-install-automation-v0_1-2
 |-------|------|----------|-------|
 | Phase 05 P01 | 55min | 3 tasks | 5 files |
 | Phase 05 P02 | 50min | 3 tasks | 3 files |
+| Phase 05-backend-data-model-auto-create P03 | 70min | 3 tasks | 4 files |
 
 ## Decisions
 
@@ -301,3 +302,5 @@ Resume file (M3, parallel track): `docs/plan-jetson-02-install-automation-v0_1-2
 - [Phase 05]: Codegen regeneration incidentally fixed pre-existing lib/db/schema.ts drift (job_outcomes table was entirely missing) since CI never runs db:codegen:verify (05-01)
 - [Phase 05]: D-16 resolution order implemented as fixed sequential branch (sentinel skip -> free-mail gate -> sibling-domain attach -> find-or-create by name) in one auto-link.ts entry point, never scattered across callers (05-02)
 - [Phase 05]: Split the single logical auto-link.ts module into three additive per-task commits to preserve atomic history despite natural file overlap across the plan's three tasks (05-02)
+- [Phase ?]: Auto-link seam test ordering: default account row is moved off the migration-033 sentinel address once in beforeAll (not restored per-test in afterEach), so insert-branch coverage is order-independent regardless of test execution order
+- [Phase ?]: business-link-backfill.ts shares lib/db.ts's getPool() singleton rather than instantiating its own Pool, since it also calls into lib/crm/auto-link.ts which uses that same pool internally
