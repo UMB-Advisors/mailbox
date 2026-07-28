@@ -67,6 +67,19 @@ covering all three account-creation paths, `mailbox.businesses.slug` + legacy-sl
   violation if reused as-is. Add a get-or-create wrapper rather than changing the existing
   `createBusiness` contract (Phase 6 owns that surface).
 
+- **D-16 (added post-research):** ENT-03's "a business already exists for this email domain" is resolved
+  by **looking up sibling accounts, not by matching business names**. There is no
+  `businesses.domain` column and this phase does not add one. The lookup is:
+  `SELECT business_id FROM mailbox.accounts WHERE split_part(email_address,'@',2) = $domain
+   AND business_id IS NOT NULL ORDER BY id LIMIT 1` — i.e. "is another account on this same
+  domain already linked to a business? then join it." Only if that misses do we fall through to
+  find-or-create by name (D-08). Rationale: name-matching would only accidentally satisfy ENT-03
+  when two accounts happen to derive the same display name, which is not what the requirement
+  says. The sibling lookup is exact, needs no schema addition, and composes with D-07 (the
+  free-mail domain list short-circuits this lookup entirely). Resolution order is therefore:
+  **(1) free-mail domain? skip to (3). (2) sibling-account domain match → attach. (3)
+  find-or-create business by resolved name.**
+
 ### Backfill of live data
 
 - **D-09:** Backfill links **all 6 live accounts**, creating the 3 missing businesses.
