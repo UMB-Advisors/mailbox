@@ -2,15 +2,19 @@
 gsd_state_version: 1.0
 milestone: M5
 milestone_name: Unified Entities (AgentBOX)
+current_phase: 5
+current_phase_name: Backend Data Model & Auto-Create
 status: planning
-last_updated: "2026-07-20T00:00:00.000Z"
+stopped_at: Phase 5 context gathered
+last_updated: "2026-07-28T20:14:13.975Z"
 last_activity: 2026-07-20
+last_activity_desc: ROADMAP.md created for M5 (Phases 5-8), REQUIREMENTS.md traceability updated, 100% coverage (19/19)
 progress:
-  total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 8
+  completed_phases: 1
+  total_plans: 19
+  completed_plans: 10
+  percent: 13
 ---
 
 # Project State
@@ -44,6 +48,7 @@ Four phases, strictly ordered, spanning two repos with independent deploy pipeli
 | 8. gbrain Digest Bridge | agentbox-sidecar (Python) | DIGEST-01 | Phase 6 (stable business list) |
 
 Two open research flags carried into discuss-phase (per `research/SUMMARY.md`):
+
 - **Phase 5**: auto-create hook-point discrepancy (OAuth callback + 2 call sites vs. `createAccount`/`createImapAccount`/`createMicrosoftAccount` only) — resolve before planning.
 - **Phase 8**: gbrain sync-trigger design (startup vs. interval vs. CRM-mutation webhook) — needs its own scoped research/discuss pass.
 
@@ -271,12 +276,12 @@ Decision still open: do we promote `02-08-PLAN-v2-2026-04-27-STUB.md` to a full 
 2. Finish wizard wiring against the live-gate boundary; ship through the customer-#2 success-criteria runbook.
 3. When 02-08 closes, decide Phase 2 → Phase 3 transition (graduated auto-send, classification correction, OTA updates, email notifications — see ROADMAP.md).
 
-Resume file: `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` (live install plan) plus `.planning/phases/02-email-pipeline-core/02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` (architectural intent).
+Resume file: .planning/phases/05-backend-data-model-auto-create/05-CONTEXT.md
 
 ## Session Continuity
 
-Last session: 2026-07-20T00:00:00.000Z (M5 roadmap creation)
-Stopped at: ROADMAP.md, STATE.md, and REQUIREMENTS.md updated for M5 — Phases 5-8 defined with 100% requirement coverage (19/19). Next up: `/gsd-discuss-phase 5`.
+Last session: 2026-07-28T20:14:13.963Z
+Stopped at: Phase 5 context gathered
 Prior session: 2026-05-07T19:00:00Z — GSD ↔ Linear reconciliation complete for the Heron product track; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07.
 Last commits (Heron track, prior session): 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
 Prior session ground-truth commits: c50f77a (op-sync-from-env.py for 1Password), 436a5b4 (dashboard nav prefix fix), aca5455 (install session 2 log — Phase 13 OAuth), 0c857e2 (classify $json.response/thinking parser fix).
