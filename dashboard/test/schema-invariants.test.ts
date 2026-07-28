@@ -472,10 +472,7 @@ describe('mailbox schema invariants (drafts CHECK constraints ↔ TS constants)'
 
       try {
         await expect(
-          pool!.query('INSERT INTO mailbox.businesses (name, slug) VALUES ($1, $2)', [
-            name2,
-            slug,
-          ]),
+          pool!.query('INSERT INTO mailbox.businesses (name, slug) VALUES ($1, $2)', [name2, slug]),
         ).rejects.toThrow();
       } finally {
         await pool!.query('DELETE FROM mailbox.businesses WHERE name = $1', [name1]);
