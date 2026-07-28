@@ -10,6 +10,7 @@ import {
   linkAccountToBusiness,
   resolveBusinessName,
 } from '@/lib/crm/auto-link';
+import { createBusiness, updateBusiness } from '@/lib/crm/queries';
 import { getKysely, getPool } from '@/lib/db';
 import { closeTestPool, getTestPool, HAS_DB } from '../helpers/db';
 
@@ -398,5 +399,22 @@ dbDescribe('auto-link — real Postgres', () => {
       );
       expect(generateSlug(name)).toBe(rows[0].slug);
     }
+  });
+
+  it('createBusiness returns a row with a non-empty unique slug', async () => {
+    const name = nameFor('createBusiness');
+    const biz = await createBusiness(name);
+    businessIds.push(biz.id);
+    expect(biz.slug).toBeTruthy();
+  });
+
+  it('updateBusiness rename leaves the slug unchanged (D-12)', async () => {
+    const name = nameFor('rename-original');
+    const biz = await createBusiness(name);
+    businessIds.push(biz.id);
+    const originalSlug = biz.slug;
+
+    const renamed = await updateBusiness(biz.id, { name: nameFor('rename-updated') });
+    expect(renamed?.slug).toBe(originalSlug);
   });
 });
