@@ -113,7 +113,7 @@ Plans:
   1. Authorizing any account (Gmail, IMAP, or Microsoft) auto-creates a CRM business named from `display_label` or email domain, with no connect-time prompt
   2. Reconnecting/re-authorizing the same account never creates a duplicate business — it's idempotent (`xmax=0` first-insert pattern / `ON CONFLICT DO NOTHING RETURNING id` + fallback select)
   3. When a business already exists for the account's email domain, the account attaches to it instead of creating a new one
-  4. `mailbox.accounts.business_id` (new nullable FK, `ON DELETE SET NULL`) exists, and the migration backfills the 6 live accounts against the 3 live businesses by domain match, leaving unmatched accounts unlinked rather than guessed
+  4. `mailbox.accounts.business_id` (new nullable FK, `ON DELETE SET NULL`) exists, and the backfill links **all 6** live accounts — matching the 3 existing businesses and creating the 3 missing ones (Jiffy Auto Glass, Elevated Advisory, Bonvillian Design) by applying the same resolution rule the runtime hook uses. **Supersedes the original wording** ("leaving unmatched accounts unlinked rather than guessed") per decision D-09 in `05-CONTEXT.md`: leaving a third of the accounts unlinked would have left them outside every entity filter the moment Phase 7 ships, defeating the milestone goal. Zero unlinked accounts is the acceptance bar.
   5. Every business has a `slug`, seeded from the legacy slugs already live in `jobs.json`/digest config, so historical cron-job/digest references keep resolving once downstream consumers switch to the CRM source
 **Plans**: 4 plans
 Plans:
