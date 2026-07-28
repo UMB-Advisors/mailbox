@@ -26,6 +26,7 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 export type Numeric = ColumnType<string, number | string, number | string>;
 
 export interface Accounts {
+  business_id: number | null;
   channel: Generated<string>;
   created_at: Generated<string>;
   display_label: string | null;
@@ -84,6 +85,7 @@ export interface Businesses {
   description: Generated<string>;
   id: Generated<number>;
   name: string;
+  slug: string;
   updated_at: Generated<string>;
 }
 
@@ -109,8 +111,6 @@ export interface ChatMessages {
   role: string;
 }
 
-// Spec 002 FR7b (Stage 2b-2), migration 050. Hand-maintained mirror of the
-// `npm run db:codegen` output (the appliance regenerates this from the migration).
 export interface ClassificationExemplars {
   account_id: number;
   bucket: string;
@@ -266,6 +266,23 @@ export interface JobInstances {
   updated_at: Generated<string>;
 }
 
+export interface JobOutcomes {
+  artifact_ref: Generated<Json>;
+  business_id: number | null;
+  created_at: Generated<string>;
+  department_id: number | null;
+  external_job_id: string | null;
+  id: Generated<Int8>;
+  job_name: string;
+  occurred_at: Generated<string>;
+  outcome_type: Generated<string>;
+  profile: string | null;
+  source: string;
+  status: Generated<string>;
+  summary: Generated<string>;
+  title: Generated<string>;
+}
+
 export interface JobRuns {
   duration_ms: number;
   error_message: string | null;
@@ -401,8 +418,6 @@ export interface SenderNeverSpam {
   updated_at: Generated<string>;
 }
 
-// Spec 002 FR7 (Stage 2b-1), migration 049. Hand-maintained mirror of the
-// `npm run db:codegen` output (the appliance regenerates this from the migration).
 export interface SenderRules {
   account_id: number;
   created_at: Generated<string>;
@@ -528,6 +543,7 @@ export interface DB {
   drafts: Drafts;
   inbox_messages: InboxMessages;
   job_instances: JobInstances;
+  job_outcomes: JobOutcomes;
   job_runs: JobRuns;
   kb_documents: KbDocuments;
   mail_cooldowns: MailCooldowns;
