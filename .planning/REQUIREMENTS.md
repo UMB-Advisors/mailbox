@@ -13,11 +13,11 @@
 
 ### Entity Creation (`ENT`)
 
-- [ ] **ENT-01**: Authorizing/connecting an account (any provider) auto-creates a CRM business for it by default, named from `display_label` else email domain.
-- [ ] **ENT-02**: Auto-create is idempotent — re-auth/reconnect of the same account never creates a duplicate business (`xmax=0` first-insert pattern; `businesses.name` UNIQUE → find-or-create via `ON CONFLICT DO NOTHING RETURNING id` + fallback select).
-- [ ] **ENT-03**: Domain match — if a business already exists for the account's email domain, the account attaches to it rather than creating a new business.
+- [x] **ENT-01**: Authorizing/connecting an account (any provider) auto-creates a CRM business for it by default, named from `display_label` else email domain.
+- [x] **ENT-02**: Auto-create is idempotent — re-auth/reconnect of the same account never creates a duplicate business (`xmax=0` first-insert pattern; `businesses.name` UNIQUE → find-or-create via `ON CONFLICT DO NOTHING RETURNING id` + fallback select).
+- [x] **ENT-03**: Domain match — if a business already exists for the account's email domain, the account attaches to it rather than creating a new business.
 - [ ] **ENT-04**: User can create a business manually (a company with no connected inbox).
-- [ ] **ENT-05**: Auto-create is silent (no connect-time prompt); the created business is fully editable afterward (rename, re-map, add departments).
+- [x] **ENT-05**: Auto-create is silent (no connect-time prompt); the created business is fully editable afterward (rename, re-map, add departments).
 
 ### Account ↔ Business Mapping (`MAP`)
 
@@ -55,11 +55,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENT-01 | Phase 5 | Pending |
-| ENT-02 | Phase 5 | Pending |
-| ENT-03 | Phase 5 | Pending |
+| ENT-01 | Phase 5 | Complete |
+| ENT-02 | Phase 5 | Complete |
+| ENT-03 | Phase 5 | Complete |
 | ENT-04 | Phase 6 | Pending |
-| ENT-05 | Phase 5 | Pending |
+| ENT-05 | Phase 5 | Complete |
 | MAP-01 | Phase 5 | Complete |
 | MAP-02 | Phase 6 | Pending |
 | MAP-03 | Phase 6 | Pending |
