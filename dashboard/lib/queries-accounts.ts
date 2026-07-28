@@ -1,6 +1,40 @@
 import { sql } from 'kysely';
+import { linkAccountToBusiness } from '@/lib/crm/auto-link';
 import { getKysely } from '@/lib/db';
 import type { MailProviderKind } from '@/lib/types';
+
+// M5 Phase 5 (05-03) — D-02/D-03/D-05: the single seam all three account
+// creators (createAccount, createImapAccount, createMicrosoftAccount) call
+// exactly once, after their insert-or-adopt branch resolves, never inside
+// either branch. `linkAccountToBusiness` already never throws (D-05/ENT-05,
+// see lib/crm/auto-link.ts), but this try/catch is a second, independent
+// guard: a future refactor of that function alone can't silently revoke the
+// non-fatal guarantee for all three callers at once. The connect flow's
+// success must never depend on this call succeeding — mirrors the
+// log-and-swallow shape of embedAndUpsertInbound in
+// app/api/internal/inbox-messages/route.ts. Awaited (not `void`) rather than
+// fire-and-forget: account connect is a handful-of-times-ever event, not a
+// hot polling path, so there's no latency reason to detach it, and awaiting
+// means business_id is populated in the same response the account was
+// created in.
+async function persistAccountLink(input: {
+  id: number;
+  email: string;
+  displayLabel: string | null;
+}): Promise<void> {
+  try {
+    await linkAccountToBusiness({
+      accountId: input.id,
+      email: input.email,
+      displayLabel: input.displayLabel,
+    });
+  } catch (err) {
+    console.error(
+      '[queries-accounts] persistAccountLink failed (non-fatal, account still connected):',
+      err,
+    );
+  }
+}
 
 // MBOX-348 (MBOX-162 V1) — account resolution for multi-account ingestion.
 //
@@ -139,6 +173,7 @@ export async function createImapAccount(
     .where('is_default', '=', true)
     .executeTakeFirst();
 
+  let result: { id: number; adopted: boolean };
   if (def && def.email_address === SENTINEL_DEFAULT_EMAIL) {
     const row = await db
       .updateTable('accounts')
@@ -152,22 +187,31 @@ export async function createImapAccount(
       .where('id', '=', def.id)
       .returning('id')
       .executeTakeFirstOrThrow();
-    return { id: row.id, adopted: true };
+    result = { id: row.id, adopted: true };
+  } else {
+    const row = await db
+      .insertInto('accounts')
+      .values({
+        email_address: input.email,
+        display_label: input.display_label,
+        is_default: false,
+        provider: 'imap',
+        provider_config: sql`${cfgJson}::jsonb`,
+        provider_secret_enc: input.secret_enc,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    result = { id: row.id, adopted: false };
   }
 
-  const row = await db
-    .insertInto('accounts')
-    .values({
-      email_address: input.email,
-      display_label: input.display_label,
-      is_default: false,
-      provider: 'imap',
-      provider_config: sql`${cfgJson}::jsonb`,
-      provider_secret_enc: input.secret_enc,
-    })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  return { id: row.id, adopted: false };
+  // D-02/D-03 — one call site, after the insert-or-adopt branch resolves,
+  // covering both branches structurally (not just the insert path).
+  await persistAccountLink({
+    id: result.id,
+    email: input.email,
+    displayLabel: input.display_label,
+  });
+  return result;
 }
 
 // MBOX-358 (P2) — Microsoft 365 / Graph account create-or-adopt. Structurally
@@ -195,6 +239,7 @@ export async function createMicrosoftAccount(
     .where('is_default', '=', true)
     .executeTakeFirst();
 
+  let result: { id: number; adopted: boolean };
   if (def && def.email_address === SENTINEL_DEFAULT_EMAIL) {
     const row = await db
       .updateTable('accounts')
@@ -208,22 +253,31 @@ export async function createMicrosoftAccount(
       .where('id', '=', def.id)
       .returning('id')
       .executeTakeFirstOrThrow();
-    return { id: row.id, adopted: true };
+    result = { id: row.id, adopted: true };
+  } else {
+    const row = await db
+      .insertInto('accounts')
+      .values({
+        email_address: input.email,
+        display_label: input.display_label,
+        is_default: false,
+        provider: 'microsoft',
+        provider_config: sql`${cfgJson}::jsonb`,
+        provider_secret_enc: input.secret_enc,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    result = { id: row.id, adopted: false };
   }
 
-  const row = await db
-    .insertInto('accounts')
-    .values({
-      email_address: input.email,
-      display_label: input.display_label,
-      is_default: false,
-      provider: 'microsoft',
-      provider_config: sql`${cfgJson}::jsonb`,
-      provider_secret_enc: input.secret_enc,
-    })
-    .returning('id')
-    .executeTakeFirstOrThrow();
-  return { id: row.id, adopted: false };
+  // D-02/D-03 — one call site, after the insert-or-adopt branch resolves,
+  // covering both branches structurally (not just the insert path).
+  await persistAccountLink({
+    id: result.id,
+    email: input.email,
+    displayLabel: input.display_label,
+  });
+  return result;
 }
 
 export async function getDraftProviderContext(
@@ -329,6 +383,17 @@ export async function createAccount(input: {
       })
       .returning(ACCOUNT_DETAIL_COLUMNS)
       .executeTakeFirstOrThrow();
+
+    // D-02 — createAccount has no adopt branch, so the seam call sits right
+    // after the INSERT succeeds, still inside the try so isUniqueViolation
+    // keeps owning the duplicate-email path unchanged. Field names map from
+    // this function's input shape (email_address/display_label) to the
+    // seam's (email/displayLabel).
+    await persistAccountLink({
+      id: row.id,
+      email: input.email_address,
+      displayLabel: input.display_label,
+    });
     return row as AccountDetail;
   } catch (err) {
     if (isUniqueViolation(err)) {
