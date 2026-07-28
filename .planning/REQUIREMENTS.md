@@ -12,6 +12,7 @@
 **Decisions locked:** auto-create is **silent + editable** (no connect-time prompt); auto-create applies to **all providers** (Gmail + IMAP/Microsoft) for parity; gbrain digest bridge is **in scope as the final phase** (one-way CRM → `entities.json`).
 
 ### Entity Creation (`ENT`)
+
 - [ ] **ENT-01**: Authorizing/connecting an account (any provider) auto-creates a CRM business for it by default, named from `display_label` else email domain.
 - [ ] **ENT-02**: Auto-create is idempotent — re-auth/reconnect of the same account never creates a duplicate business (`xmax=0` first-insert pattern; `businesses.name` UNIQUE → find-or-create via `ON CONFLICT DO NOTHING RETURNING id` + fallback select).
 - [ ] **ENT-03**: Domain match — if a business already exists for the account's email domain, the account attaches to it rather than creating a new business.
@@ -19,28 +20,33 @@
 - [ ] **ENT-05**: Auto-create is silent (no connect-time prompt); the created business is fully editable afterward (rename, re-map, add departments).
 
 ### Account ↔ Business Mapping (`MAP`)
-- [ ] **MAP-01**: New nullable `mailbox.accounts.business_id` FK → `businesses.id`, `ON DELETE SET NULL` (mirrors shipped `departments.business_id`, migration 053).
+
+- [x] **MAP-01**: New nullable `mailbox.accounts.business_id` FK → `businesses.id`, `ON DELETE SET NULL` (mirrors shipped `departments.business_id`, migration 053).
 - [ ] **MAP-02**: User can re-map a connected account to a different business.
 - [ ] **MAP-03**: Disconnecting/un-mapping an account never deletes the business (set null, not cascade).
 - [ ] **MAP-04**: Migration backfills the existing accounts↔businesses linkage (6 accounts, 3 businesses live) sensibly (domain match, else unlinked).
 
 ### Entity Management (`MANAGE`)
+
 - [ ] **MANAGE-01**: User can rename any business, including auto-created ones.
 - [ ] **MANAGE-02**: User can add/manage departments per business (reaffirm existing capability under the unified model).
 - [ ] **MANAGE-03**: Deleting a business requires confirmation and surfaces what it will orphan (linked accounts, departments, jobs). Full business *merge* is deferred.
 
 ### Filter Unification (`FILT`)
+
 - [ ] **FILT-01**: Agent Jobs business dropdown (`CronPage`) reads the live CRM business list, not hardcoded `ENTITY_OPTIONS`.
 - [ ] **FILT-02**: Daily Brief entity filter reads the CRM source.
 - [ ] **FILT-03**: Proposals entity tag reads the CRM source.
 - [ ] **FILT-04**: Mail triage business references read the CRM source.
-- [ ] **FILT-05**: Back-compat — add a `slug` column to `mailbox.businesses` + seed legacy slugs so existing cron jobs (which store a string slug in `jobs.json`, a flat file outside Postgres) keep resolving; no job orphaned. Slug backfill is a file-aware operation with rollback, not only a SQL migration.
+- [x] **FILT-05**: Back-compat — add a `slug` column to `mailbox.businesses` + seed legacy slugs so existing cron jobs (which store a string slug in `jobs.json`, a flat file outside Postgres) keep resolving; no job orphaned. Slug backfill is a file-aware operation with rollback, not only a SQL migration.
 - [ ] **FILT-06**: Retire `entities.ts`/`ENTITY_OPTIONS` (delete it to force compile errors on any missed consumer).
 
 ### gbrain Digest Bridge (`DIGEST`)
+
 - [ ] **DIGEST-01**: One-way sync — CRM businesses generate the gbrain `entities.json` axis (CRM = source of truth; digest derives from it). Sequenced as the final phase; additive, non-blocking.
 
 ### Deferred / Out of Scope (named)
+
 - Full business **merge** (combine two businesses + re-point all refs) — deferred to a later milestone.
 - **Two-way** gbrain↔CRM sync — one-way (CRM→digest) only.
 - Inline "attach to existing vs create new" prompt at connect time — rejected in favor of silent+editable (ENT-05).
@@ -54,7 +60,7 @@
 | ENT-03 | Phase 5 | Pending |
 | ENT-04 | Phase 6 | Pending |
 | ENT-05 | Phase 5 | Pending |
-| MAP-01 | Phase 5 | Pending |
+| MAP-01 | Phase 5 | Complete |
 | MAP-02 | Phase 6 | Pending |
 | MAP-03 | Phase 6 | Pending |
 | MAP-04 | Phase 5 | Pending |
@@ -65,11 +71,12 @@
 | FILT-02 | Phase 7 | Pending |
 | FILT-03 | Phase 7 | Pending |
 | FILT-04 | Phase 7 | Pending |
-| FILT-05 | Phase 5 | Pending |
+| FILT-05 | Phase 5 | Complete |
 | FILT-06 | Phase 7 | Pending |
 | DIGEST-01 | Phase 8 | Pending |
 
 **Coverage:**
+
 - M5 requirements: 19 total
 - Mapped to phases: 19
 - Unmapped: 0
@@ -282,6 +289,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-10 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 61 total
 - Mapped to phases: 61
 - Unmapped: 0

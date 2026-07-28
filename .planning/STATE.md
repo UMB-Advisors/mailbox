@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: M5
 milestone_name: Unified Entities (AgentBOX)
-current_phase: 5
+current_phase: 05
 current_phase_name: Backend Data Model & Auto-Create
-status: planning
-stopped_at: Phase 5 planned (4 plans, plan-checker PASS)
-last_updated: "2026-07-28T20:45:32.314Z"
-last_activity: 2026-07-20
-last_activity_desc: ROADMAP.md created for M5 (Phases 5-8), REQUIREMENTS.md traceability updated, 100% coverage (19/19)
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-07-28T20:55:02.143Z"
+last_activity: 2026-07-28
+last_activity_desc: Phase 05 execution started
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 23
-  completed_plans: 10
+  completed_plans: 11
   percent: 13
 ---
 
@@ -27,14 +27,14 @@ See: prd-email-agent-appliance.md (canonical PRD)
 
 **Core value:** Inbound operational email for small CPG brands gets triaged, drafted, and (with human approval) sent — without the founder spending 1-3 hours/day on email.
 
-**Current focus:** M5 — Unified Entities (AgentBOX fork). ROADMAP.md now defines Phases 5-8 (backend data model + auto-create, CRM API + management, sidecar filter unification, gbrain digest bridge) covering all 19 M5 requirements (`ENT-*`/`MAP-*`/`MANAGE-*`/`FILT-*`/`DIGEST-*`). This is a separate cross-repo track (`mailbox` + `UMB-Advisors/agentbox-sidecar`) from the Heron Labs product line below — the M3 customer-#2 polish work (02-08 onboarding wizard) remains open in parallel on that track; see "Next Action" for both.
+**Current focus:** Phase 05 — Backend Data Model & Auto-Create
 
 ## Current Position
 
-Phase: 5 (Backend Data Model & Auto-Create) — not started
-Plan: —
-Status: Roadmap defined; ready for discuss-phase/plan-phase
-Last activity: 2026-07-20 — ROADMAP.md created for M5 (Phases 5-8), REQUIREMENTS.md traceability updated, 100% coverage (19/19)
+Phase: 05 (Backend Data Model & Auto-Create) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-28 — Phase 05 execution started
 
 ## Milestone M5 Roadmap (created 2026-07-20)
 
@@ -276,14 +276,25 @@ Decision still open: do we promote `02-08-PLAN-v2-2026-04-27-STUB.md` to a full 
 2. Finish wizard wiring against the live-gate boundary; ship through the customer-#2 success-criteria runbook.
 3. When 02-08 closes, decide Phase 2 → Phase 3 transition (graduated auto-send, classification correction, OTA updates, email notifications — see ROADMAP.md).
 
-Resume file: .planning/phases/05-backend-data-model-auto-create/05-01-PLAN.md
+Resume file: .planning/phases/05-backend-data-model-auto-create/05-02-PLAN.md
 
 ## Session Continuity
 
-Last session: 2026-07-28T20:45:32.308Z
-Stopped at: Phase 5 planned (4 plans, plan-checker PASS)
+Last session: 2026-07-28T20:54:23.732Z
+Stopped at: Completed 05-01-PLAN.md
 Prior session: 2026-05-07T19:00:00Z — GSD ↔ Linear reconciliation complete for the Heron product track; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07.
 Last commits (Heron track, prior session): 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
 Prior session ground-truth commits: c50f77a (op-sync-from-env.py for 1Password), 436a5b4 (dashboard nav prefix fix), aca5455 (install session 2 log — Phase 13 OAuth), 0c857e2 (classify $json.response/thinking parser fix).
 Resume file (M5): none yet — Phase 5 discuss-phase/plan-phase not yet started.
 Resume file (M3, parallel track): `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` for install automation; `02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` for wizard architectural intent.
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 05 P01 | 55min | 3 tasks | 5 files |
+
+## Decisions
+
+- [Phase 05]: Docker was available — took the real npm run db:codegen path, not the hand-stub fallback (05-01)
+- [Phase 05]: Codegen regeneration incidentally fixed pre-existing lib/db/schema.ts drift (job_outcomes table was entirely missing) since CI never runs db:codegen:verify (05-01)
