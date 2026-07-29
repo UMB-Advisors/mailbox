@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Email Pipeline Core** - Complete end-to-end email loop: Gmail ingestion, classification, RAG-augmented drafting, approval queue, Gmail Reply send, persona at first boot. Substantively complete (02-02/03/04 done; 02-05/06/07 shipped via Linear with retroactive SUMMARYs 2026-05-07); 02-08 onboarding wizard remains the open plan.
 - [ ] **Phase 3: Operator Trust and Reliability** - Graduated auto-send, classification correction, OTA updates, email notifications, graceful degradation
 - [ ] **Phase 4: Dashboard and Hardening** - Full dashboard UI with approval queue, history logs, knowledge base management, system status, mobile-responsive, auth
-- [ ] **Phase 5: Backend Data Model & Auto-Create** - Nullable `accounts.business_id` FK + backfill, idempotent auto-create/find-or-create on account connect, `businesses.slug` + legacy-slug seed (mailbox repo)
+- [x] **Phase 5: Backend Data Model & Auto-Create** - Nullable `accounts.business_id` FK + backfill, idempotent auto-create/find-or-create on account connect, `businesses.slug` + legacy-slug seed (mailbox repo) (completed 2026-07-29)
 - [ ] **Phase 6: CRM Accounts API & Management** - Manual business create, rename, re-map, un-map, delete-with-confirmation, departments reaffirmed (mailbox repo)
 - [ ] **Phase 7: Sidecar Filter Unification** - CronPage/DailyBrief/Proposals/triage pickers read the live CRM list; `entities.ts`/`ENTITY_OPTIONS` retired (agentbox-sidecar repo)
 - [ ] **Phase 8: gbrain Digest Bridge** - One-way CRM → `entities.json` sync for the gbrain digest entity axis (agentbox-sidecar repo, Python)
@@ -133,13 +133,13 @@ Plans:
   4. `mailbox.accounts.business_id` (new nullable FK, `ON DELETE SET NULL`) exists, and the backfill links **all 6** live accounts — matching the 3 existing businesses and creating the 3 missing ones (Jiffy Auto Glass, Elevated Advisory, Bonvillian Design) by applying the same resolution rule the runtime hook uses. **Supersedes the original wording** ("leaving unmatched accounts unlinked rather than guessed") per decision D-09 in `05-CONTEXT.md`: leaving a third of the accounts unlinked would have left them outside every entity filter the moment Phase 7 ships, defeating the milestone goal. Zero unlinked accounts is the acceptance bar.
   5. Every business has a `slug`, seeded from the legacy slugs already live in `jobs.json`/digest config, so historical cron-job/digest references keep resolving once downstream consumers switch to the CRM source
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 Plans:
 
 - [x] 05-01-PLAN.md — Migration 057 (`accounts.business_id` FK + `businesses.slug` with computed backfill and the single `altitude` legacy seed), fixture-schema mirror, kysely-codegen regeneration, schema-invariant coverage
 - [x] 05-02-PLAN.md — `lib/crm/auto-link.ts`: free-mail exclusion list, slug generation, sibling-domain lookup, idempotent find-or-create, and the non-fatal `linkAccountToBusiness`; `createBusiness` made slug-compatible
 - [x] 05-03-PLAN.md — `persistAccountLink` seam wired into all three account creators (both insert and sentinel-adopt branches), real-Postgres auto-link tests, and the re-runnable `business:backfill` script
-- [ ] 05-04-PLAN.md — Gated live deploy to `agentbox3`: rollback pre-flight, migration apply, backfill run, and MAP-04/FILT-05 verification (the Phase 7 cross-repo gate evidence)
+- [x] 05-04-PLAN.md — Gated live deploy to `agentbox3`: rollback pre-flight, migration apply, backfill run, and MAP-04/FILT-05 verification (the Phase 7 cross-repo gate evidence)
 
 **Research notes**: discuss-phase should resolve the hook-point discrepancy flagged in `research/SUMMARY.md` before planning — STACK/PITFALLS research recommends 3 call sites (OAuth callback for first-boot + `createAccount`/`createImapAccount`); ARCHITECTURE research recommends hooking `createAccount()`/`createImapAccount()`/`createMicrosoftAccount()` only, treating the OAuth callback as pure token-attach. Also confirm the IMAP/Microsoft parity decision explicitly during discuss-phase (M5 requirements lock "all providers" per ENT-01, superseding the narrower "Gmail authorized" language in early research notes).
 **Cross-repo note**: `mailbox` repo only. Must be deployed + verified live (slug seed confirmed present, e.g. via `/api/system/status` or `/api/crm/businesses`) before Phase 7 (sidecar) deploys — independent deploy pipelines, no shared CI.
@@ -203,7 +203,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8. Ph
 | 2. Email Pipeline Core | 7/8* | Substantively complete; 02-08 partial (M1 + M2 + most of M4 delivered) | - |
 | 3. Operator Trust and Reliability | 0/TBD | Not started (M3+M4) | - |
 | 4. Dashboard and Hardening | 0/TBD | Not started (M3) | - |
-| 5. Backend Data Model & Auto-Create | 3/4 | In Progress|  |
+| 5. Backend Data Model & Auto-Create | 4/4 | Complete   | 2026-07-29 |
 | 6. CRM Accounts API & Management | 0/TBD | Not started (M5) | - |
 | 7. Sidecar Filter Unification | 0/TBD | Not started (M5) | - |
 | 8. gbrain Digest Bridge | 0/TBD | Not started (M5) | - |
