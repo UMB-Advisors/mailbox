@@ -1,4 +1,3 @@
-import { generateUniqueSlug } from '@/lib/crm/auto-link';
 import { getPool } from '@/lib/db';
 
 // AgentBOX CRM data layer (migration 052; orig 047). Raw pg via getPool() — these tables
@@ -12,7 +11,6 @@ export interface Business {
   id: number;
   name: string;
   description: string;
-  slug: string;
   created_at: string;
   updated_at: string;
 }
@@ -120,24 +118,14 @@ export async function listBusinesses(): Promise<Business[]> {
   return rows;
 }
 
-// Plan 05-01 made businesses.slug NOT NULL; this bare INSERT would otherwise
-// 23502. Only the slug value is added here — signature, return type, and the
-// unique-name throw behavior stay byte-identical (Pitfall 5). The idempotent
-// get-or-create path is findOrCreateBusiness in ./auto-link; adding conflict
-// handling here would silently change this route's contract (Phase 6 owns
-// this surface).
 export async function createBusiness(name: string, description = ''): Promise<Business> {
-  const slug = await generateUniqueSlug(name);
   const { rows } = await getPool().query<Business>(
-    'INSERT INTO mailbox.businesses (name, description, slug) VALUES ($1, $2, $3) RETURNING *',
-    [name, description, slug],
+    'INSERT INTO mailbox.businesses (name, description) VALUES ($1, $2) RETURNING *',
+    [name, description],
   );
   return rows[0];
 }
 
-// D-12 — slugs are frozen at creation. The patch shape below is intentionally
-// { name?, description? } only; do not add slug here or recompute it on
-// rename. A rename changes only the display name.
 export async function updateBusiness(
   id: number,
   patch: { name?: string; description?: string },

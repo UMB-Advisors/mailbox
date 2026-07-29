@@ -1,173 +1,382 @@
-# Architecture Research — Unified Entities Milestone
+# Architecture Research
 
-**Domain:** Cross-repo integration (mailbox dashboard CRM ↔ agentbox-sidecar UI ↔ gbrain digest)
-**Researched:** 2026-07-11
-**Confidence:** HIGH (all findings from direct code/migration inspection, no external sources needed)
+**Domain:** Edge AI appliance — local LLM email agent on Jetson Orin Nano Super
+**Researched:** 2026-04-02
+**Confidence:** HIGH (component behavior), MEDIUM (memory budgets — unified memory makes Ollama allocation non-deterministic)
 
-> Supersedes the prior version of this file (dated 2026-04-02, Phase 1 hardware/appliance topology — Jetson/Ollama/Qdrant/n8n). That system topology is unchanged and still accurate at the infra layer; it is simply out of scope for this milestone, which is about the CRM/entity data model across the mailbox and agentbox-sidecar repos. If a future milestone needs the appliance-topology research again, it is preserved in git history for this file.
+---
 
-## System Overview (current state, both repos)
+## Standard Architecture
+
+### System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  agentbox-sidecar  (:9200, FastAPI + vendored React SPA at web/)         │
-│  ┌───────────────┐   ┌──────────────┐   ┌───────────────────────────┐   │
-│  │ CronPage.tsx  │   │DailyBriefPage│   │ ProposalsView.tsx         │   │
-│  │ (Agent Jobs)  │   │.tsx          │   │                           │   │
-│  └───────┬───────┘   └──────┬───────┘   └───────────┬───────────────┘   │
-│          │  reads job.business (string)              │ reads entity     │
-│          ▼                   ▼                        ▼                │
-│   web/src/lib/entities.ts — STATIC ENTITY_OPTIONS[] (hardcoded slugs)   │
-│                                                                          │
-│  ┌───────────────┐   ┌──────────────────────────────────────────────┐  │
-│  │ OrgChartPage /│──▶│ web/src/lib/departments.ts useDepartments()   │  │
-│  │ ScopeFilter   │   │  (CRM-backed, working correctly today)        │  │
-│  └───────────────┘   └───────────────────┬──────────────────────────┘  │
-│                                           │ crmApi (web/src/lib/crm.ts) │
-│                                           │ → /dashboard/api/crm/*      │
-│  ┌────────────────────────────────────────────────────────────────┐    │
-│  │ Python: features/digest.py  _entity_slugs()                    │    │
-│  │  1. AGENTBOX_ENTITY_SLUGS env  2. $HERMES_HOME/entities.json    │    │
-│  │  (org-layer file, unrelated to CRM, unrelated to sidecar proxy) │    │
-│  └────────────────────────────────────────────────────────────────┘    │
-└──────────────────────────┬───────────────────────────────────────────┬─┘
-                            │ hermes reverse proxy                     │ filesystem
-                            ▼ /dashboard/api/* → :3001                 ▼ $HERMES_HOME
-┌─────────────────────────────────────────────────────────────────────────┐
-│  mailbox  (Next.js 14 dashboard, :3001, Postgres `mailbox` schema)      │
-│  ┌────────────────────┐   ┌───────────────────────────────────────┐    │
-│  │ app/api/crm/*       │──▶│ lib/crm/queries.ts (raw pg, NOT Kysely)│   │
-│  │ businesses/depart-  │   │  businesses / departments / team /    │   │
-│  │ ments/team/contacts │   │  crm_contacts                          │   │
-│  └────────────────────┘   └───────────────────────────────────────┘    │
-│  ┌────────────────────┐   ┌───────────────────────────────────────┐    │
-│  │ app/api/accounts    │──▶│ lib/queries-accounts.ts (Kysely)       │   │
-│  │ app/api/oauth/google│   │  accounts (id, email_address,          │   │
-│  │  /[provider]/connect│   │  display_label, is_default, provider,  │   │
-│  │  /callback          │   │  provider_config, provider_secret_enc) │   │
-│  └────────────────────┘   └───────────────────────────────────────┘    │
-│           NO RELATIONSHIP TODAY between accounts and businesses          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                      EXTERNAL BOUNDARY                               │
+│  Gmail / Outlook (IMAP/SMTP)          Anthropic Claude API           │
+│         │                                      │                     │
+└─────────┼──────────────────────────────────────┼─────────────────────┘
+          │                                      │
+┌─────────▼──────────────────────────────────────▼─────────────────────┐
+│                   DOCKER BRIDGE NETWORK (mailbox-net)                │
+│                                                                      │
+│  ┌───────────────────────────────────────────────────────────────┐   │
+│  │                      n8n  (:5678)                             │   │
+│  │         Workflow orchestrator — owns the pipeline             │   │
+│  │   IMAP Poll → Parse → Classify → Route → Draft → Queue        │   │
+│  └──────────┬────────────┬───────────────────┬────────────────── ┘   │
+│             │            │                   │                       │
+│  ┌──────────▼──┐  ┌──────▼──────┐  ┌─────────▼──────────────────┐   │
+│  │  Ollama     │  │  Qdrant     │  │  Postgres                  │   │
+│  │  (:11434)   │  │  (:6333)    │  │  (:5432)                   │   │
+│  │             │  │             │  │                            │   │
+│  │  Qwen3-4B   │  │  email      │  │  n8n workflow state        │   │
+│  │  nomic-     │  │  vectors    │  │  approval queue            │   │
+│  │  embed-text │  │  kb chunks  │  │  draft store               │   │
+│  └─────────────┘  └─────────────┘  │  sent history              │   │
+│                                    │  persona config             │   │
+│                                    └────────────────────────────┘   │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │               Dashboard  (:3000)                               │  │
+│  │        Node.js/React — reads Postgres + calls n8n API          │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+          │
+          │  LAN (Wi-Fi / Ethernet)
+          ▼
+    Browser on phone / laptop
+    http://device.local:3000
 ```
 
-**The core problem this milestone solves:** three unrelated "which company is this for" axes exist in parallel — (1) `mailbox.businesses`/`departments` (the real CRM, migration 052/053), (2) `mailbox.accounts` (Gmail/IMAP/Microsoft inboxes, migration 033, with zero FK to #1), and (3) the sidecar's hardcoded `ENTITY_OPTIONS` slug list (mirrors a *fourth*, gbrain-side list — `entity_map.yaml` → `AGENTBOX_ENTITY_SLUGS`/`entities.json`). None of the four are wired together.
+---
 
-## Component Responsibilities (as they exist today)
+## Component Responsibilities
 
-| Component | Responsibility | Current state |
-|-----------|-----------------|----------------|
-| `mailbox.accounts` (migration 033) | One row per connected inbox (Gmail/IMAP/Microsoft) | `email_address` UNIQUE, `is_default`, `provider*`. No `business_id`. |
-| `mailbox.businesses` (migration 053, internal comment says "048") | The CRM company entities | `name` UNIQUE, `description`. No back-reference to `accounts`. |
-| `mailbox.departments` (migration 052) | Org sub-units | `business_id` nullable FK → `businesses` **ON DELETE SET NULL** — this is the exact precedent pattern for accounts↔business (see Q2 below). |
-| `dashboard/lib/queries-accounts.ts` `createAccount()` | The **only** insert path into `accounts` from the operator UI (`POST /api/accounts`) | Provider-agnostic (gmail/imap/microsoft); for Gmail this creates a bare registry row — no OAuth attached yet. |
-| `dashboard/lib/oauth/google.ts` + `/api/oauth/google/callback` | Actual Gmail **authorization** (consent → refresh token → `oauth_tokens` upsert, keyed `(provider, account_id)`) | Requires an existing `account_id` (via `?account_id=` on the connect route, defaults to the default account) — so account creation always *precedes* OAuth grant, never the reverse. |
-| `dashboard/app/onboarding/email-connect/page.tsx` | First-boot wizard Gmail tab | **Still a stub** (STAQPRO-152/197 TODO) — the only *live* Gmail connect path today is Settings → Accounts "Learn voice" (MBOX-399/415), not the onboarding wizard. |
-| `sidecar/web/src/lib/entities.ts` | Static `ENTITY_OPTIONS` slug list (heron/state/cde/krunchy/yes/future/umb/glue/myco/personal/unsorted) | Hardcoded; comment claims `GET /api/entities` is authoritative — **that route does not exist**, it's an aspirational/stale comment. |
-| `sidecar/web/src/lib/crm.ts` + `departments.ts` `useDepartments()` | CRM-backed department/business grouping for `ScopeFilter`/`OrgChartPage` | Already correctly wired to `/dashboard/api/crm/*` — this is the pattern to replicate for `ENTITY_OPTIONS`. |
-| Cron job storage (hermes-native, via `cronext.py`) | Persists `job.business` as an opaque string | **Not modeled in Python at all** — `business` only exists as a TS field name; hermes' native cron store treats it as free-form metadata. No backend validation ties it to CRM or gbrain slugs today. |
-| `sidecar/src/agentbox_sidecar/features/digest.py` `_entity_slugs()` | gbrain digest entity-filter whitelist | Resolves from `AGENTBOX_ENTITY_SLUGS` env → `$HERMES_HOME/entities.json` → empty. File is written by a **separate** org-layer repo (`agentbox-seed`) at apply-time — the mailbox dashboard has no visibility into it at all. |
+| Component | Responsibility | Communicates With |
+|-----------|---------------|-------------------|
+| **n8n** | Pipeline orchestrator. Owns all business logic: IMAP polling, email parsing, classification calls to Ollama, RAG retrieval from Qdrant, draft generation (local or cloud), approval queue writes, SMTP send. | Ollama (HTTP), Qdrant (HTTP), Postgres (TCP), Claude API (HTTPS outbound), IMAP/SMTP (TCP outbound) |
+| **Ollama** | LLM inference server. Serves Qwen3-4B (classification + simple drafts) and nomic-embed-text (embeddings). Manages GPU layer allocation on Jetson unified memory. | n8n (inbound HTTP on :11434). No outbound. |
+| **Qdrant** | Vector store. Holds two collections: `email_history` (past sent emails as RAG context) and `knowledge_base` (uploaded brand documents). Rust binary — low idle memory. | n8n (inbound HTTP on :6333). No outbound. |
+| **Postgres** | Relational store. Holds n8n workflow execution state, approval queue rows, draft text, sent history log, persona config, system settings. The Dashboard reads this directly. | n8n (inbound TCP), Dashboard (inbound TCP). No outbound. |
+| **Dashboard** | Web UI served on LAN. Approval queue (approve/edit/reject), sent history, classification log, knowledge base upload, persona settings, system status, onboarding wizard. | Postgres (TCP reads), n8n REST API (trigger sends, queue actions). No outbound. |
 
-## Integration Points — Answers to the Four Questions
+---
 
-### Q1 — Where does auto-create-business belong, idempotent + default-on-with-opt-out?
+## Email Processing Pipeline (Data Flow)
 
-**Hook point: `createAccount()` in `dashboard/lib/queries-accounts.ts`** (called only from `POST /api/accounts`), not the OAuth callback.
-
-Rationale: an `account_id` must already exist before the OAuth connect route (`/api/oauth/google/[provider]/connect?account_id=`) can even be invoked — the callback (`saveToken()` in `lib/oauth/google.ts`) only *attaches a token* to a pre-existing account, it never creates one. So "when a Gmail account is authorized" in practice means "when the registry row is created," since that's the earliest point at which `display_label`/`email_address` (and therefore a business name) are known. Hooking the OAuth callback instead would (a) require duplicating the derive-and-link logic in two places if IMAP/Microsoft accounts should also get this behavior, and (b) leave a window where a created-but-not-yet-authorized account has no business, which is confusing UX.
-
-**Design:**
-1. Wrap the insert + business resolution in one `db.transaction()` inside `createAccount()`.
-2. Derive a candidate business name: `display_label` if the operator supplied one, else a title-cased email domain label (`acme.com` → `Acme`) — same derivation the milestone spec calls for ("named from `display_label`/email domain").
-3. Idempotency: case-insensitive lookup against `businesses.name` (or against a new `slug` column, see Q3) inside the same transaction; `INSERT ... ON CONFLICT (name) DO NOTHING RETURNING id`, falling back to a `SELECT id` when the conflict fires (name is already `UNIQUE`, migration 053, so this is a single round-trip with the existing constraint — no new lock needed).
-4. Set the new `accounts.business_id` FK (see Q2) to the resolved business id.
-5. **Default-on-with-opt-out:** add `auto_create_business_enabled BOOLEAN NOT NULL DEFAULT true` to the existing singleton `mailbox.operator_settings` table (migration 038) — this matches the established convention for exactly this kind of appliance-wide toggle (booking_link/calendar_embed_src/drive_folder_id live there already). Read it once per `createAccount()` call. Additionally accept an optional `business_id` (explicit pick) or `skip_auto_create_business` boolean on the `POST /api/accounts` body (`accountCreateSchema`) so the operator can suppress auto-create for a one-off connect — this is what satisfies "support manually-created businesses... and re-mapping an account to a different business later": if the operator explicitly supplies `business_id`, auto-create never runs.
-6. `createImapAccount()`/`createMicrosoftAccount()` (the sentinel-adoption helpers) should call the same shared `resolveOrCreateBusiness()` helper so all three providers get consistent behavior, not just Gmail — the milestone spec only calls out Gmail explicitly but the "every business/department/entity filter reads from one CRM source" goal implies parity.
-
-### Q2 — Data model: nullable FK vs. link table, migration/back-compat for live data (3 businesses, 6 accounts)
-
-**Recommendation: nullable FK, not a link table.** `mailbox.accounts.business_id INTEGER REFERENCES mailbox.businesses(id) ON DELETE SET NULL` — this is the **identical pattern** already shipped for `departments.business_id` (migration 053), so it's a proven, reviewed precedent in this exact codebase, not a new decision. One business can own many accounts (inboxes); an account belongs to at most one business, which matches "re-mapping an account to a different business later" (a single `UPDATE accounts SET business_id = ...`, not a join-table row swap). A link table would only be justified for genuine many-to-many (one inbox shared across multiple businesses) — not in the requirements, and would complicate every consumer query (CRM filter joins, sidecar entity dropdowns) for no requirement-driven benefit.
-
-**Migration, non-breaking by design (mirrors migration 033's own stated approach):**
-```sql
-ALTER TABLE mailbox.accounts
-  ADD COLUMN IF NOT EXISTS business_id INTEGER
-  REFERENCES mailbox.businesses(id) ON DELETE SET NULL;
-CREATE INDEX IF NOT EXISTS accounts_business_id_idx ON mailbox.accounts (business_id);
 ```
-- **Nullable, no DEFAULT, no forced backfill DML** — matches the migration-007 comment convention ("schema only — no DML unless explicitly a backfill"). The 6 existing accounts land with `business_id = NULL`, which must be a legitimate, handled state everywhere (identical to how `departments.business_id IS NULL` already works today — "unassigned" is not a new concept for this schema).
-- **Do not attempt to auto-map the 6 live accounts to the 3 live businesses via heuristic DML** in the migration itself — domain/label matching in a data migration is a guess that could silently misattribute a real customer's inbox. Instead, ship a business picker on the existing `/settings/accounts` page (reusing the `AccountsSettings.tsx` edit-row UI) so the operator does one deliberate PATCH per account post-deploy. This is a one-time, low-volume (6 rows) manual step — cheaper and safer than migration-time heuristics.
-- Extend `AccountDetail`/`listAccountsDetailed()` to select `business_id`, and add `business_id` to `updateAccount()`'s patch shape (same pattern already used for `display_label`/`provider`).
-- `deleteBusiness()` already relies on `ON DELETE SET NULL` semantics for departments (comment: "leaves its departments intact... not orphaned/deleted") — the identical guarantee applies to accounts once the FK exists: deleting a business never deletes or orphans an inbox, it un-links it.
+[IMAP Server]
+    │  (poll every 60s via n8n Email Trigger node)
+    ▼
+[n8n: Parse]
+    │  extract: from, subject, body, thread_id, timestamp
+    ▼
+[n8n: Embed + Classify]
+    │  1. POST /api/embeddings → Ollama (nomic-embed-text)
+    │  2. vector search → Qdrant (email_history, top-3 context)
+    │  3. POST /api/generate → Ollama (Qwen3-4B, classify prompt)
+    │     → category: inquiry | reorder | scheduling | follow-up |
+    │                  internal | spam | escalate | unknown
+    ▼
+[n8n: Route]
+    │  if spam/marketing → discard (log only)
+    │  if escalate       → queue with HIGH priority flag
+    │  if confidence < threshold → queue as 'unknown'
+    │  otherwise         → continue to draft
+    ▼
+[n8n: Draft]
+    │  1. vector search → Qdrant (knowledge_base, top-5 chunks)
+    │  2. if simple category (reorder, scheduling, follow-up):
+    │       POST /api/generate → Ollama (Qwen3-4B, draft prompt)
+    │     if complex category (inquiry, unknown):
+    │       POST /messages → Claude Haiku API (HTTPS outbound)
+    │     if cloud unreachable:
+    │       queue with draft_status='pending_cloud', retry later
+    ▼
+[n8n: Queue Write]
+    │  INSERT into Postgres: email_id, draft_text, category,
+    │  confidence, source (local|cloud), priority, timestamp
+    ▼
+[Dashboard: Approval Queue]
+    │  customer reviews on phone browser
+    │  → approve    → n8n webhook → SMTP send → mark sent
+    │  → edit+send  → n8n webhook → patch draft → SMTP send
+    │  → reject     → mark rejected, log reason
+    │  → escalate   → mark escalated (future: forward to human)
+    ▼
+[SMTP Server]
+    email sent from customer's address
+```
 
-### Q3 — Unify sidecar's `ENTITY_OPTIONS` onto the CRM API without breaking `job.business`
+### Knowledge Base Ingestion Flow (separate pipeline)
 
-**The critical constraint:** `job.business` is stored as a **plain string** in hermes' native cron job storage — it is not modeled in any Python backend type (`cronext.py` has zero references to `business`; it's a TS-only field name that rides through as opaque metadata). There is no migration hook available in the job-storage layer itself. This rules out switching the sidecar to numeric `business_id` everywhere — every historical job's `business` string would need an in-place rewrite with no natural trigger point to do it.
+```
+[Dashboard: KB Upload]
+    │  customer uploads PDF/DOCX/TXT
+    ▼
+[n8n: Document Ingest Workflow]
+    │  1. chunk document (512-token chunks, 64-token overlap)
+    │  2. POST /api/embeddings → Ollama (nomic-embed-text)
+    │  3. upsert vectors → Qdrant (knowledge_base collection)
+    │  4. record metadata → Postgres (kb_documents table)
+```
 
-**Recommended approach — add a stable `slug` to CRM businesses, keep the wire format a string:**
-1. `ALTER TABLE mailbox.businesses ADD COLUMN slug TEXT` (derived from `name`, e.g. slugify + lowercase), with a unique index once populated. Expose `slug` on the existing `GET /api/crm/businesses` response (no new route needed — same shape `crmApi.listBusinesses()` already consumes).
-2. **Back-compat seed (the specific migration concern the milestone calls out):** one-time seed of CRM businesses matching every slug already live in `job.business` today — `heron`, `state`, `cde`, `krunchy`, `yes`, `future`, `umb`, `glue`, `myco`, `personal`, `unsorted` — via `INSERT INTO businesses (name, slug) VALUES ('Heron Labs','heron'), ('STATE','state'), ... ON CONFLICT (slug) DO NOTHING`. This must land **before** the sidecar UI switches its data source, or `entityLabel(slug)` will stop resolving labels for every existing cron job, Daily Brief entry, and proposal that already carries one of these slugs. Zero rows in `job.business` (or any digest/proposal record) need to be rewritten — the string values are unchanged, only where the label lookup goes changes.
-3. Replace `web/src/lib/entities.ts`'s static `ENTITY_OPTIONS` with a hook (`useEntityOptions()`) following the exact `useDepartments()` pattern already in `departments.ts`: `crmApi.listBusinesses()` → map `{value: b.slug, label: b.name}`, prepend the existing `{value:'', label:'All entities'}` sentinel. `entityLabel()`'s existing fallback (`ENTITY_LABEL_BY_SLUG[slug] ?? slug`) already degrades gracefully for any slug not yet present in CRM, so this is a safe, incremental swap — `CronPage.tsx`, `DailyBriefPage.tsx`, and `ProposalsView.tsx` need only swap their import/consumption of the constant for the hook's return value; none of their grouping/filtering logic (which operates on the string slug) needs to change.
-4. Slugs like `unsorted`/`personal` that aren't "real" businesses conceptually — seed them as ordinary CRM business rows anyway for a clean cutover (simpler than special-casing a sentinel list in code); the operator can rename/merge/delete them later through the normal CRM UI once real usage patterns are visible.
+### Sent History Ingestion Flow (first-boot wizard)
 
-### Q4 — Reconciling the gbrain digest entity axis with CRM
+```
+[IMAP: 6-month sent history]
+    │
+[n8n: History Ingest Workflow]
+    │  1. parse each sent email
+    │  2. embed → Ollama
+    │  3. upsert → Qdrant (email_history collection)
+    │  4. extract voice samples → Postgres (persona_examples table)
+    │  triggered once on first boot, resumable if interrupted
+```
 
-Three options were evaluated; **recommend "bridge," reject "derive-live" and "leave separate."**
+---
 
-- **Leave separate (rejected):** fails the milestone's explicit requirement to reconcile this axis at all.
-- **Full unify / derive-live (rejected for this milestone):** would mean `digest.py`'s `_entity_slugs()` calls the CRM proxy live, on every digest request. This introduces a new runtime dependency (gbrain digest resolution would require `mailbox-dashboard` to be reachable) where **none exists today** — currently gbrain only needs a local file + optional env var, fully decoupled from the dashboard process. It would also pull in the `gbrain-ingest/entity_map.yaml` → `attribution.py` pipeline (sender-domain → entity attribution for email ingestion), which is a materially different and more entangled piece of logic than the UI's simple slug/label list — out of scope per "Focus ONLY on integration for the NEW features."
-- **Bridge (recommended):** keep `AGENTBOX_ENTITY_SLUGS`/`$HERMES_HOME/entities.json` and `digest.py`'s existing resolution logic **completely unchanged** (zero gbrain code touched — lowest risk). Add a small sync step in the sidecar (e.g. `features/crm_sync.py`, Python, since the sidecar backend already proxies to `/dashboard/api/crm/businesses`) that periodically (on sidecar startup, and optionally on a cron interval or a CRM-mutation-triggered refresh) fetches the current CRM businesses' `slug` list and **rewrites `$HERMES_HOME/entities.json`** to match. This makes CRM the upstream source of truth for the digest axis too, without touching the daemon's file-based contract or the ingest/attribution pipeline — the sync step is additive and can be built, tested, and rolled back independently of everything else in this milestone.
+## Memory Budget (8GB Unified, Jetson Orin Nano Super)
 
-## Build Order
+**Constraint:** Jetson unified memory means GPU and CPU share the same 8GB pool. Ollama subtracts ~500MB overhead before allocating GPU layers. If available GPU memory drops below model requirements, Ollama silently falls back to CPU-only inference (confirmed community reports). The OS + system services consume ~1.0–1.5GB headless (no desktop environment).
 
-Dependencies flow strictly backend → API → frontend → cross-process bridge; each phase's schema/data is a prerequisite for the next.
+| Service | Idle RAM | Peak RAM | Notes |
+|---------|----------|----------|-------|
+| **OS + kernel + system** | 1.0 GB | 1.5 GB | Headless Ubuntu 22.04, no desktop. Must disable GUI on first boot. |
+| **Ollama** (Qwen3-4B Q4_K_M loaded) | 3.0 GB | 3.5 GB | Model weights: 2.6GB. KV cache at 4K context: ~200MB. GPU overhead: ~500MB. Stays loaded permanently. nomic-embed-text (136M, F16) shares the process at ~0.5GB additional. |
+| **Qdrant** | 150 MB | 400 MB | Rust binary. Memory-mapped storage. Email history at 50K vectors (768-dim) = ~220MB in-memory. Grows with KB size. |
+| **Postgres** | 100 MB | 300 MB | shared_buffers=128MB (Docker default). alpine image. n8n state + approval queue + sent log. |
+| **n8n** | 300 MB | 700 MB | Node.js process. Known memory growth under active workflows — set NODE_OPTIONS=--max-old-space-size=512. |
+| **Dashboard** | 80 MB | 150 MB | Express/React SSR or static. Lightest service. |
+| **Docker daemon + compose overhead** | 100 MB | 200 MB | Consistent on ARM64. |
+| **TOTAL** | ~4.7 GB | ~6.7 GB | **1.3GB headroom at peak.** Tight but viable. |
 
-1. **Phase A — Backend data model + auto-create (mailbox repo).**
-   - Migration: `accounts.business_id` nullable FK (Q2) + `businesses.slug` column + legacy-slug seed rows (Q3 back-compat) + `operator_settings.auto_create_business_enabled` column (Q1 toggle).
-   - `createAccount()`/`createImapAccount()`/`createMicrosoftAccount()` gain the shared `resolveOrCreateBusiness()` hook (Q1), transactional, idempotent on `businesses.name`/`slug`.
-   - Extend `AccountDetail`, `listAccountsDetailed()`, `updateAccount()` to carry `business_id`.
-   - Settings → Accounts UI: add a business picker (assign/reassign existing accounts — closes the "6 accounts need manual mapping" gap from Q2, and gives the opt-out toggle a home).
-   - **Why first:** every other phase reads either the new FK, the new slug column, or the seed data.
+**Memory constraints to enforce in docker-compose.yml:**
 
-2. **Phase B — CRM API surface (mailbox repo).**
-   - `GET /api/crm/businesses` includes `slug` in its response shape.
-   - `GET /api/accounts` (and `?detail=1` variant) includes `business_id`; optional `?business_id=` filter if a consumer needs server-side filtering rather than client-side.
-   - **Why second:** thin, low-risk API surface work that Phase C depends on; keeping it separate from Phase A lets the schema migration ship and soak (verify against live data) before consumers start reading it.
+```
+n8n:       mem_limit: 768m    (prevents runaway Node.js heap)
+postgres:  mem_limit: 384m    (shm_size: 128mb required)
+qdrant:    mem_limit: 512m    (mmap keeps active working set small)
+dashboard: mem_limit: 256m
+ollama:    NO mem_limit       (must see all free memory for GPU layer
+                               allocation; a hard limit confuses VRAM
+                               detection and forces CPU fallback)
+```
 
-3. **Phase C — Sidecar filter-wiring (agentbox-sidecar repo).**
-   - Replace static `ENTITY_OPTIONS` with a CRM-backed `useEntityOptions()` hook (mirrors `useDepartments()`).
-   - Swap the import in `CronPage.tsx`, `DailyBriefPage.tsx`, `ProposalsView.tsx`.
-   - **Hard dependency on Phase A's legacy-slug seed** — must not ship before the seed exists, or every pre-existing `job.business`/digest-entity/proposal-entity value loses its label.
-   - Verify: existing cron jobs, Daily Brief filters, and proposals still resolve labels correctly post-swap (the `entityLabel()` fallback makes this graceful even if something is missed, but the seed should make the fallback path unused in practice).
+**Critical:** Ollama reads /proc/meminfo to determine available VRAM on Tegra/Jetson (NVML is not available). Any `mem_limit` on the Ollama container will cause it to see reduced available memory and may trigger CPU-only mode for the 2.6GB model. Confirmed issue in NVIDIA developer forums.
 
-4. **Phase D — gbrain digest axis bridge (agentbox-sidecar repo, Python side).**
-   - New CRM→`entities.json` sync routine (Q4), independent of and lower-priority than C.
-   - **Why last:** touches a different process boundary (the gbrain daemon, a separate on-Jetson process with its own file-based contract) that's higher-risk-per-line-changed and not load-bearing for the rest of the milestone's UI-facing goals — sequencing it last also lets the CRM businesses list stabilize (post Phase A/C renames/consolidation of legacy slugs) before it becomes something else's sync source.
+---
 
-## Anti-Patterns to Avoid
+## Recommended Project Directory Structure
 
-### Anti-Pattern 1: Migration-time heuristic backfill of account→business links
-**What people do:** try to guess-map the 6 live accounts to the 3 live businesses via domain/label matching inside the migration's DML.
-**Why it's wrong:** a data migration is the wrong place for a fuzzy business decision — a wrong guess silently misattributes a real customer's inbox to the wrong company with no operator review.
-**Instead:** ship the FK as nullable with no forced backfill, and add a business picker to the existing Settings → Accounts page for a deliberate one-time operator pass.
+```
+mailbox/
+├── docker-compose.yml          # service definitions, networks, volumes
+├── docker-compose.override.yml # local dev overrides (bind mounts, debug ports)
+├── .env                        # secrets (never committed)
+├── .env.example                # template for .env
+│
+├── n8n/
+│   ├── workflows/              # exported n8n workflow JSON files
+│   │   ├── email-pipeline.json # main IMAP → classify → draft → queue
+│   │   ├── kb-ingest.json      # document ingestion workflow
+│   │   ├── history-ingest.json # first-boot sent history ingestion
+│   │   └── notification.json   # daily digest + queue alert emails
+│   └── credentials/            # exported credential stubs (no secrets)
+│
+├── dashboard/
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── src/
+│   │   ├── app/                # Next.js app router or Express routes
+│   │   ├── components/         # React components
+│   │   └── lib/                # Postgres client, n8n API client
+│   └── public/
+│
+├── postgres/
+│   └── init/
+│       └── 01-schema.sql       # table definitions run on first start
+│
+├── qdrant/
+│   └── config/
+│       └── config.yaml         # storage path, collection defaults
+│
+├── ollama/
+│   └── modelfile/              # optional Modelfile for persona system prompt
+│
+└── scripts/
+    ├── first-boot.sh           # pull models, run history ingest, create admin
+    ├── health-check.sh         # verify all services healthy post-start
+    └── ota-update.sh           # pull new images from GHCR, rolling restart
+```
 
-### Anti-Pattern 2: Rewriting historical `job.business` string values to match a new ID scheme
-**What people do:** switch the sidecar to numeric `business_id` and bulk-UPDATE every stored cron job's `business` field to match.
-**Why it's wrong:** `job.business` lives in hermes-native cron job storage with **no Python-side model** for the field — there's no natural migration hook, and "cron job storage" spans whatever hermes' native persistence is, which this milestone should not be touching.
-**Instead:** keep the wire format a string (slug), add a `slug` column to CRM businesses, and seed the existing slugs as CRM rows so old data resolves unchanged.
+---
 
-### Anti-Pattern 3: Making the gbrain digest daemon depend on the dashboard being up
-**What people do:** have `digest.py`'s entity-slug resolution call the CRM API live on every request ("derive" approach).
-**Why it's wrong:** introduces a new runtime coupling (gbrain digest → mailbox-dashboard reachability) where none exists today; the digest daemon currently only needs a local file.
-**Instead:** the sidecar syncs CRM → `$HERMES_HOME/entities.json` out-of-band (on startup/interval); the daemon's read path never changes.
+## Architectural Patterns
+
+### Pattern 1: n8n as Pipeline Orchestrator (not custom Python)
+
+**What:** All email processing logic lives in n8n workflow JSON, not application code. n8n calls Ollama, Qdrant, and Postgres via built-in nodes. No Python microservice between n8n and the models.
+
+**When to use:** Always for this project. n8n has native IMAP trigger, HTTP request nodes, Postgres nodes, vector store nodes for Qdrant, and LangChain-style AI agent nodes. Building the same in Python adds a 6th container, another failure mode, and more memory pressure.
+
+**Trade-offs:** Workflows are harder to unit-test than Python code. Version control of workflow JSON is less ergonomic than code. Mitigation: export workflows to `n8n/workflows/` on every change and commit them.
+
+### Pattern 2: Postgres as Approval Queue (not Redis, not n8n internal state)
+
+**What:** The approval queue, draft store, and sent history all live in Postgres tables. n8n writes rows; the Dashboard reads them. The Dashboard calls n8n webhooks to trigger the send action.
+
+**When to use:** Always. A separate Redis queue adds memory overhead. n8n's internal execution database doesn't expose the data cleanly to the Dashboard. Postgres is already required for n8n — no new container needed.
+
+**Trade-offs:** Polling from Dashboard to Postgres requires a refresh mechanism (SSE or 5-second poll). Acceptable for a single-user approval UI on LAN.
+
+### Pattern 3: Single Docker Bridge Network + No Host Port Exposure for Internal Services
+
+**What:** Ollama, Qdrant, and Postgres are reachable only on the internal `mailbox-net` bridge. Only n8n (:5678) and Dashboard (:3000) bind to host ports. No service binds to 0.0.0.0 except those two.
+
+**When to use:** Always. Follows the n8n self-hosted AI starter kit security model. Prevents LAN devices from directly querying the LLM or vector DB endpoints.
+
+**Trade-offs:** Debugging Qdrant or Ollama from host requires `docker exec` or temporary port-forward. Add a `docker-compose.debug.yml` override for development.
+
+### Pattern 4: Model-Stays-Loaded Strategy
+
+**What:** Ollama keeps Qwen3-4B resident in GPU memory between inferences rather than unloading after each request. Set `OLLAMA_KEEP_ALIVE=-1` to prevent eviction.
+
+**When to use:** Always. With 8GB unified memory and no competing GPU workloads, model loading latency (~3-5s for a 2.6GB model) would blow the 30s pipeline budget if triggered per email. The model must stay loaded.
+
+**Trade-offs:** 3GB of the 8GB pool is permanently allocated to the model. This is the correct trade-off for an appliance with a single purpose.
+
+---
+
+## Build Order (Service Dependencies)
+
+```
+1. Postgres
+   (health check: pg_isready -U mailbox)
+        ↓
+2. Qdrant
+   (health check: GET :6333/readyz)
+   [parallel with Postgres — no dependency]
+        ↓
+3. Ollama
+   (health check: GET :11434/api/version)
+   [parallel with Postgres and Qdrant — no dependency]
+        ↓
+4. n8n
+   (depends_on: postgres[healthy], qdrant[healthy], ollama[healthy])
+   Runs first-boot import of workflows and credentials on startup.
+        ↓
+5. Dashboard
+   (depends_on: postgres[healthy], n8n[healthy])
+```
+
+**First-boot sequence (after all containers healthy):**
+
+```
+first-boot.sh:
+  1. ollama pull qwen3:4b-q4_K_M      (2.6GB download on first run only)
+  2. ollama pull nomic-embed-text      (0.5GB)
+  3. trigger n8n history-ingest workflow
+  4. Dashboard wizard: create admin → connect email → confirm ingest
+```
+
+**Restart behavior:** `restart: unless-stopped` on all services. On power loss, Docker auto-restarts services in dependency order. Cold boot to fully operational: ~90s (Ubuntu boot ~30s + Docker pull-from-cache ~10s + service start ~20s + model load into GPU ~30s).
+
+---
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Applying `mem_limit` to Ollama
+
+**What people do:** Set `mem_limit: 4g` on the Ollama container to "protect" other services.
+
+**Why it's wrong:** On Jetson, Ollama reads `/proc/meminfo` instead of NVML to detect available GPU memory (NVML returns error on Tegra). A container memory limit makes `/proc/meminfo` report the cgroup-scoped value (4GB), not the system total. Ollama then determines it cannot fit the 2.6GB model plus KV cache plus overhead into "GPU memory" and falls back to CPU-only inference — degrading classification from ~15 tok/s to ~2 tok/s, blowing the 30s pipeline SLA.
+
+**Do this instead:** Leave Ollama unconstrained. Protect other services with their own `mem_limit` values. The Ollama process is stable; it won't grow unboundedly like a Node.js server.
+
+### Anti-Pattern 2: Two Models Loaded Simultaneously
+
+**What people do:** Keep both Qwen3-4B (2.6GB) and nomic-embed-text (0.5GB) loaded with `OLLAMA_KEEP_ALIVE=-1`, then trigger both simultaneously.
+
+**Why it's wrong:** On the 8GB system, both models loading simultaneously with context overhead may push total GPU allocation to ~4GB+, leaving only ~4GB for OS + other services, which is under the ~4.7GB idle floor. Observed behavior: Ollama begins offloading layers to CPU mid-inference, causing variable latency.
+
+**Do this instead:** nomic-embed-text is tiny (136M params, 0.5GB) and loads in <1s. Set `OLLAMA_KEEP_ALIVE=5m` for nomic-embed-text (short-lived, loads on demand) and `OLLAMA_KEEP_ALIVE=-1` for Qwen3-4B only. The embedding step runs before classification in the pipeline, so the embed model loads, runs, unloads within 5 seconds, then Qwen3-4B handles classification without contention.
+
+### Anti-Pattern 3: n8n Polling Inside a Workflow Loop
+
+**What people do:** Create an n8n workflow that polls IMAP using a manual trigger + Wait node in a loop to simulate continuous polling.
+
+**Why it's wrong:** n8n accumulates execution history in Postgres. Long-running workflows with Wait nodes create bloated execution records. Memory usage grows steadily.
+
+**Do this instead:** Use n8n's native **Email Trigger (IMAP)** node as the workflow start. This uses n8n's internal IMAP listener, which polls at the configured interval without creating a persistent workflow execution per cycle. Set `executions.pruneData=true` and `executions.pruneDataMaxAge=72` (hours) to prevent execution history from filling Postgres.
+
+### Anti-Pattern 4: Dashboard Calling Ollama Directly
+
+**What people do:** Allow the Dashboard to POST directly to `http://ollama:11434` to generate previews or explanations in the UI.
+
+**Why it's wrong:** Dashboard is a web service potentially accessible to any LAN device (the requirement is mobile-responsive, implying phone on Wi-Fi). Direct LLM access from the frontend bypasses n8n's workflow logic, creates a second inference client competing for GPU memory, and makes it easy to trigger model swaps or prompt injection.
+
+**Do this instead:** All LLM calls route through n8n workflows invoked via authenticated n8n webhooks. The Dashboard is read/write to Postgres and calls n8n REST API only. Ollama stays internal to `mailbox-net` with no host port binding.
+
+---
+
+## Integration Points
+
+### External Services
+
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| Gmail / Outlook (IMAP) | n8n Email Trigger (IMAP) node, OAuth2 or app password credentials | OAuth2 token refresh handled by n8n credentials store. Store credentials in n8n, not in .env — n8n encrypts them in Postgres. |
+| Gmail / Outlook (SMTP) | n8n Send Email node | Same credential object as IMAP. |
+| Anthropic Claude API | n8n HTTP Request node, HTTPS outbound only | API key in n8n credentials. Send only current email + retrieved context chunks — no bulk corpus. Graceful fallback: if HTTP 5xx or timeout >10s, write draft_status='pending_cloud' to Postgres and retry on next poll cycle. |
+
+### Internal Service Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| n8n → Ollama | HTTP REST (POST /api/generate, POST /api/embeddings) on mailbox-net | Ollama has no auth by default. Internal network only. |
+| n8n → Qdrant | HTTP REST (upsert, search) on mailbox-net | Qdrant has optional API key — enable it via QDRANT_API_KEY env var even on internal network. |
+| n8n → Postgres | TCP (pg protocol) on mailbox-net | n8n uses Postgres as its own database; add a second connection for custom tables (approval queue, persona config) in the `mailbox` schema, separate from `public` (n8n's schema). |
+| Dashboard → Postgres | TCP read-mostly on mailbox-net | Dashboard should use a read-only Postgres user for SELECT queries. Use a privileged user only for approval queue writes (approve/reject status updates). |
+| Dashboard → n8n | n8n REST API (:5678) for webhook triggers (send, cancel) | Use n8n API key auth. Dashboard never writes to n8n's internal tables directly. |
+
+---
+
+## Scaling Considerations
+
+This is a single-tenant appliance. "Scaling" here means headroom for email volume growth, not horizontal scale.
+
+| Email Volume | Architecture Adjustments |
+|--------------|--------------------------|
+| 20-50 emails/day (target baseline) | Default config as described. 60s poll interval. Sequential pipeline per email. |
+| 50-200 emails/day | Reduce poll interval to 30s. Enable n8n workflow concurrency (2 parallel executions). Monitor Postgres execution history growth — prune aggressively. |
+| 200+ emails/day | Consider poll interval 15s. Qwen3-4B at ~15 tok/s can classify in ~2s — bottleneck shifts to SMTP rate limits and Claude API rate limits, not local inference. Add classification confidence caching for exact-duplicate subject lines. |
+
+**First bottleneck at scale:** n8n execution history in Postgres. At 100 emails/day with 72-hour retention, Postgres will hold ~7,200 execution records. Enable pruning from day one: `EXECUTIONS_DATA_PRUNE=true`, `EXECUTIONS_DATA_MAX_AGE=72`.
+
+**Second bottleneck at scale:** GPU memory contention if model swap occurs mid-pipeline. Prevention: `OLLAMA_KEEP_ALIVE=-1` on Qwen3-4B ensures model stays resident.
+
+---
 
 ## Sources
 
-- Direct inspection: `mailbox/dashboard/migrations/033-*.sql`, `052-*.sql`, `053-*.sql`, `038-*.sql`
-- Direct inspection: `mailbox/dashboard/lib/queries-accounts.ts`, `lib/crm/queries.ts`, `lib/oauth/google.ts`, `app/api/oauth/google/callback/route.ts`, `app/api/oauth/google/[provider]/connect/route.ts`, `app/api/accounts/route.ts`, `app/onboarding/email-connect/page.tsx`
-- Direct inspection: `agentbox-sidecar/web/src/lib/entities.ts`, `lib/departments.ts`, `lib/crm.ts`, `pages/CronPage.tsx`, `pages/DailyBriefPage.tsx`, `components/ProposalsView.tsx`
-- Direct inspection: `agentbox-sidecar/src/agentbox_sidecar/features/digest.py`, `features/cronext.py`
-- `.planning/PROJECT.md` (Unified Entities milestone requirements), `mailbox/CLAUDE.md`, `mailbox/dashboard/CLAUDE.md`, `agentbox-sidecar/CLAUDE.md`
+- [Docker Setup on JetPack 6 — JetsonHacks](https://jetsonhacks.com/2025/02/24/docker-setup-on-jetpack-6-jetson-orin/)
+- [Free up more RAM for Ollama (Jetson Orin Nano Super) — NVIDIA Developer Forums](https://forums.developer.nvidia.com/t/free-up-more-ram-for-ollama-jetson-orin-nano-super/331663)
+- [Jetson Orin Nano 8GB Docker issue — Ollama falls back to CPU — NVIDIA Developer Forums](https://forums.developer.nvidia.com/t/jetson-orin-nano-8gb-docker-issue-ollama-falls-back-to-cpu-when-stable-diffusion-is-running/356279)
+- [n8n self-hosted AI starter kit — GitHub](https://github.com/n8n-io/self-hosted-ai-starter-kit)
+- [Local AI with Docker, n8n, Qdrant, and Ollama — DataCamp](https://www.datacamp.com/tutorial/local-ai)
+- [Qdrant memory consumption guide](https://qdrant.tech/articles/memory-consumption/)
+- [Ollama Memory Management and GPU Allocation — DeepWiki](https://deepwiki.com/ollama/ollama/5.4-memory-management-and-gpu-allocation)
+- [n8n Email Trigger (IMAP) node documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.emailimap/)
+- [Docker Compose health checks and startup order](https://docs.docker.com/compose/how-tos/startup-order/)
+- [qwen3:4b-q4_K_M on Ollama library](https://ollama.com/library/qwen3:4b-q4_K_M)
+- [nomic-embed-text on Ollama library](https://ollama.com/library/nomic-embed-text)
+- [AI Models that run on Jetson Orin Nano Super 8GB — NVIDIA Forums](https://forums.developer.nvidia.com/t/ai-models-that-run-on-jetson-orin-nano-super-8gb-a-practical-guide/365412)
+- [n8n memory-related errors documentation](https://docs.n8n.io/hosting/scaling/memory-errors/)
 
 ---
-*Architecture research for: Unified Entities milestone (mailbox + agentbox-sidecar)*
-*Researched: 2026-07-11*
+
+*Architecture research for: MailBox One — Edge AI Email Agent Appliance*
+*Researched: 2026-04-02*

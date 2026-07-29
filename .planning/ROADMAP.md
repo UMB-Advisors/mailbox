@@ -4,8 +4,6 @@
 
 Four phases, each delivering a coherent capability. Phase 1 establishes the verified hardware and service foundation that everything else depends on — GPU passthrough confirmed, all five containers healthy. Phase 2 builds the complete email processing loop end-to-end: IMAP in, Qwen3 classification, RAG-augmented draft, approval queue, SMTP out — with persona tuning and history ingestion at first boot. Phase 3 hands control to the operator: graduated auto-send, classification correction, OTA updates, and email notifications. Phase 4 completes the dashboard UI as a polished, mobile-responsive appliance interface. Granularity: coarse.
 
-**Milestone M5 — Unified Entities (AgentBOX fork)** adds Phases 5-8, a distinct cross-repo track (not part of the Heron Labs M1-M4 product line above) that makes the CRM business/department model the single source of truth for every entity reference in Mike's multi-business AgentBOX appliance (`agentbox3`). Phase 5 lands the backend schema + auto-create logic (`mailbox` repo); Phase 6 exposes CRM management (`mailbox` repo); Phase 7 repoints the `agentbox-sidecar` UI at the live CRM; Phase 8 bridges the gbrain digest entity axis one-way from CRM. See REQUIREMENTS.md's "Milestone M5" section for the full `ENT-*`/`MAP-*`/`MANAGE-*`/`FILT-*`/`DIGEST-*` requirement list.
-
 ## Milestone ↔ Phase Crosswalk
 
 GSD planning runs on a Phase axis (Phase 1 → Phase 2 → Phase 3 → Phase 4). Linear runs on an M-axis aligned to ship/customer events (M1 → M2 → M3 → M4). Both axes describe the same scope; this crosswalk lets a reader translate between them.
@@ -19,12 +17,9 @@ GSD planning runs on a Phase axis (Phase 1 → Phase 2 → Phase 3 → Phase 4).
 
 The Phase axis describes *what gets built*; the M axis describes *what gets shipped to whom and when*. A phase plan can land before its M-milestone if it's a dependency (e.g. 02-05 RAG and 02-06 persona shipped in M2 territory but cover M4 capability). When in doubt, treat Phase as the build artifact and M as the customer-facing checkpoint.
 
-**M5 is a separate track.** Unlike M1-M4 (all Heron Labs product milestones sharing Phases 1-4), M5 — Unified Entities (AgentBOX fork) — is Mike's own multi-business appliance fork (`agentbox3`), spanning two repos (`mailbox` backend + `UMB-Advisors/agentbox-sidecar` UI/Python). It is not part of the Heron Labs crosswalk above; it continues the Phase axis at Phase 5 purely for numbering continuity. M5 ↔ Phase mapping: Phase 5 (backend data model + auto-create), Phase 6 (CRM API + management), Phase 7 (sidecar filter unification — hard-depends on Phase 5 deployed + verified), Phase 8 (gbrain digest bridge, deferrable/lowest priority).
-
 ## Phases
 
 **Phase Numbering:**
-
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -34,49 +29,37 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Email Pipeline Core** - Complete end-to-end email loop: Gmail ingestion, classification, RAG-augmented drafting, approval queue, Gmail Reply send, persona at first boot. Substantively complete (02-02/03/04 done; 02-05/06/07 shipped via Linear with retroactive SUMMARYs 2026-05-07); 02-08 onboarding wizard remains the open plan.
 - [ ] **Phase 3: Operator Trust and Reliability** - Graduated auto-send, classification correction, OTA updates, email notifications, graceful degradation
 - [ ] **Phase 4: Dashboard and Hardening** - Full dashboard UI with approval queue, history logs, knowledge base management, system status, mobile-responsive, auth
-- [x] **Phase 5: Backend Data Model & Auto-Create** - Nullable `accounts.business_id` FK + backfill, idempotent auto-create/find-or-create on account connect, `businesses.slug` + legacy-slug seed (mailbox repo) (completed 2026-07-29)
-- [ ] **Phase 6: CRM Accounts API & Management** - Manual business create, rename, re-map, un-map, delete-with-confirmation, departments reaffirmed (mailbox repo)
-- [ ] **Phase 7: Sidecar Filter Unification** - CronPage/DailyBrief/Proposals/triage pickers read the live CRM list; `entities.ts`/`ENTITY_OPTIONS` retired (agentbox-sidecar repo)
-- [ ] **Phase 8: gbrain Digest Bridge** - One-way CRM → `entities.json` sync for the gbrain digest entity axis (agentbox-sidecar repo, Python)
 
 ## Phase Details
 
 ### Phase 1: Infrastructure Foundation
-
 **Goal**: The Jetson Orin Nano Super runs all five services with GPU inference verified and the appliance boots to fully operational in under 3 minutes
 **Depends on**: Nothing (first phase)
 **Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05, INFRA-06, INFRA-07, INFRA-08, INFRA-09, INFRA-11, INFRA-12
 **Success Criteria** (what must be TRUE):
-
   1. Jetson boots headless into JetPack 6.2, `docker compose up` brings all five services to healthy within 3 minutes
   2. `docker run --rm --runtime nvidia nvidia-smi` confirms GPU passthrough; Ollama reports `num_gpu_layers > 0` for Qwen3-4B
   3. Qwen3-4B generates a test completion in under 5 seconds; nomic-embed-text returns embeddings on request
   4. Qdrant starts without jemalloc ARM64 errors; Postgres persists data across a container restart
   5. Power mode set to MAXN (25W) at boot via systemd; NVMe encrypted with LUKS
-
 **Plans**: 3 plans (all complete)
 Plans:
-
 - [x] 01-01-PLAN.md — Docker Compose stack, env template, Postgres schema init, dashboard placeholder
 - [x] 01-02-PLAN.md — First-boot checkpoint script (JetPack validation through compose start)
 - [x] 01-03-PLAN.md — Smoke test script (all success criteria + boot time verification — 6/6 passing 2026-04-26)
 
 ### Phase 2: Email Pipeline Core
-
 **Goal**: A real inbound email flows from IMAP through classification and RAG-augmented drafting into an approval queue, and the approved draft sends via SMTP from the customer's address — with persona extracted from sent history at first boot
 **Depends on**: Phase 1
 **Requirements**: MAIL-01, MAIL-02, MAIL-03, MAIL-04, MAIL-05, MAIL-06, MAIL-07, MAIL-08, MAIL-09, MAIL-10, MAIL-11, MAIL-12, MAIL-13, MAIL-14, RAG-01, RAG-02, RAG-03, RAG-04, RAG-05, RAG-06, PERS-01, PERS-02, PERS-03, PERS-04, PERS-05, ONBR-01, ONBR-02, ONBR-03, ONBR-04, ONBR-05, ONBR-06, APPR-01, APPR-02
 **Success Criteria** (what must be TRUE):
-
   1. An email arriving in the connected Gmail inbox appears in the approval queue within 90 seconds, classified into one of the 8 CPG categories with a confidence score
   2. Classification accuracy on a 100-email Heron Labs test set exceeds 80%; `<think>` tokens are stripped and invalid JSON falls back to "unknown" without crashing the pipeline
   3. Each draft shows its source label (Local / Qwen3 or Cloud / Claude Haiku), top-3 RAG context references, and the draft reflects the operator's voice extracted from sent history
   4. Approving a draft in the queue sends it from the customer's SMTP address; rejecting a draft discards it; complex emails queue with "awaiting cloud" status when the API is unreachable
   5. First-boot wizard connects email, ingests 6 months of sent history with a progress indicator, and surfaces a persona tuning session with 20 sample drafts before live email begins
-
 **Plans**: 8 plans (7 complete, 1 partial)
 Plans:
-
 - [x] 02-01-dashboard-backend-bootstrap-PLAN.md — **SUPERSEDED 2026-04-27** by Next.js full-stack ADR (architectural pivot — Express backend retired in favor of Next.js API routes); never executed.
 - [x] 02-02-schema-foundation-PLAN-v2-2026-04-27.md — 6 forward-only SQL migrations applied to live Postgres + types/queries shipped 2026-04-27. v1 marked SUPERSEDED.
 - [x] 02-03-imap-ingestion-watchdog — Schema migration 007 + Gmail+Schedule workflow extension shipped against the v2 STUB intent (2026-04-28); IMAP-trigger + watchdog architecture rendered moot per D-30. Pub/Sub revert per D-51 (2026-04-30). See SUMMARY. v1 + v2 STUB marked SUPERSEDED.
@@ -91,111 +74,33 @@ Plans:
 **UI hint**: yes
 
 ### Phase 3: Operator Trust and Reliability
-
 **Goal**: The operator has graduated auto-send controls they can unlock per category, visibility into classification accuracy over time, OTA updates with rollback, email notifications, and the pipeline handles outages without data loss
 **Depends on**: Phase 2
 **Requirements**: APPR-03, APPR-04, APPR-05, APPR-06, NOTF-01, NOTF-02, INFRA-10
 **Success Criteria** (what must be TRUE):
-
   1. Auto-send is OFF by default for all categories; the operator can enable it per category after observing accuracy, and correctly classified emails at threshold confidence send without entering the queue
   2. The dashboard shows daily/weekly send volume, pending queue count, and time-in-queue per draft; the operator can view and correct any classification to improve accuracy over time
   3. An OTA update can be triggered from the dashboard; the previous image is retained on-device and can be rolled back if the post-update health check fails
   4. The operator receives an email alert when the queue exceeds the configured threshold, and a daily digest summarizing received/drafted/sent/pending/escalated counts
-
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 4: Dashboard and Hardening
-
 **Goal**: The dashboard is a complete, mobile-responsive appliance interface accessible at http://device.local:3000 — approval queue, history logs, knowledge base, persona settings, system status, and authentication all functional from a phone on the same Wi-Fi
 **Depends on**: Phase 3
 **Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06, DASH-07, DASH-08, DASH-09, DASH-10
 **Success Criteria** (what must be TRUE):
-
   1. The dashboard loads at http://device.local:3000 on a phone browser over LAN, requires username/password set during first-boot, and all views render correctly at mobile viewport
   2. The approval queue shows pending drafts with original email, draft text, confidence score, source label (Local/Cloud), and approve/edit/reject/escalate actions
   3. Sent history, classification log, and knowledge base management (upload PDF/DOCX/CSV, view, remove) are all accessible and functional
   4. The system status view shows uptime, email connection health, model status, disk usage, queue depth, and API cost meter — all reflecting live appliance state
-
 **Plans**: TBD
 **UI hint**: yes
-
-### Phase 5: Backend Data Model & Auto-Create
-
-**Goal**: Every account authorized on the appliance (any provider) is linked to a CRM business automatically and idempotently, with historical slug references preserved for downstream consumers
-**Depends on**: Nothing new — first phase of M5, builds on the merged+deployed CRM+triage-unified base (PR #239)
-**Requirements**: ENT-01, ENT-02, ENT-03, ENT-05, MAP-01, MAP-04, FILT-05
-**Success Criteria** (what must be TRUE):
-
-  1. Authorizing any account (Gmail, IMAP, or Microsoft) auto-creates a CRM business named from `display_label` or email domain, with no connect-time prompt
-  2. Reconnecting/re-authorizing the same account never creates a duplicate business — it's idempotent (`xmax=0` first-insert pattern / `ON CONFLICT DO NOTHING RETURNING id` + fallback select)
-  3. When a business already exists for the account's email domain, the account attaches to it instead of creating a new one
-  4. `mailbox.accounts.business_id` (new nullable FK, `ON DELETE SET NULL`) exists, and the backfill links **all 6** live accounts — matching the 3 existing businesses and creating the 3 missing ones (Jiffy Auto Glass, Elevated Advisory, Bonvillian Design) by applying the same resolution rule the runtime hook uses. **Supersedes the original wording** ("leaving unmatched accounts unlinked rather than guessed") per decision D-09 in `05-CONTEXT.md`: leaving a third of the accounts unlinked would have left them outside every entity filter the moment Phase 7 ships, defeating the milestone goal. Zero unlinked accounts is the acceptance bar.
-  5. Every business has a `slug`, seeded from the legacy slugs already live in `jobs.json`/digest config, so historical cron-job/digest references keep resolving once downstream consumers switch to the CRM source
-
-**Plans**: 4/4 plans complete
-Plans:
-
-- [x] 05-01-PLAN.md — Migration 057 (`accounts.business_id` FK + `businesses.slug` with computed backfill and the single `altitude` legacy seed), fixture-schema mirror, kysely-codegen regeneration, schema-invariant coverage
-- [x] 05-02-PLAN.md — `lib/crm/auto-link.ts`: free-mail exclusion list, slug generation, sibling-domain lookup, idempotent find-or-create, and the non-fatal `linkAccountToBusiness`; `createBusiness` made slug-compatible
-- [x] 05-03-PLAN.md — `persistAccountLink` seam wired into all three account creators (both insert and sentinel-adopt branches), real-Postgres auto-link tests, and the re-runnable `business:backfill` script
-- [x] 05-04-PLAN.md — Gated live deploy to `agentbox3`: rollback pre-flight, migration apply, backfill run, and MAP-04/FILT-05 verification (the Phase 7 cross-repo gate evidence)
-
-**Research notes**: discuss-phase should resolve the hook-point discrepancy flagged in `research/SUMMARY.md` before planning — STACK/PITFALLS research recommends 3 call sites (OAuth callback for first-boot + `createAccount`/`createImapAccount`); ARCHITECTURE research recommends hooking `createAccount()`/`createImapAccount()`/`createMicrosoftAccount()` only, treating the OAuth callback as pure token-attach. Also confirm the IMAP/Microsoft parity decision explicitly during discuss-phase (M5 requirements lock "all providers" per ENT-01, superseding the narrower "Gmail authorized" language in early research notes).
-**Cross-repo note**: `mailbox` repo only. Must be deployed + verified live (slug seed confirmed present, e.g. via `/api/system/status` or `/api/crm/businesses`) before Phase 7 (sidecar) deploys — independent deploy pipelines, no shared CI.
-
-### Phase 6: CRM Accounts API & Management
-
-**Goal**: The operator can fully manage businesses and account-to-business mapping — creating businesses with no inbox, renaming, re-mapping, un-mapping, and safely deleting with orphan visibility
-**Depends on**: Phase 5 (requires `accounts.business_id` and the auto-create helper already in place)
-**Requirements**: ENT-04, MANAGE-01, MANAGE-02, MANAGE-03, MAP-02, MAP-03
-**Success Criteria** (what must be TRUE):
-
-  1. User can create a business manually with no connected inbox (a company record with zero accounts)
-  2. User can rename any business, including auto-created ones, and the new name is reflected everywhere it's referenced
-  3. User can re-map a connected account to a different business in one action, and un-map/disconnect an account without the linked business being deleted (`SET NULL`, never cascade)
-  4. Deleting a business requires explicit confirmation and surfaces what it will orphan (linked accounts, departments, jobs) before it proceeds
-  5. Departments can still be added/managed per business under the unified model (reaffirmed, not regressed)
-
-**Plans**: TBD
-**UI hint**: yes
-**Cross-repo note**: `mailbox` repo only.
-
-### Phase 7: Sidecar Filter Unification
-
-**Goal**: Every business/entity picker in the `agentbox-sidecar` dashboard reads the live CRM business list; the hardcoded list is gone
-**Depends on**: Phase 5 (hard dependency — the `businesses.slug` legacy-slug seed must be live and deployed before this phase's build ships; FILT-05 back-compat depends on it)
-**Requirements**: FILT-01, FILT-02, FILT-03, FILT-04, FILT-06
-**Success Criteria** (what must be TRUE):
-
-  1. The Agent Jobs (`CronPage`) business dropdown lists the live CRM businesses, not the hardcoded `ENTITY_OPTIONS` array
-  2. Daily Brief's entity filter and Proposals' entity tag both read from the same CRM-backed source
-  3. Mail triage business references resolve against the CRM source, including for pre-existing (legacy-slug) records
-  4. `entities.ts`/`ENTITY_OPTIONS` is deleted from the sidecar codebase, so any missed consumer fails the build instead of silently reverting to stale data
-
-**Plans**: TBD
-**UI hint**: yes
-**Cross-repo note**: `UMB-Advisors/agentbox-sidecar` repo, deployed via `rsync`+`systemd` on a different host from `mailbox`, on an independent cadence with no shared CI. **Confirm mailbox is deployed and verified live (Phase 5's slug seed present) before deploying this phase's sidecar build** — there is no compile-time signal if this order is violated.
-
-### Phase 8: gbrain Digest Bridge
-
-**Goal**: The gbrain digest's entity axis is derived one-way from CRM businesses, so it stays in sync without the digest daemon depending on the dashboard being reachable
-**Depends on**: Phase 6 (business list should be stable post-rename/management operations before becoming a sync source)
-**Requirements**: DIGEST-01
-**Success Criteria** (what must be TRUE):
-
-  1. `entities.json` is generated/updated from the live CRM businesses list (one-way CRM → digest), not hand-maintained
-  2. `digest.py`'s existing read path is completely unchanged — the daemon still reads `entities.json` exactly as before, just from CRM-derived content
-  3. The sync is additive and non-blocking: if the CRM/dashboard is unreachable, the gbrain daemon continues operating on its last-synced `entities.json` rather than failing
-
-**Plans**: TBD
-**Research notes**: needs its own scoped research/discuss pass on the sync-trigger design (startup-only vs. interval vs. CRM-mutation-triggered refresh) before planning — explicitly left open by `research/SUMMARY.md`'s architecture findings.
-**Cross-repo note**: `UMB-Advisors/agentbox-sidecar` repo (Python side). Lowest priority/deferrable — additive, non-blocking, not load-bearing for the rest of the milestone's UI-facing goals. Sequenced last so the CRM business list stabilizes post-Phase-6-renames before becoming someone else's sync source.
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8. Phases 5-8 belong to Milestone M5 (Unified Entities, AgentBOX fork) — a separate cross-repo track from the Heron Labs Phases 1-4 above; they continue the Phase axis purely for numbering continuity.
+Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -203,9 +108,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8. Ph
 | 2. Email Pipeline Core | 7/8* | Substantively complete; 02-08 partial (M1 + M2 + most of M4 delivered) | - |
 | 3. Operator Trust and Reliability | 0/TBD | Not started (M3+M4) | - |
 | 4. Dashboard and Hardening | 0/TBD | Not started (M3) | - |
-| 5. Backend Data Model & Auto-Create | 4/4 | Complete   | 2026-07-29 |
-| 6. CRM Accounts API & Management | 0/TBD | Not started (M5) | - |
-| 7. Sidecar Filter Unification | 0/TBD | Not started (M5) | - |
-| 8. gbrain Digest Bridge | 0/TBD | Not started (M5) | - |
 
 *Phase 2 detail: 02-01 SUPERSEDED (counted as resolved, not done), 02-02 done, 02-03 done, 02-04 done (split a/b), 02-05 done (shipped via Linear, retroactive SUMMARY 2026-05-07), 02-06 done (shipped via Linear, retroactive SUMMARY 2026-05-07), 02-07 done (PLAN promoted 2026-04-30; post-promotion shipping wave closed via retroactive SUMMARY 2026-05-07), 02-08 partial (wizard scaffolded; install automation v0.1 drafted; full closure pending). 7 of 8 plan slots complete.

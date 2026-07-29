@@ -8,19 +8,6 @@ A dedicated hardware appliance (Jetson Orin Nano Super) that runs an AI email ag
 
 Inbound operational email for small CPG brands gets triaged, drafted, and (with human approval) sent — without the founder spending 1-3 hours/day on email.
 
-## Current Milestone: Unified Entities (AgentBOX fork)
-
-**Goal:** Make the CRM business/department model the single source of truth for every entity reference in the AgentBOX dashboard, and let entities come into existence automatically from connected Gmail accounts.
-
-**Target features:**
-- Auto-create a CRM business entity when a Gmail account is authorized (named from `display_label`/email domain), linked to that account
-- Auto-created entities are renameable and can have departments added (as today)
-- Support manually-created businesses (a company with no inbox) and re-mapping an account to a different business later
-- Every business/department/entity filter/dropdown reads from the one CRM source — Agent Jobs (sidecar `CronPage`, currently hardcoded `ENTITY_OPTIONS`), Daily Brief, Proposals, mail triage
-- Reconcile the separate gbrain digest "entity" axis (`AGENTBOX_ENTITY_SLUGS` / `entities.json`) with CRM businesses (unify, derive, or bridge — decision in scope)
-
-**Context:** This is the **AgentBOX fork** line (Mike's multi-business appliance `agentbox3`), distinct from the Heron Labs M1 product milestones (M1–M4 above). Cross-repo: backend/data here (mailbox — `accounts`, `businesses/departments/team_members`, OAuth/onboarding, `/api/crm/*`); UI filter-wiring in `UMB-Advisors/agentbox-sidecar`. Builds on the merged+deployed CRM+triage-unified base (PR #239). Note the original product scoped external CRM (HubSpot/Salesforce) out of v1 — this is the *internal* entity model, a fork capability.
-
 ## Requirements
 
 ### Validated

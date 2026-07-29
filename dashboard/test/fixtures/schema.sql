@@ -1672,9 +1672,3 @@ CREATE INDEX IF NOT EXISTS inbox_messages_thread_id_idx
 CREATE INDEX IF NOT EXISTS sent_history_thread_id_idx
   ON mailbox.sent_history (thread_id);
 
--- ── Migration 057: M5 unified entities — accounts.business_id + businesses.slug ──
-ALTER TABLE mailbox.accounts    ADD COLUMN IF NOT EXISTS business_id INTEGER
-  REFERENCES mailbox.businesses(id) ON DELETE SET NULL;
-ALTER TABLE mailbox.businesses  ADD COLUMN IF NOT EXISTS slug TEXT NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS businesses_slug_key ON mailbox.businesses (slug);
-

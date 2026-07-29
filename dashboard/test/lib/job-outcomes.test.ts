@@ -23,13 +23,13 @@ dbDescribe('job_outcomes ledger + rollup — real Postgres', () => {
     const pool = getTestPool();
     // Two businesses + departments to group under.
     const b1 = await pool.query<{ id: number }>(
-      'INSERT INTO mailbox.businesses (name, slug) VALUES ($1, $2) RETURNING id',
-      [`${STAMP} Yes Cacao`, `${STAMP}-yes-cacao`],
+      'INSERT INTO mailbox.businesses (name) VALUES ($1) RETURNING id',
+      [`${STAMP} Yes Cacao`],
     );
     bizYes = b1.rows[0].id;
     const b2 = await pool.query<{ id: number }>(
-      'INSERT INTO mailbox.businesses (name, slug) VALUES ($1, $2) RETURNING id',
-      [`${STAMP} STATE`, `${STAMP}-state`],
+      'INSERT INTO mailbox.businesses (name) VALUES ($1) RETURNING id',
+      [`${STAMP} STATE`],
     );
     bizState = b2.rows[0].id;
     const d1 = await pool.query<{ id: number }>(

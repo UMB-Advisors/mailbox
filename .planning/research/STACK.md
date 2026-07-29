@@ -1,178 +1,263 @@
 # Stack Research
 
-**Domain:** Wiring milestone — entity unification on an existing Next.js/Kysely/Postgres dashboard + a separate React/FastAPI sidecar
-**Researched:** 2026-07-11
-**Confidence:** HIGH (all findings verified directly against the live repo code, not inferred)
+**Domain:** AI email agent appliance (ARM64 edge hardware)
+**Researched:** 2026-04-02
+**Confidence:** MEDIUM-HIGH (all core choices verified against official docs and current sources; some ARM64-specific gotchas confirmed via GitHub issues)
 
-## Headline Answer
-
-**No new runtime dependency is needed anywhere in this milestone.** Every piece — auto-create-on-auth, the account↔business link, and the entity-filter unification — is wiring across four modules that already exist and already do 90% of this job:
-
-- `dashboard/lib/queries-accounts.ts` (`createAccount`, `createImapAccount`)
-- `dashboard/lib/oauth/google.ts` (`saveToken`, the `google_gmail` OAuth callback branch)
-- `dashboard/lib/crm/queries.ts` (`createBusiness`, already has `Business`/`Department` types + `departments.business_id` precedent)
-- `agentbox-sidecar/web/src/lib/crm.ts` (`crmApi.listBusinesses()`, already fully wired end-to-end)
-
-The only "stack decision" left is a schema micro-decision (column vs. link table — see below) and where exactly to place three call sites of one new idempotent helper function.
+---
 
 ## Recommended Stack
 
-### Core Technologies (unchanged — reuse as-is)
+### Core Technologies
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Kysely | ^0.28.16 (already installed) | Typed query builder for the new `accounts.business_id` FK + all reads | `Accounts`, `Businesses`, `Departments` are all already present in the generated `dashboard/lib/db/schema.ts` DB type (confirmed by grep — `businesses: Businesses`, `departments: Departments`, `accounts: Accounts` all exist at lines 515-535). Adding one nullable column is a `kysely-codegen` re-run away, no new tooling. |
-| `pg` (raw Pool) | ^8.13.1 (already installed) | CRM query layer | `dashboard/lib/crm/queries.ts` currently uses raw `getPool()` (its own header comment says CRM tables predate the Kysely codegen pass) even though the type IS now in `schema.ts` — safe to keep as-is for this milestone; not worth a refactor mid-feature. Note only, not a blocker. |
-| plain `.sql` migrations | n/a | Add `accounts.business_id` column | `dashboard/migrations/NNN-*.sql` + `runner.ts` — exact same mechanism as the two migrations (052/053) that built the CRM tables. No new migration tool. |
-| zod | ^4.4.1 (already installed) | Validate the new "assign account to business" request body | `dashboard/lib/schemas/accounts.ts` already has `accountCreateSchema`; extend with an `accountBusinessAssignSchema` the same way. |
-| React (plain hooks) | 18.x (already installed, sidecar) | Replace hardcoded `ENTITY_OPTIONS` with live CRM data | Confirmed via grep: the sidecar has **no** React Query / SWR dependency anywhere in `web/package.json`. `TeamPage.tsx` and its siblings already fetch CRM data with plain `useState`/`useEffect`. A `useBusinesses()` hook in that same style is the right fit — adding TanStack Query for one list endpoint would be a net-new dependency for zero benefit. |
+| Ollama | 0.18.4 (latest stable as of 2026-04-02; 0.19.0 preview available) | Local LLM inference server | Native JetPack 6 support; official ARM64 CUDA image via `jetson-containers`; single-command model management; built-in GPU passthrough in Docker Compose via NVIDIA runtime; n8n has a first-class Ollama Model node |
+| Qdrant | 1.17.1 | Vector database for RAG | Rust-native binary = low idle memory; official multi-arch Docker image (linux/arm64); payload filtering eliminates extra DB round-trips; active development with weekly releases; outperforms pgvector for pure vector workloads |
+| n8n | 2.14.2 (2.x stable) | Workflow orchestrator | Native IMAP trigger + Gmail trigger nodes; built-in Ollama Model node; built-in Anthropic Chat Model node; ARM64 Docker image officially supported (`n8nio/n8n:latest-arm64`); visual debugging speeds iteration; fair-code license allows self-hosting |
+| Postgres | 17-alpine | Operational datastore | Multi-arch Docker official image with zero configuration; `postgres:17-alpine` is smallest footprint (~80MB) vs standard (~350MB); stores n8n workflow state, approval queue records, sent history, persona config |
+| Node.js + Express | 22 LTS (Node.js); 4.x (Express) | Dashboard API backend | Official `node:22-alpine` is multi-arch; Express is the minimal-overhead choice for a small appliance REST/WebSocket API; avoids heavyweight frameworks on 8GB unified memory |
+| React + Vite | React 18.x; Vite 6.x | Dashboard UI | Vite 6 produces smallest production bundles; multi-stage Docker build → nginx:alpine serves static files, eliminating Node.js process at runtime; React 18 concurrent mode reduces perceived latency on slow LAN |
 
-### Supporting Libraries
+### Models
 
-None needed. Specifically ruled out:
+| Model | Pull Tag | Size (VRAM) | Purpose | Why Recommended |
+|-------|----------|------------|---------|-----------------|
+| Qwen3-4B | `qwen3:4b` (Q4_K_M default) | ~2.7 GB | Email classification + simple draft generation | Q4_K_M quantization confirmed available on Ollama library; 32K context window natively; thinking/non-thinking mode toggle; outperforms Llama-3.2-3B on classification tasks at same size; validated on Jetson-class hardware |
+| nomic-embed-text | `nomic-embed-text:v1.5` | 274 MB | RAG embeddings | 274MB — leaves substantial headroom alongside Qwen3-4B; 45M+ downloads (most-used embedding model on Ollama); 2K context window appropriate for email chunks; v1.5 is current stable (v2-moe exists but 475M params adds pressure on 8GB budget) |
+| claude-haiku-4-5-20251001 | API only | — (cloud) | Complex draft generation, escalation handling | Released Oct 2025; $1/1M input tokens; 200K context; matches Sonnet 4 on coding benchmarks; n8n Anthropic Chat Model node supports model ID string override |
 
-| Considered | Verdict | Why not |
-|---|---|---|
-| `slugify` / similar npm package | Not needed | Deriving a business display name from an email domain (`heronlabsinc.com` → `Heron Labs`) is a 10-line regex + title-case helper, not worth a dependency. Put it in a new `dashboard/lib/crm/naming.ts` (or inline in the auto-provision helper below). |
-| `@tanstack/react-query` / `swr` (sidecar) | Not needed | See above — no existing usage, would be inconsistent with the rest of `web/src/pages/*`. |
-| A generic "auth webhook" / event-bus library | Not needed | The auto-create-business trigger is same-process, same-request — a direct function call from the existing route handlers, not an event that needs pub/sub. |
+### Supporting Libraries (Dashboard Service)
+
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| `@anthropic-ai/sdk` | latest (npm) | Anthropic API calls from Node.js | Used when making direct API calls outside n8n (e.g., from dashboard backend for persona extraction during onboarding) |
+| `drizzle-orm` | ^0.31 | Type-safe Postgres ORM | Dashboard backend: approval queue, sent history, config tables. Lightweight, no codegen step, works with `postgres:17` |
+| `drizzle-kit` | ^0.22 | Migration management | Paired with drizzle-orm; generates SQL migrations from schema changes |
+| `ws` | ^8 | WebSocket server | Dashboard backend: real-time approval queue push to browser |
+| `@qdrant/js-client-rest` | ^1.11 | Qdrant REST client | Dashboard backend: knowledge base management UI queries |
+| `imapflow` | ^1.0 | IMAP client | Used only if n8n IMAP polling proves insufficient (rate limits, OAuth2 edge cases) — keep as fallback |
+| `nodemailer` | ^6 | SMTP sending | Same fallback role as imapflow — n8n Send Email node covers the primary path |
+| `zod` | ^3 | Runtime validation | API request/response validation in Express routes |
+| `react-query` | ^5 (TanStack Query) | Server state management | Dashboard: approval queue polling, optimistic updates on approve/reject actions |
+| `tailwindcss` | ^4 | Utility CSS | Mobile-responsive dashboard; zero runtime overhead; v4 removes config file requirement |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `kysely-codegen` (already devDep, ^0.20.0) | Regenerate `lib/db/schema.ts` after the `accounts.business_id` migration | Run `npm run db:codegen` after the migration; CI's `db:codegen:verify` will catch drift if forgotten — no new step, existing gate. |
+| Docker 28.0.1+ | Container runtime | Pin to >=28.0.1 — Docker 28.0.0 broke GPU passthrough on Jetson (kernel module dependency). Use `docker.io` from Ubuntu repos, NOT `docker-ce` from Docker Inc. — the latter breaks NVIDIA runtime configuration paths on JetPack |
+| `nvidia-container-toolkit` | GPU passthrough to containers | Install via `apt-get install -y nvidia-container-toolkit` then `nvidia-ctk runtime configure --runtime=docker`. Required for Ollama GPU access |
+| `jetson-containers` (dusty-nv) | Validated container images | Use `autotag ollama` to get the correct JetPack-matched Ollama image. Eliminates CUDA/cuDNN version mismatch guesswork |
+| `docker-compose` plugin | Orchestration | Use the Docker Compose v2 plugin (`docker compose`) not standalone `docker-compose` v1 (deprecated) |
+| GHCR | OTA update registry | `ghcr.io` free for public images; multi-arch manifest push via `docker buildx` with `--platform linux/arm64` |
+| `mkcert` | Local HTTPS | Optional: LAN HTTPS for dashboard if browser camera/mic permissions needed (not required for v1) |
+
+---
 
 ## Installation
 
 ```bash
-# No installation step. Zero new packages for this milestone.
+# --- Jetson host setup (run once after flash) ---
+# Install Docker using JetsonHacks scripts (avoids broken docker-ce)
+git clone https://github.com/jetsonhacks/install-docker.git
+cd install-docker
+bash ./install_nvidia_docker.sh
+bash ./configure_nvidia_docker.sh
+
+# Verify GPU passthrough
+docker run --rm --runtime nvidia --gpus all ubuntu nvidia-smi
+
+# --- Pull models via Ollama (after Docker Compose up) ---
+docker compose exec ollama ollama pull qwen3:4b
+docker compose exec ollama ollama pull nomic-embed-text:v1.5
+
+# --- Dashboard dependencies ---
+npm install express drizzle-orm @qdrant/js-client-rest ws zod nodemailer imapflow @anthropic-ai/sdk
+npm install -D drizzle-kit typescript vite @vitejs/plugin-react tailwindcss
+
+# --- React dashboard ---
+npm install react react-dom @tanstack/react-query
+npm install -D @types/react @types/react-dom
 ```
 
-## The One Real Schema Decision: Column vs. Link Table
+---
 
-**Recommendation: nullable `business_id` column on `mailbox.accounts`, not a link table.**
+## Docker Compose Service Config (critical settings)
 
-```sql
-ALTER TABLE mailbox.accounts
-  ADD COLUMN business_id INTEGER
-  REFERENCES mailbox.businesses(id) ON DELETE SET NULL;
+```yaml
+services:
+  ollama:
+    image: ollama/ollama:latest         # or use: jetson-containers autotag output
+    runtime: nvidia                      # REQUIRED — do not use deploy.resources on JetPack
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
 
-CREATE INDEX accounts_business_id_idx ON mailbox.accounts (business_id);
+  qdrant:
+    image: qdrant/qdrant:v1.17.1        # pin version; see ARM64 note below
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:2.14.2
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - N8N_RUNNERS_ENABLED=true         # required in n8n 2.x
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/mailbox
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+    restart: unless-stopped
 ```
 
-Why this and not a link table:
-- **Cardinality matches the spec.** The milestone's own requirement is "an account maps to one business, re-mappable later" (auto-create → rename → re-map to a *different* business). That is a one-to-many (one business, many accounts), which a nullable FK column expresses directly. A link table is the right tool for many-to-many (one Gmail inbox serving multiple businesses simultaneously) — that is explicitly not a stated requirement, and nothing else in the schema hints at it.
-- **It's the exact precedent already in the codebase.** `mailbox.departments.business_id` (migration `053-crm-businesses-v1-2026-06-05.sql`) is the identical pattern: nullable `INTEGER REFERENCES mailbox.businesses(id) ON DELETE SET NULL`, added to an existing table that predates the CRM concept. Copying it onto `accounts` keeps the schema self-consistent — a reviewer who already understands `departments.business_id` understands `accounts.business_id` for free.
-- **`ON DELETE SET NULL` matches existing product behavior.** Deleting a business shouldn't orphan-delete the Gmail account or its mail history; it should just unassign it, exactly like a department losing its business today.
-- **Re-mapping is a single `UPDATE`,** not a join-table insert/delete pair — simpler for the "Settings > Accounts" UI action, and simpler for the CRM API surface (`PATCH /api/accounts/[id] { business_id }`, mirroring the existing `PATCH /api/crm/departments/[id] { business_id }` pattern already live in `dashboard/app/api/crm/departments/[id]/route.ts`).
-
-If a genuine multi-business-per-inbox need shows up later (e.g., one shared ops inbox serving two brands), that is a distinct future migration — don't build the join table pre-emptively for a requirement that isn't there.
-
-## Auto-Create Hook Placement (the actual design work of this milestone)
-
-This is wiring, but *where* to wire it matters, so it's called out explicitly since it's the one place a wrong guess costs real rework.
-
-**Key finding: there is no single existing choke point that fires for "a Gmail account got authorized."** Two separate code paths create/attach a `mailbox.accounts` row today, and they behave differently:
-
-1. **Multi-account "connect a new inbox" flow** — `POST /api/accounts` → `createAccount()` in `dashboard/lib/queries-accounts.ts` inserts the registry row (any provider: gmail/imap/microsoft) *before* any Gmail OAuth consent happens. This is provider-agnostic and always fires for a genuinely new account.
-2. **First-boot onboarding Gmail flow** — there is **no** `createAccount()` call at all. The dashboard relies on the single account row seeded by migration 033 (`primary@appliance.local` sentinel, or already-renamed) and the OAuth consent only ever writes to `mailbox.oauth_tokens` via `saveToken()` in `dashboard/lib/oauth/google.ts`. Confirmed by grep — no `createAccount`/`createImapAccount` reference anywhere under `dashboard/app/onboarding/` or `dashboard/lib/onboarding/`.
-3. **IMAP connect flow** — `POST /api/internal/onboarding/imap-connect` (`mode:'save'`) → `createImapAccount()`, a third, separate insert/adopt path (adopts the sentinel default row in place, or inserts non-default).
-
-So "auto-create a business when a Gmail account is authorized" has to hook the actual **authorization** moment for the first-boot case (there's no account-creation event to hang off), but should hook **account creation** for the multi-account and IMAP cases (there's no separate "authorization" event for IMAP — the password check *is* the auth). Concretely:
-
-**Recommendation: one small idempotent helper, called from three places.**
-
-```ts
-// dashboard/lib/crm/auto-provision.ts (new, ~30 lines)
-export async function ensureBusinessForAccount(
-  accountId: number,
-  opts: { preferredName?: string | null; email: string },
-): Promise<void> {
-  // no-op if this account is already linked — never clobber a rename/re-map
-  const existing = await getAccountBusinessId(accountId); // new 1-line helper in queries-accounts.ts
-  if (existing != null) return;
-
-  const name = deriveBusinessName(opts.preferredName, opts.email); // domain -> "Heron Labs" style helper
-  const business = await findOrCreateBusinessByName(name); // new fn in crm/queries.ts — reuses existing
-                                                            // business row if the domain was seen before
-                                                            // (two inboxes @ same company), else createBusiness()
-  await setAccountBusinessId(accountId, business.id); // new 1-line helper in queries-accounts.ts
-}
-```
-
-Call sites:
-- **`POST /api/accounts` route**, right after `createAccount()` succeeds — covers the multi-account "connect new inbox" flow for every provider, before any Gmail OAuth even happens (so the business + rename UI is usable immediately, matching "auto-created entities are renameable").
-- **`POST /api/internal/onboarding/imap-connect`**, `mode:'save'` branch, right after `createImapAccount()` — covers IMAP, which has no separate OAuth step.
-- **`GET /api/oauth/google/callback`**, inside the existing `if (verified.provider === 'google_gmail')` branch, right after `saveToken()` succeeds — covers the first-boot case where no account-creation call exists, and is also what fires for a fresh multi-account Gmail connect (idempotent no-op there since call site #1 already linked it).
-
-The idempotency guard (`existing != null → return`) is what makes calling this from three places safe rather than sloppy — it also directly implements "re-mapping" safety: once an operator manually re-maps an account to a different business, no future OAuth reconnect/refresh silently reverts it.
-
-**Naming collision handling:** `mailbox.businesses.name` is `NOT NULL UNIQUE` (migration 053). Two Gmail inboxes on the same domain (`ops@heronlabsinc.com` + `sales@heronlabsinc.com`) must not throw a 500 on the second one — `findOrCreateBusinessByName` should look up by name first (case-insensitive) and attach to the existing business, not insert-and-catch. This is the correct behavior for the product anyway — both inboxes really are the same company.
-
-## Entity Filter Unification (sidecar)
-
-**No new dependency; replace `ENTITY_OPTIONS` with a `useBusinesses()` hook, not a rewrite.**
-
-- `agentbox-sidecar/web/src/lib/crm.ts` already exports `crmApi.listBusinesses()` fully wired to `GET /dashboard/api/crm/businesses` (same-origin, session-header handled). Nothing to build there.
-- Add `web/src/hooks/useBusinesses.ts` — plain `useState`/`useEffect` wrapping `crmApi.listBusinesses()`, matching the existing pattern already used in `TeamPage.tsx`. Returns `{ businesses, loading, error }`.
-- Swap the three confirmed consumers of the hardcoded list — `CronPage.tsx`, `DailyBriefPage.tsx`, `ProposalsView.tsx` (all import `ENTITY_OPTIONS`/`entityLabel` from `web/src/lib/entities.ts`, confirmed via grep) — to consume `useBusinesses()` instead. `web/src/lib/entities.ts` itself gets deleted once the last consumer is migrated — its own header comment already says "the backend stays authoritative... this static copy avoids a network round-trip for what is a fixed, rarely-changing list" — that tradeoff is exactly what this milestone reverses.
-- Departments follow the same shape — `web/src/lib/departments.ts` already exists as a sibling client file; confirm during planning whether it already reads live or is also hardcoded (not opened in this research pass — flag for phase-plan verification, not a stack question).
-
-## Out of Scope for This Stack Question (flag for roadmap, not a dependency decision)
-
-The **gbrain digest "entity" axis** (`AGENTBOX_ENTITY_SLUGS` env / `$HERMES_HOME/entities.json`) lives entirely on the Python/FastAPI side (`agentbox_sidecar/features/digest.py`), a completely different language and process from the Postgres/Kysely CRM. Reconciling it is a genuine architecture decision (does `digest.py` call the dashboard's `/api/crm/businesses` over HTTP at read time, or does something export CRM businesses into `entities.json` on a schedule/webhook?) — but it is **not a new-dependency question**: whichever direction is chosen, the Python side already has an HTTP client available (it talks to hermes upstream today), so no new library is implied either way. This belongs in `discuss-phase`/`plan-phase` for whichever roadmap phase covers it, not in this STACK research.
+---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|--------------------------|
-| Nullable `accounts.business_id` column | `mailbox.account_business_links` join table | Only if an account must belong to >1 business simultaneously — not a current requirement; revisit if that need materializes. |
-| Hook in 3 existing route handlers (`createAccount`, `createImapAccount`, OAuth callback) | A generic Postgres `AFTER INSERT` trigger on `accounts` (mirroring the `state_transitions` trigger pattern already used elsewhere in this codebase) | Triggers are this codebase's convention for pure audit/denormalization (see `state_transitions`, `inbox_messages` sync triggers) where the write is deterministic and needs zero business logic. Auto-provisioning a business needs a name-derivation decision + a find-or-create branch — real logic that's easier to read, test, and reason about in TypeScript than in a `plpgsql` function. Recommend app-layer for this one. |
-| `useBusinesses()` plain hook (sidecar) | `@tanstack/react-query` | If the sidecar later adds several more CRM-backed lists with caching/refetch/mutation needs across many pages, react-query would pay for itself. For unifying 3 existing consumers of one list, it's premature. |
+| Recommended | Alternative | When Alternative Makes Sense |
+|-------------|-------------|------------------------------|
+| Ollama 0.18.x | llama.cpp direct | Only if needing GGUF features not yet in Ollama (e.g., custom sampling); Ollama adds ~50ms overhead but saves massive integration work |
+| Qdrant | pgvector (Postgres extension) | If you want single-DB simplicity and vector scale is < 100K vectors; pgvector has ARM64 Docker support but is 3-4x slower on ANN search |
+| Qdrant | ChromaDB | ChromaDB is Python-only, requires separate Python runtime, higher memory overhead; Qdrant Rust binary is better for resource-constrained hardware |
+| n8n 2.x | Custom Python orchestrator (FastAPI + Celery) | Only if workflow logic becomes too complex for visual editing or if n8n licensing becomes an issue; doubles development time for v1 |
+| Qwen3-4B | Llama-3.2-3B | Llama-3.2-3B is better for fine-tuning (biggest improvement from fine-tuning per distil labs benchmark); Qwen3-4B wins on out-of-the-box classification quality |
+| Qwen3-4B | Mistral-7B | 7B exceeds safe VRAM budget when running alongside nomic-embed-text; leaves < 1GB for Qdrant and system — do not use |
+| nomic-embed-text:v1.5 | nomic-embed-text-v2-moe | v2-moe is 475M params (vs 137M for v1.5) — better accuracy but 3.5x larger; on 8GB unified RAM with Qwen3-4B loaded, v2-moe creates memory pressure; defer until v2 hardware |
+| nomic-embed-text:v1.5 | mxbai-embed-large | Similar accuracy; 335MB vs 274MB; no meaningful advantage for English-only CPG email corpus |
+| claude-haiku-4-5 | claude-sonnet-4-5 | Sonnet is the right escalation model when quality matters more than cost; PRD already includes it as explicit fallback — wire as second Anthropic node in complex draft path |
+| Postgres 17-alpine | SQLite | SQLite is fine for config/persona; Postgres is required because n8n 2.x recommends Postgres for production (avoids SQLite concurrency issues under workflow parallelism) |
+| React + Vite | Next.js | Next.js SSR is unnecessary overhead for a LAN-only dashboard; Vite SPA + Express API is simpler to containerize and debug on edge hardware |
+| nginx:alpine (serve static) | Node.js `serve` package | `serve` keeps a Node.js process running at idle; nginx:alpine is < 10MB and zero CPU at idle — important for power budget |
+| drizzle-orm | Prisma | Prisma has a 35-60MB native binary and background query engine process; drizzle-orm is < 1MB with no background process |
+
+---
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Deriving business identity from `oauth_tokens` / OAuth scope data alone | `oauth_tokens` is keyed `(provider, account_id)` and holds grant metadata, not identity — it was never meant to be a join key to CRM entities, and IMAP/Microsoft accounts don't have a Google OAuth row at all | `mailbox.accounts.business_id`, populated by the app-layer helper regardless of transport |
-| A link table "just in case" | Adds a join to every business-scoped account query (queue filters, settings page) for a cardinality that doesn't exist yet | The nullable column; revisit only if multi-business-per-inbox becomes real |
-| Hardcoding the auto-create hook only in the OAuth callback | Misses IMAP/Microsoft accounts entirely, and misses the multi-account "register now, connect Gmail later" flow where the operator should see the (auto-named) business immediately | The 3-call-site idempotent helper described above |
+| `docker-ce` (Docker Inc. repo) | Breaks NVIDIA runtime configuration paths on JetPack — GPU passthrough stops working | `docker.io` from Ubuntu 22.04 repos via JetsonHacks script |
+| Docker 28.0.0 (exactly) | This specific release broke Docker on Jetson due to missing kernel module dependency | Pin to 28.0.1 or install via JetsonHacks which handles version management |
+| Mistral-7B or any 7B+ model locally | 7B Q4_K_M requires ~4.5GB VRAM; leaves < 3.5GB for embeddings, Qdrant, and OS — system becomes unstable under load | Qwen3-4B (Q4_K_M, ~2.7GB) |
+| nomic-embed-text-v2-moe | 475M active params doubles the embedding memory footprint; on 8GB unified RAM this competes directly with Qwen3-4B | nomic-embed-text:v1.5 (137M params, 274MB) |
+| n8n 1.x | EOL 3 months post 2.0.0 (Dec 2025); security/bug fixes only; 2.x is the actively developed branch | n8n 2.x (current: 2.14.2) |
+| `docker-compose` v1 (standalone binary) | Deprecated upstream; not included in Docker 28.x; `docker compose` (plugin) is the current standard | Docker Compose v2 plugin (`docker compose`) |
+| Auto-updating containers (`:latest` tags in production) | Silent breakage risk on OTA updates; a broken Qdrant or n8n update at a customer site is a support incident | Pin all service images to specific versions; use GHCR for controlled OTA delivery |
+| ChromaDB | Python-only runtime adds 200-400MB overhead; inferior performance vs Qdrant on Rust hardware | Qdrant |
+| Langchain/LlamaIndex in n8n | These Python orchestrators duplicate what n8n already does natively; adds Python runtime dependency | n8n built-in AI Agent + Ollama Model nodes |
+
+---
 
 ## Stack Patterns by Variant
 
-**If a future account has no resolvable email domain worth naming a business after (e.g., a generic `gmail.com` personal address):**
-- Fall back to `display_label` if the operator supplied one at connect time, else a generic `"<email> (unassigned)"` placeholder name, never block account creation on naming ambiguity.
-- Because the whole point of "auto-create, then rename" is that the operator fixes up the name later — the auto-create step must never fail or block onboarding over a naming edge case.
+**If Ollama fails to detect GPU (common gotcha):**
+- Use `jetson-containers run $(autotag ollama)` instead of `docker run ollama/ollama`
+- The `autotag` command resolves the JetPack-matched image (e.g., `r36.4.0` for JetPack 6.2)
+- Check logs for `Nvidia GPU detected via cudart` — absence means toolkit is misconfigured
 
-**If the sidecar's `departments.ts` client turns out to already be hardcoded like `entities.ts` was:**
-- Apply the exact same `useBusinesses()`-style fix (`useDepartments()`), sourced from the already-existing `crmApi.listDepartments()`.
-- Because the unification requirement in scope ("every business/department/entity filter/dropdown reads from the one CRM source") explicitly includes departments, not just businesses.
+**If Qdrant ARM64 jemalloc error occurs (`<jemalloc>: Unsupported system page size`):**
+- This is a known open issue (GitHub #4298, open as of Nov 2025)
+- Workaround: set `environment: - MALLOC_CONF=narenas:1` in docker-compose
+- If that fails, build from source on-device: `cargo build --release` with `JEMALLOC_SYS_WITH_LG_PAGE=16`
+- The official multi-arch image (`qdrant/qdrant:v1.17.1`) includes the `-arm64` tag variant; pull explicitly with `docker pull qdrant/qdrant:v1.17.1-arm64` if the manifest auto-select fails
+- MEDIUM confidence on workaround reliability — test in Phase 1 sprint 1
+
+**If n8n Anthropic node doesn't list claude-haiku-4-5 in dropdown:**
+- The n8n Anthropic Chat Model node accepts any model ID string as a custom value
+- Set model to `claude-haiku-4-5-20251001` manually — n8n passes it directly to the API
+
+**If Qwen3 thinking mode causes latency spikes:**
+- Qwen3 can toggle between thinking (chain-of-thought) and non-thinking mode
+- For classification tasks (latency-sensitive), add `/no_think` system prompt directive
+- For draft generation, thinking mode is acceptable (< 60s cloud SLA has headroom)
+
+**If OTA update breaks a service:**
+- Rollback procedure: `docker compose pull [service]@[previous-digest]`
+- Pin digests not just versions: `qdrant/qdrant@sha256:...` in production compose file
+- Pre-pull new image before stopping old container to minimize downtime
+
+---
 
 ## Version Compatibility
 
 | Package | Compatible With | Notes |
-|---------|------------------|-------|
-| `kysely@^0.28.16` | Postgres 17-alpine, `kysely-codegen@^0.20.0` | No version bump required; a nullable INTEGER FK column is fully within current codegen support (identical shape to `departments.business_id`, already codegen'd successfully). |
-| Sidecar `web/` React 18.x | Existing `crmApi` client (`web/src/lib/crm.ts`) | No compatibility risk — `crmApi.listBusinesses()` is already exercised in production by `BusinessesPage.tsx`; the new hook just wraps the same call for read-only consumers. |
+|---------|-----------------|-------|
+| JetPack 6.2 (L4T r36.4) | Ollama 0.18.x+, CUDA 12.x | JetPack 6.2 introduced "Super Mode" which unlocks full 40 TOPS on Orin Nano Super — requires JetPack 6.2 specifically, not 6.0/6.1 |
+| Docker 28.0.1 | nvidia-container-toolkit 1.17.x | Docker 28.0.0 was broken on Jetson; 28.0.1 fixed it. Always verify with `docker run --rm --runtime nvidia nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi` |
+| n8n 2.x | Postgres 13+ | n8n 2.0 dropped support for SQLite in multi-user mode; use Postgres 17 |
+| n8n 2.x | Node.js 20+ (inside container) | n8n's Docker image ships its own Node.js; no host Node.js needed |
+| Qdrant 1.17.x | `@qdrant/js-client-rest` ^1.11 | The JS client REST version should match the server major version; 1.17 server is API-compatible with 1.11 client |
+| Qwen3-4B (Q4_K_M) | Ollama 0.6.0+ | Qwen3 family requires Ollama 0.6.0+ for proper tokenizer support; 0.18.x is well above this floor |
+| nomic-embed-text:v1.5 | Ollama 0.1.26+ | Requires Ollama 0.1.26 per official library page |
+| React 18 | Node.js 18+ (build time) | React 18 concurrent features require Node.js 18+; build happens on dev machine or CI, not on Jetson |
+| Tailwind CSS v4 | Vite 6.x | Tailwind v4 requires Vite 6+ via the `@tailwindcss/vite` plugin (replaces PostCSS config) |
+
+---
+
+## Memory Budget (8GB Unified VRAM)
+
+| Component | Typical Footprint | Notes |
+|-----------|------------------|-------|
+| Ubuntu 22.04 + JetPack 6.2 OS | ~1.5 GB | Baseline with Docker daemon running |
+| Ollama daemon (no model loaded) | ~150 MB | |
+| Qwen3-4B Q4_K_M (loaded) | ~2.7 GB | Stays loaded while processing emails |
+| nomic-embed-text:v1.5 (loaded) | ~350 MB | May unload between RAG operations; Ollama LRU cache |
+| Qdrant | ~200-400 MB | Depends on vector count; 10K emails ≈ 100MB index |
+| n8n | ~300 MB | Node.js process; 2.x is more memory efficient than 1.x |
+| Postgres | ~100 MB | Small operational DB; not analytics |
+| Dashboard (nginx + Express) | ~100 MB | Static files via nginx + Express API |
+| **Total estimate** | **~5.7 GB** | **~2.3 GB headroom for bursts and OS cache** |
+
+This budget is comfortable. Both models can remain loaded simultaneously. Do not attempt to run 7B+ models in v1 — headroom collapses.
+
+---
 
 ## Sources
 
-- Direct code inspection (HIGH confidence — primary source, not inferred):
-  - `dashboard/migrations/033-add-account-id-multi-account-v1-2026-05-28.sql` — `mailbox.accounts` schema + seeding
-  - `dashboard/migrations/037-...`, `040-...`, `046-...` — `accounts.provider`, `provider_config`, `provider_secret_enc`, provider CHECK broadening
-  - `dashboard/migrations/052-create-crm-tables-v1-2026-06-04.sql`, `053-crm-businesses-v1-2026-06-05.sql` — CRM table shapes, the `departments.business_id` precedent
-  - `dashboard/lib/queries-accounts.ts` — `createAccount`, `createImapAccount`, `getDefaultAccountId`, `resolveIngestAccountId`
-  - `dashboard/lib/oauth/google.ts` — `saveToken`, `buildConsentUrl`, `verifyState`, provider list including `google_gmail`
-  - `dashboard/app/api/oauth/google/callback/route.ts`, `dashboard/app/api/oauth/google/[provider]/connect/route.ts` — the actual authorize/callback flow
-  - `dashboard/app/api/accounts/route.ts` — `POST /api/accounts` registry-only connect flow
-  - `dashboard/lib/crm/queries.ts` — `createBusiness`, `Business`/`Department` types
-  - `dashboard/lib/db/schema.ts` — confirms `accounts`, `businesses`, `departments` all present in the generated Kysely `DB` type
-  - `agentbox-sidecar/web/src/lib/entities.ts`, `agentbox-sidecar/web/src/lib/crm.ts` — the hardcoded list vs. the already-wired CRM client
-  - `agentbox-sidecar/web/src/pages/{CronPage,DailyBriefPage}.tsx`, `web/src/components/ProposalsView.tsx` — confirmed `ENTITY_OPTIONS` consumers via grep
-  - `agentbox-sidecar/src/agentbox_sidecar/features/digest.py` — gbrain entity axis source (env/`entities.json`)
-  - Root `CLAUDE.md` and `dashboard/CLAUDE.md` — live version pins (Kysely ^0.28.16, `pg` ^8.13.1, zod ^4.4.1, Next 14.2.35, Tailwind v4)
+- [Jetson AI Lab — Ollama Tutorial](https://www.jetson-ai-lab.com/tutorials/ollama/) — GPU Docker setup for JetPack
+- [JetsonHacks — Docker Setup on JetPack 6](https://jetsonhacks.com/2025/02/24/docker-setup-on-jetpack-6-jetson-orin/) — Docker 28.0.1 Jetson gotcha
+- [Cytron — Docker Setup for Jetson Orin Nano Super JP6.2](https://www.cytron.io/tutorial/docker-setup-for-jetson-orin-nano-super-jp6.2) — install_nvidia_docker.sh walkthrough
+- [Ollama GitHub Releases](https://github.com/ollama/ollama/releases) — v0.18.4 latest stable confirmed 2026-03-26
+- [Qdrant GitHub Releases](https://github.com/qdrant/qdrant/releases) — v1.17.1 latest stable confirmed 2026-03-27
+- [Qdrant ARM64 jemalloc issue #4298](https://github.com/qdrant/qdrant/issues/4298) — open as of Nov 2025; workarounds documented
+- [n8n Release Notes](https://docs.n8n.io/release-notes/) — 2.14.2 current stable (March 2026)
+- [n8n Docker Hub](https://hub.docker.com/r/n8nio/n8n) — `latest-arm64` tag confirmed
+- [n8n Ollama Integration](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.lmollama/) — built-in Ollama Model node
+- [n8n Anthropic Chat Model node](https://n8n.io/integrations/anthropic/) — Claude integration confirmed
+- [Ollama — nomic-embed-text](https://ollama.com/library/nomic-embed-text:v1.5) — 274MB, requires Ollama 0.1.26+
+- [Qwen3-4B GGUF on Hugging Face](https://huggingface.co/Qwen/Qwen3-4B-GGUF) — Q4_K_M quantization variants confirmed
+- [Distil Labs — Best Base Model for Fine-Tuning Benchmark](https://www.distillabs.ai/blog/we-benchmarked-12-small-language-models-across-8-tasks-to-find-the-best-base-model-for-fine-tuning/) — Qwen3-4B classification superiority
+- [Anthropic Models Overview](https://platform.claude.com/docs/en/about-claude/models/overview) — claude-haiku-4-5-20251001 model ID
+- [Jeremy Morgan — Jetson Orin Nano Speed Test](https://www.jeremymorgan.com/blog/tech/nvidia-jetson-orin-nano-speed-test/) — ~20 tok/s for 3.5B models
+- [NVIDIA JetPack 6.2 Super Mode Blog](https://developer.nvidia.com/blog/nvidia-jetpack-6-2-brings-super-mode-to-nvidia-jetson-orin-nano-and-jetson-orin-nx-modules/) — 2x inference boost confirmed for JetPack 6.2 vs 6.1
+- [nomic-embed-text-v2-moe release](https://simonwillison.net/2025/Feb/12/nomic-embed-text-v2/) — 475M params MoE analysis
+- postgres:17-alpine — [Docker Hub official image](https://hub.docker.com/_/postgres) — multi-arch ARM64 confirmed
 
 ---
-*Stack research for: MailBox One / AgentBOX fork — "Unified Entities" milestone*
-*Researched: 2026-07-11*
+*Stack research for: MailBox One — AI email agent appliance on Jetson Orin Nano Super*
+*Researched: 2026-04-02*

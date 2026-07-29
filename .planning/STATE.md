@@ -1,20 +1,18 @@
 ---
 gsd_state_version: 1.0
-milestone: M5
-milestone_name: Unified Entities (AgentBOX)
-current_phase: 05
-current_phase_name: Backend Data Model & Auto-Create
-status: verifying
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-07-28T21:25:41.768Z"
-last_activity: 2026-07-28
-last_activity_desc: Phase 05 execution started
+milestone: M3
+milestone_name: customer #2 onboarded
+milestone_axis_note: "Linear-aligned M-axis. M1 reference build (Phase 1 + first-pass 02-02/03/04/07) — DELIVERED. M2 2nd-appliance readiness — DELIVERED 2026-05-05 (mailbox2 live at mailbox.staqs.io). M3 customer #2 onboarded (current focus — install automation polish + 02-08 onboarding wizard finish). M4 Phase 2 RAG + edit-to-skill — partial (RAG STAQPRO-188-220 + persona STAQPRO-149-195 shipped; auto-send + notif + OTA still Phase 3). See ROADMAP.md crosswalk for M ↔ Phase mapping."
+status: M2 DELIVERED 2026-05-05 (mailbox.staqs.io live for customer #2). Phase 2 substance shipped via Linear in lean execution — 02-05 RAG, 02-06 persona, 02-07 drafting all closed with retroactive SUMMARYs (commit bea2405). 02-08 onboarding wizard remains the open Phase 2 plan; install automation v0.1 drafted (docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md).
+stopped_at: "M2 install automation Phase 13 OAuth flow + classify $json.response/thinking parser fix (commits aca5455, 0c857e2). Recent: op-sync-from-env.py for 1Password (c50f77a), dashboard nav prefix fix (436a5b4), n8n+caddy SPA path exemption + telemetry disable (9c64e8a). Active workstream: customer-#2 install automation polish + 02-08 onboarding wizard finish."
+last_updated: "2026-05-07T19:00:00.000Z"
 progress:
-  total_phases: 8
+  total_phases: 4
   completed_phases: 1
-  total_plans: 23
-  completed_plans: 13
-  percent: 13
+  total_plans: 11
+  completed_plans: 10
+  percent: 91
+  count_note: "Phase 1 = 3/3 done. Phase 2 = 7 of 8 plan slots done. Slots: 02-01 SUPERSEDED (counted as resolved), 02-02 done, 02-03 done, 02-04 done (split a/b), 02-05 done (retroactive SUMMARY), 02-06 done (retroactive SUMMARY), 02-07 done (retroactive SUMMARY closing post-PLAN-promotion shipping wave), 02-08 partial (onboarding wizard scaffolded via STAQPRO-152 + KB nudge UI via STAQPRO-235; install-automation polish in flight). Phase 3 and Phase 4 plan counts are TBD until those phases plan out."
 ---
 
 # Project State
@@ -27,56 +25,36 @@ See: prd-email-agent-appliance.md (canonical PRD)
 
 **Core value:** Inbound operational email for small CPG brands gets triaged, drafted, and (with human approval) sent — without the founder spending 1-3 hours/day on email.
 
-**Current focus:** Phase 05 — Backend Data Model & Auto-Create
+**Current focus:** M3 customer-#2 polish — Jetson install automation (`docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md`) + 02-08 onboarding wizard finish. Phase 2 drafting + RAG + persona substance shipped via Linear; only 02-08 remains open in the GSD ledger.
 
 ## Current Position
 
-Phase: 05 (Backend Data Model & Auto-Create) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-28 — Phase 05 execution started
-
-## Milestone M5 Roadmap (created 2026-07-20)
-
-Four phases, strictly ordered, spanning two repos with independent deploy pipelines:
-
-| Phase | Repo | Requirements | Hard dependency |
-|-------|------|--------------|------------------|
-| 5. Backend Data Model & Auto-Create | mailbox | ENT-01/02/03/05, MAP-01/04, FILT-05 | none (first M5 phase) |
-| 6. CRM Accounts API & Management | mailbox | ENT-04, MANAGE-01/02/03, MAP-02/03 | Phase 5 |
-| 7. Sidecar Filter Unification | agentbox-sidecar (TS/React) | FILT-01/02/03/04/06 | Phase 5 deployed + verified live (slug seed) |
-| 8. gbrain Digest Bridge | agentbox-sidecar (Python) | DIGEST-01 | Phase 6 (stable business list) |
-
-Two open research flags carried into discuss-phase (per `research/SUMMARY.md`):
-
-- **Phase 5**: auto-create hook-point discrepancy (OAuth callback + 2 call sites vs. `createAccount`/`createImapAccount`/`createMicrosoftAccount` only) — resolve before planning.
-- **Phase 8**: gbrain sync-trigger design (startup vs. interval vs. CRM-mutation webhook) — needs its own scoped research/discuss pass.
-
-Cross-repo deploy rule (both Phase 7 and Phase 8 depend on this): `mailbox` and `agentbox-sidecar` deploy independently (`docker compose` on Jetson vs. `rsync`+`systemd` on a different host) with no shared CI — always confirm mailbox is live and verified before shipping the corresponding sidecar build.
+Phase: 02 (email-pipeline-core) — substantively complete; 02-08 onboarding wizard remains the open plan slot.
+Plans complete: 02-02 v2 (schema), 02-03 (ingestion), 02-04 (classification, split a+b), 02-05 (RAG, retroactive SUMMARY 2026-05-07), 02-06 (persona, retroactive SUMMARY 2026-05-07), 02-07 (drafting + send, retroactive SUMMARY 2026-05-07 closing post-PLAN-promotion shipping wave). 02-01 SUPERSEDED (architectural pivot, counted as resolved).
+Plans open: 02-08 (onboarding wizard + queue API) — partial. Wizard scaffold landed via STAQPRO-152 (quick task `260502-rk0`); KB nudge UI via STAQPRO-235; install-automation polish in flight via `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md`. Stub `02-08-PLAN-v2-2026-04-27-STUB.md` is still authoritative architectural spec; full PLAN promotion may or may not be needed depending on whether the install plan + Linear tickets are deemed sufficient closure.
+Cross-plan decisions: 27 captured (D-25..D-52) — D-25..D-49 in `02-CONTEXT-ADDENDUM-v2-2026-04-27.md`, D-50 in 02-04b SUMMARY v2, D-51 (Pub/Sub revert) in addendum, D-52 (cloud vendor: Ollama Cloud `gpt-oss:120b` default) closed by STAQPRO-156 + 02-07 SUMMARY.
 
 ## Completed Work
 
 ### Phase 1: Infrastructure Foundation ✓
-
 - 01-01: Docker Compose stack (Postgres, Ollama, Qdrant, n8n, Caddy, dashboard)
 - 01-02: First-boot checkpoint script for Jetson bring-up
 - 01-03: Smoke test script (6/6 passing as of 2026-04-26)
 - Smoke test verified deploy at `https://mailbox.heronlabsinc.com/`
 
 ### Phase 1 Dashboard Sub-Project ✓ (parallel build, 2026-04-25)
-
 A self-contained 8-phase build delivered the human-in-the-loop approval queue. See `dashboard/.planning/` for the complete spec, build log, and T2 validation addendum. Result: working Next.js 14 full-stack dashboard at `https://mailbox.heronlabsinc.com/dashboard/queue` with API routes for list/get/approve/reject/edit/retry.
 
 ### Phase 2 Plan 02-02 (v2): Schema Foundation ✓ (2026-04-27)
-
 - 6 forward-only SQL migrations applied to live Jetson Postgres via new `dashboard/migrations/runner.ts`
 - New tables: `mailbox.classification_log`, `sent_history`, `rejected_history`, `persona`, `onboarding` (seeded `pending_admin`)
 - `mailbox.drafts` evolved to D-17 queue-record shape (denormalized email fields, classification fields, RAG refs, `awaiting_cloud` status, `approved_at`/`sent_at`)
 - `dashboard/lib/types.ts` extended with Phase 2 interfaces; `lib/queries-onboarding.ts` and `lib/queries-persona.ts` created (typecheck passes)
 - See: `.planning/phases/02-email-pipeline-core/02-02-schema-foundation-SUMMARY.md`
 
-### Phase 2 Stubs ✓ (2026-04-27)
 
+
+### Phase 2 Stubs ✓ (2026-04-27)
 All remaining Phase 2 plans (02-03 through 02-08) re-scoped against the Next.js + n8n architecture as v2 stubs. Stubs capture changes-from-v1, cross-plan decisions, dependencies on adjacent plans, and a tasks-outline. Stubs are NOT executable — they're authoritative spec at the architectural level, deferring full task breakdown until execution time.
 
 - 02-03 (IMAP ingestion + watchdog): 180 lines, decisions D-25..D-28
@@ -88,8 +66,9 @@ All remaining Phase 2 plans (02-03 through 02-08) re-scoped against the Next.js 
 
 Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT-ADDENDUM-v2-2026-04-27.md` (continuation of 02-CONTEXT.md's D-NN numbering).
 
-### Phase 2 Plan 02-03: Partial — Schema migration + Ingestion workflow updated (2026-04-28)
 
+
+### Phase 2 Plan 02-03: Partial — Schema migration + Ingestion workflow updated (2026-04-28)
 - Migration 007 (in_reply_to + references columns on inbox_messages) applied to live Jetson Postgres
 - MailBOX n8n workflow updated:
   - Filter changed from `label:MailBOX-Test` to `in:inbox`
@@ -101,7 +80,6 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - End-to-end validated: reply email at id=909 has both `in_reply_to` and `references` populated
 
 ### Phase 2 Plan 02-04a: Partial — MAIL-05 classifier + classify sub-workflow + live-gate stub (2026-04-29)
-
 - Dashboard `lib/classification/{prompt,normalize}.ts` with 8-category MAIL-05 taxonomy + `<think>` strip + hard fallback to `unknown` (D-05/D-06/D-07)
 - Three internal API endpoints under `/dashboard/api/`:
   - `POST internal/classification-prompt` — D-29 source of truth (deviation: POST not GET because body too large for query string)
@@ -115,7 +93,6 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - See: `.planning/phases/02-email-pipeline-core/02-04a-classification-routing-SUMMARY-v1-2026-04-29.md`
 
 ### Phase 2 Plan 02-04b: Complete — D-50 + MAIL-08 gate PASS (2026-04-30)
-
 - v1 shipped corpus + scoring infrastructure (635-row labeled corpus, route-based scoring engine, n=82 stratified sample)
 - v2 closed out **D-50 (operator-identity preclass)** — `dashboard/lib/classification/preclass.ts` with `OPERATOR_DOMAINS` / `OPERATOR_ALLOWLIST` / `OPERATOR_INBOX_EXCEPTIONS` env config, post-LLM override in `normalize.ts`, `from_addr`+`to_addr` plumbed through n8n classify sub
 - Sales-inbox exception (`sales@heronlabsinc.com`) added after post-D50 scoring caught a forced-internal regression on a prospect inquiry
@@ -131,7 +108,6 @@ Cross-plan decisions live in `.planning/phases/02-email-pipeline-core/02-CONTEXT
 - See: `.planning/phases/02-email-pipeline-core/02-04b-classification-corpus-scoring-SUMMARY-v2-2026-04-30.md`
 
 ### Known issues / parked
-
 - 02-04a: end-to-end classify chain awaits first inbound email (no new emails since deploy; verify by checking `mailbox.classification_log` after schedule fires)
 - 02-04a: legacy `MailBOX-Drafts` workflow (NIM-based) — RESOLVED 2026-04-30/05-01 via STAQPRO-156. Workflow exported to `n8n/workflows/legacy/MailBOX-Drafts-NIM.json` (commit bf288b0 on origin) and deactivated in n8n. New MailBOX-Draft chain from 02-07 is now the active drafting path.
 - 02-03 carry-forward: schedule trigger 1-min bug — RESOLVED in 02-04a (`minutesInterval: 5`)
@@ -193,19 +169,16 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 **Decision:** Adopt Next.js 14 full-stack as the dashboard architecture. Reject the Express backend + separate React/Vite UI design originally scoped in 02-01.
 
 **Context:** Two parallel implementations existed at 2026-04-27 reconciliation:
-
 - Ubuntu workstation (`.planning/`) had drafted 02-01 as an Express backend with Drizzle ORM, Anthropic SDK, and Qdrant client (Node 22 ESM). Never deployed.
 - Jetson appliance had a working Next.js 14 dashboard with `app/api/` routes, pg driver, Node 20 alpine multi-stage build. Live and serving traffic.
 
 **Decision rationale:**
-
 - The Next.js dashboard is already deployed, healthy, and passing smoke tests
 - Single-service architecture reduces appliance footprint (one container instead of two)
 - API routes inside the same Next.js app eliminate the dashboard ↔ backend network hop
 - Phase 2 dependencies (Anthropic SDK, Qdrant client, Drizzle ORM) work fine inside Next.js API routes
 
 **Consequence for Phase 2:**
-
 - 02-01 (dashboard-backend-bootstrap): SUPERSEDED with frontmatter marker on 2026-04-27.
 - 02-02 (schema foundation): RE-SCOPED as v2 plan and EXECUTED on 2026-04-27 (6 SQL migrations applied to live Postgres + types/queries shipped).
 - 02-03..08: RE-SCOPED as v2 stubs on 2026-04-27. Stubs are authoritative for architectural decisions; ready for either stub-promotion-to-full-plan or lean-execution.
@@ -218,13 +191,11 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 **Decision:** Adopt Kysely (TypeScript SQL query builder) as the dashboard's typed query surface. Supersedes the "Drizzle as MVP target" half of the 2026-04-27 Dashboard Stack Pivot ADR. Rejects both Drizzle and Prisma.
 
 **Context:**
-
 - 2026-04-27 ADR named Drizzle as the eventual ORM but kept raw `pg` for MVP. Drizzle was never adopted; production code is `pg.Pool` + hand-rolled SQL in `dashboard/lib/queries*.ts` + plain `.sql` migrations under `dashboard/migrations/NNN-*.sql`.
 - 2026-04-30 Isa code audit recommended Prisma. STAQPRO-136 was reopened 2026-05-01 with a substance reassessment that initially leaned Prisma (portfolio consistency with formul8-platform).
 - 2026-05-01 pre-flight review by Liotta + Linus (Neo skill unreachable in this session) flipped the decision. Both reviewers — independently — argued against Prisma on this appliance.
 
 **Decision rationale:**
-
 - **Migration tooling fight (Linus blocker)**: Prisma's `migrate resolve --applied` over the existing 8 hand-authored `.sql` migrations creates a hybrid state that breaks the moment anyone runs `migrate dev` (checksum mismatch on Prisma-not-authored files). Kysely doesn't own migrations; the custom tsx runner stays.
 - **Type cascade (Linus blocker)**: `dashboard/lib/db.ts` overrides pg type parsers 1184/1114 to return TIMESTAMPTZ/TIMESTAMP as strings. Prisma's generated client emits `Date`. That contradicts 14 zod schemas already shipped under STAQPRO-138. Kysely codegen (with `--type-mapping '{"timestamp":"string","timestamptz":"string","date":"string"}'`) preserves the string convention; existing zod schemas continue to compose correctly.
 - **Schema introspection scope (Linus blocker)**: The same Postgres also hosts n8n's `workflow_entity` / `execution_entity` / `execution_data` (in the `public` schema). Kysely's `--include-pattern 'mailbox.*'` is one flag; Prisma requires `previewFeatures = ["multiSchema"]` plus `schemas = ["mailbox"]` plus careful `--schema` flagging on every operation forever.
@@ -233,7 +204,6 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 - **Portfolio consistency (rejected as a decision driver)**: Initial reasoning leaned Prisma because formul8-platform runs Prisma. Eric's read 2026-05-01: portfolio consistency does not outweigh hardware-fit on a constrained appliance. Different problems, different tools.
 
 **Consequence:**
-
 - `dashboard/lib/db.ts` exposes `getKysely()` returning `Kysely<DB>` alongside `getPool()`. Both share the same `pg.Pool`.
 - `dashboard/lib/db/schema.ts` is the kysely-codegen output — full DB row shapes for the `mailbox` schema. Re-exported as `DraftRow`, `InboxMessageRow`, etc. from `lib/types.ts`.
 - `dashboard/lib/types.ts` retains the *semantic* SoT (DRAFT_STATUSES/DRAFT_SOURCES const tuples, ClassificationCategory/OnboardingStage unions) and *curated views* (Draft, InboxMessage, etc — narrower than full row, the dashboard's consumer surface).
@@ -246,19 +216,13 @@ MailBOX-Classify; fresh-install gotcha captured in memory
 
 ## Next Action
 
-### M5 — Unified Entities (AgentBOX fork): Phase 5 next
-
-ROADMAP.md now defines Phases 5-8 for M5 (see "Milestone M5 Roadmap" above). Phase 5 (Backend Data Model & Auto-Create, `mailbox` repo) is next up: run `/gsd-discuss-phase 5` to resolve the two open research flags (auto-create hook-point discrepancy; IMAP/Microsoft parity confirmation) before `/gsd-plan-phase 5`. Phases 6-8 are sequenced strictly after (6 depends on 5; 7 hard-depends on 5's slug seed being deployed+verified; 8 depends on 6).
-
-### M3 — Heron customer-#2 polish (parallel track, Heron Labs product line)
-
 **Single track now: M3 customer-#2 polish.** The M2 dual-track structure
 (02-07 finish + parallel security track) is closed. M2 shipped on 2026-05-05;
 the security track delivered (STAQPRO-130 ports, 131 basic_auth — both live in
 Caddy on both appliances). Phase 2's drafting/RAG/persona substance shipped via
 Linear with retroactive SUMMARYs (2026-05-07).
 
-#### Open Phase 2 work — 02-08 onboarding wizard
+### Open Phase 2 work — 02-08 onboarding wizard
 
 The onboarding wizard remains the open Phase 2 plan. State:
 
@@ -270,37 +234,18 @@ The onboarding wizard remains the open Phase 2 plan. State:
 
 Decision still open: do we promote `02-08-PLAN-v2-2026-04-27-STUB.md` to a full PLAN, or is the install-automation plan + Linear ticket trail sufficient closure for this slot? Lean-execution precedent says the latter is fine; formal-closure precedent (the way 02-07 was promoted) says the former. Defer until the wizard work resumes.
 
-#### Resume sequence
+### Resume sequence
 
 1. Continue M3 install automation: post-install follow-ups for v0.2 (`memory/project_post_install_followups.md` — front-matter `git pull`, stale nested `mailbox/` cleanup, STAQPRO-228 scope drift).
 2. Finish wizard wiring against the live-gate boundary; ship through the customer-#2 success-criteria runbook.
 3. When 02-08 closes, decide Phase 2 → Phase 3 transition (graduated auto-send, classification correction, OTA updates, email notifications — see ROADMAP.md).
 
-Resume file: .planning/phases/05-backend-data-model-auto-create/05-02-PLAN.md
+Resume file: `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` (live install plan) plus `.planning/phases/02-email-pipeline-core/02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` (architectural intent).
 
 ## Session Continuity
 
-Last session: 2026-07-28T21:25:06.395Z
-Stopped at: Completed 05-01-PLAN.md
-Prior session: 2026-05-07T19:00:00Z — GSD ↔ Linear reconciliation complete for the Heron product track; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07.
-Last commits (Heron track, prior session): 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
+Last session: 2026-05-07T19:00:00Z (this reconciliation pass)
+Stopped at: GSD ↔ Linear reconciliation complete — STATE.md + ROADMAP.md aligned with shipped work; retroactive SUMMARYs written for 02-05 / 02-06 / 02-07. Active workstream is M3 install automation polish + 02-08 onboarding wizard finish. Working tree clean.
+Last commits: 7dfd1b4 (install plan v0.1 + bootstrap-ssh), 89c660b (jetson → mailbox1 SSH alias rename), 942f06d (gitignore /mailbox/ USB payload), bea2405 (retroactive SUMMARYs for 02-05/06/07).
 Prior session ground-truth commits: c50f77a (op-sync-from-env.py for 1Password), 436a5b4 (dashboard nav prefix fix), aca5455 (install session 2 log — Phase 13 OAuth), 0c857e2 (classify $json.response/thinking parser fix).
-Resume file (M5): none yet — Phase 5 discuss-phase/plan-phase not yet started.
-Resume file (M3, parallel track): `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` for install automation; `02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` for wizard architectural intent.
-
-## Performance Metrics
-
-| Phase | Plan | Duration | Notes |
-|-------|------|----------|-------|
-| Phase 05 P01 | 55min | 3 tasks | 5 files |
-| Phase 05 P02 | 50min | 3 tasks | 3 files |
-| Phase 05-backend-data-model-auto-create P03 | 70min | 3 tasks | 4 files |
-
-## Decisions
-
-- [Phase 05]: Docker was available — took the real npm run db:codegen path, not the hand-stub fallback (05-01)
-- [Phase 05]: Codegen regeneration incidentally fixed pre-existing lib/db/schema.ts drift (job_outcomes table was entirely missing) since CI never runs db:codegen:verify (05-01)
-- [Phase 05]: D-16 resolution order implemented as fixed sequential branch (sentinel skip -> free-mail gate -> sibling-domain attach -> find-or-create by name) in one auto-link.ts entry point, never scattered across callers (05-02)
-- [Phase 05]: Split the single logical auto-link.ts module into three additive per-task commits to preserve atomic history despite natural file overlap across the plan's three tasks (05-02)
-- [Phase ?]: Auto-link seam test ordering: default account row is moved off the migration-033 sentinel address once in beforeAll (not restored per-test in afterEach), so insert-branch coverage is order-independent regardless of test execution order
-- [Phase ?]: business-link-backfill.ts shares lib/db.ts's getPool() singleton rather than instantiating its own Pool, since it also calls into lib/crm/auto-link.ts which uses that same pool internally
+Resume file: `docs/plan-jetson-02-install-automation-v0_1-2026-05-04.md` for install automation; `02-08-onboarding-wizard-and-queue-api-PLAN-v2-2026-04-27-STUB.md` for wizard architectural intent.
